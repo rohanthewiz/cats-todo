@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rohanthewiz/cats/internal/app"
-	"github.com/rohanthewiz/cats/internal/integration"
+	"github.com/rohanthewiz/cats-todo/internal/app"
+	"github.com/rohanthewiz/cats-todo/internal/integration"
 )
 
 // TestGatherRunContextWithoutClient pins the degraded launch: with no control
@@ -46,10 +46,20 @@ func TestGatherRunContextWithoutClient(t *testing.T) {
 	})
 
 	t.Run("resolves the project root above the cwd", func(t *testing.T) {
-		// This test file lives in the cats repo, so the walk from the test's cwd
-		// (cmd/cats-todo) must land on an ancestor holding the repo's markers —
-		// never the cwd itself. That is precisely the subdirectory case that used
-		// to scope the manager to the wrong backlog.
+		// Run from a subdirectory of a marker-bearing repo: the walk must land
+		// on the ancestor holding the .git marker — never the cwd itself. That
+		// is precisely the subdirectory case that used to scope the manager to
+		// the wrong backlog. A synthetic repo (rather than this package's own
+		// checkout) keeps the test independent of where the module is cloned:
+		// the package dir is now itself a repo root, so the real checkout no
+		// longer exercises the ancestor case.
+		root := t.TempDir()
+		mkdir(t, filepath.Join(root, ".git"))
+		sub := filepath.Join(root, "cmd", "deep")
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(sub)
 		t.Setenv(integration.CatsPaneIDEnvVar, "")
 		ctx := gatherRunContext(nil)
 		if ctx.ProjectRoot == "" {

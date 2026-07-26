@@ -3,9 +3,9 @@
 // session — an existing agent pane or a freshly launched one — either staged
 // for review or submitted to run.
 //
-// It is the cats port of herdr-todo (github.com/rohanthewiz/herdr-todo), which
-// ran as a herdr plugin; cats has no plugin host, so cats-todo is a standalone
-// TUI you run directly in any cats shell pane:
+// It is the cats port of herdr-todo (github.com/rohanthewiz/herdr-todo). It
+// runs as a cats plugin (`catctl plugin run rohanthewiz.cats-todo`) or as a
+// standalone TUI directly in any cats shell pane:
 //
 //	cats-todo                     open the manager in this pane
 //	cats-todo add [-g] [-t] ...   quick-capture a prompt without the manager

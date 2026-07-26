@@ -1,0 +1,701 @@
+package app
+
+import (
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// This file is the protocol-neutral §7 command vocabulary: the command names,
+// their parameter/result structs, and the small string→enum mappings the
+// dispatcher needs. It is a client-side copy of cats' internal/app
+// command_vocab.go (github.com/rohanthewiz/cats), minus the server-only
+// SplitDirection/NavDirection mappers that would drag in cats' layout engine —
+// cats-todo only speaks the wire vocabulary, it never applies layout. Keep this
+// file in lockstep with the cats original when the protocol grows; the wire
+// values themselves are the compatibility contract.
+
+// Command names (§7): the control-API vocabulary. The dispatcher implements one
+// command table serving both this protocol and the CLI/API.
+const (
+	CmdPaneSplit          = "pane.split"
+	CmdPaneClose          = "pane.close"
+	CmdPaneFocus          = "pane.focus"
+	CmdPaneFocusDirection = "pane.focus_direction"
+	CmdPaneCycle          = "pane.cycle"
+	CmdPaneLast           = "pane.last"
+	CmdPaneSwap           = "pane.swap"
+	CmdPaneSwapWith       = "pane.swap_with"
+	CmdPaneZoom           = "pane.zoom"
+	CmdPaneRename         = "pane.rename"
+	CmdPaneResizeBorder   = "pane.resize_border"
+	CmdScroll             = "scroll"
+	CmdRead               = "read"
+	CmdCapture            = "capture"
+	CmdWaitForOutput      = "pane.wait_for_output"
+	CmdPaneSendInput      = "pane.send_input"
+	CmdTabCreate          = "tab.create"
+	CmdTabClose           = "tab.close"
+	CmdTabFocus           = "tab.focus"
+	CmdTabRename          = "tab.rename"
+	CmdTabMove            = "tab.move"
+	CmdWorkspaceCreate    = "workspace.create"
+	CmdWorkspaceClose     = "workspace.close"
+	CmdWorkspaceFocus     = "workspace.focus"
+	CmdWorkspaceRename    = "workspace.rename"
+	CmdWorkspaceMove      = "workspace.move"
+	CmdAgentFocus         = "agent.focus"
+	CmdServerReloadConfig = "server.reload_config"
+	CmdServerStop         = "server.stop"
+
+	// Git-worktree commands (WS8 dialogs): list/create/open/remove checkouts
+	// anchored on a pane's repo. The git work runs off-loop (Backend Start*).
+	CmdWorktreeList   = "worktree.list"
+	CmdWorktreeCreate = "worktree.create"
+	CmdWorktreeOpen   = "worktree.open"
+	CmdWorktreeRemove = "worktree.remove"
+
+	// Config commands (settings modal): read the live configuration and persist
+	// the live-appliable sections (theme, copy-mode keys).
+	CmdConfigGet = "config.get"
+	CmdConfigSet = "config.set"
+
+	// Plugin commands (plugins dialog): enumerate and remove installed plugins.
+	// Deliberately only the instant verbs — install/update shell out to git and
+	// a build, whose output a caller wants to *watch*, so the dialog launches
+	// those as `catctl plugin …` in a fresh tab (tab.create spawn params) rather
+	// than hiding minutes of subprocess work behind a single cmd_result.
+	CmdPluginList      = "plugin.list"
+	CmdPluginUninstall = "plugin.uninstall"
+
+	// Read-only query commands (§7): they return a snapshot of session state
+	// and mutate nothing, so the dispatcher answers them straight from the
+	// Session with no Backend effects.
+	CmdSessionGet    = "session.get"
+	CmdWorkspaceList = "workspace.list"
+	CmdTabList       = "tab.list"
+	CmdPaneList      = "pane.list"
+	CmdPaneGet       = "pane.get"
+)
+
+// CommandNames returns every §7 command name Dispatcher.Dispatch accepts, in a
+// stable order. Front-ends enumerate/validate the vocabulary against it — a CLI's
+// help text, a control-API client — without re-listing the commands. Keep it in
+// sync with the Dispatch switch; TestCommandNamesAllRouted guards against drift.
+func CommandNames() []string {
+	return []string{
+		CmdPaneSplit, CmdPaneClose, CmdPaneFocus, CmdPaneFocusDirection,
+		CmdPaneCycle, CmdPaneLast, CmdPaneSwap, CmdPaneSwapWith, CmdPaneZoom, CmdPaneRename,
+		CmdPaneResizeBorder, CmdScroll, CmdRead, CmdCapture, CmdWaitForOutput,
+		CmdPaneSendInput,
+		CmdTabCreate, CmdTabClose, CmdTabFocus, CmdTabRename, CmdTabMove,
+		CmdWorkspaceCreate, CmdWorkspaceClose, CmdWorkspaceFocus, CmdWorkspaceRename,
+		CmdWorkspaceMove,
+		CmdAgentFocus, CmdServerReloadConfig, CmdServerStop,
+		CmdWorktreeList, CmdWorktreeCreate, CmdWorktreeOpen, CmdWorktreeRemove,
+		CmdConfigGet, CmdConfigSet,
+		CmdPluginList, CmdPluginUninstall,
+		CmdSessionGet, CmdWorkspaceList, CmdTabList, CmdPaneList, CmdPaneGet,
+	}
+}
+
+// Split direction wire values (pane.split).
+const (
+	SplitH = "h" // side-by-side (layout.Horizontal)
+	SplitV = "v" // top/bottom (layout.Vertical)
+)
+
+// Cardinal direction wire values (pane.focus_direction, pane.swap).
+const (
+	DirLeft  = "left"
+	DirRight = "right"
+	DirUp    = "up"
+	DirDown  = "down"
+)
+
+// BorderPath decodes a border id ("r" + one '0'/'1' per split step, e.g. "r01",
+// produced by browserproto.BorderID) back into a split path for
+// layout.TileLayout.SetRatioAt. Reports false for malformed ids. The "r01"
+// format is a contract shared with browserproto's BuildLayout emitter.
+func BorderPath(id string) ([]bool, bool) {
+	if len(id) == 0 || id[0] != 'r' {
+		return nil, false
+	}
+	path := make([]bool, 0, len(id)-1)
+	for _, c := range id[1:] {
+		switch c {
+		case '0':
+			path = append(path, false)
+		case '1':
+			path = append(path, true)
+		default:
+			return nil, false
+		}
+	}
+	return path, true
+}
+
+// SplitParams: pane.split. Pane nil = the focused pane.
+type SplitParams struct {
+	Pane      *uint32 `json:"pane,omitempty"`
+	Direction string  `json:"direction"` // SplitH | SplitV
+}
+
+// PaneParams: pane.focus, agent.focus — commands addressing a specific pane.
+type PaneParams struct {
+	Pane uint32 `json:"pane"`
+}
+
+// OptPaneParams: pane.close, pane.zoom. Pane nil = the focused pane.
+type OptPaneParams struct {
+	Pane *uint32 `json:"pane,omitempty"`
+}
+
+// DirParams: pane.focus_direction, pane.swap.
+type DirParams struct {
+	Dir string `json:"dir"` // DirLeft | DirRight | DirUp | DirDown
+}
+
+// SwapWithParams: pane.swap_with — exchange two panes' layout slots (the
+// drag-reorder drop; pane.swap is the directional keyboard variant).
+type SwapWithParams struct {
+	Pane   uint32 `json:"pane"`
+	Target uint32 `json:"target"`
+}
+
+// CycleParams: pane.cycle.
+type CycleParams struct {
+	Next bool `json:"next"`
+}
+
+// RenamePaneParams: pane.rename ("" clears the custom name).
+type RenamePaneParams struct {
+	Pane uint32 `json:"pane"`
+	Name string `json:"name"`
+}
+
+// ResizeBorderParams: pane.resize_border. Border is the opaque id from the
+// layout message's borders list; Ratio is the split's new first-child ratio.
+type ResizeBorderParams struct {
+	Border string  `json:"border"`
+	Ratio  float32 `json:"ratio"`
+}
+
+// ScrollParams: scroll. Delta lines: negative scrolls up into history,
+// positive back toward the live bottom (β ScrollViewport semantics).
+type ScrollParams struct {
+	Pane  uint32 `json:"pane"`
+	Delta int    `json:"delta"`
+}
+
+// ReadParams: read — extract selection text. Anchor/Cursor are [row, col] in
+// absolute screen-buffer coordinates (row from the top of scrollback, per
+// β SelectionPoint; derive from the frame's Scroll). Rect selects a block
+// region instead of a reading-order range.
+type ReadParams struct {
+	Pane   uint32    `json:"pane"`
+	Anchor [2]uint32 `json:"anchor"`
+	Cursor [2]uint32 `json:"cursor"`
+	Rect   bool      `json:"rect,omitempty"`
+}
+
+// ReadResult is CmdResult.Data for a successful read.
+type ReadResult struct {
+	Text string `json:"text"`
+}
+
+// CaptureParams: capture — extract a pane's buffer text (β RequestText). Scope
+// 0 = visible (the on-screen viewport), 1 = recent (the last Lines rows of
+// scrollback+active, 0 = the whole buffer). Ansi keeps VT styling; Unwrap rejoins
+// soft-wrapped lines. Unlike read, this needs no coordinates — it captures whole
+// rows, e.g. for "copy scrollback" or feeding an agent the terminal contents.
+type CaptureParams struct {
+	Pane   uint32 `json:"pane"`
+	Scope  uint8  `json:"scope,omitempty"`
+	Lines  uint32 `json:"lines,omitempty"`
+	Ansi   bool   `json:"ansi,omitempty"`
+	Unwrap bool   `json:"unwrap,omitempty"`
+}
+
+// CaptureResult is CmdResult.Data for a successful capture.
+type CaptureResult struct {
+	Text string `json:"text"`
+}
+
+// WaitForOutputParams: pane.wait_for_output — block until the pane's output
+// matches Pattern (a substring, or a regexp when Regex is set), or until TimeoutMs
+// elapses. Unlike read/capture (one round-trip), this rides the unary envelope but
+// resolves only when the match appears: the backend matches Pattern against the
+// pane's live output as it streams (VT escapes stripped to plain text), so it
+// never misses fast-scrolling transient output or the child's final pre-exit
+// output. It is additionally seeded once with the output already on screen when
+// the wait begins. Lines bounds only that initial-screen seed (recent rows,
+// 0 = the whole buffer); the live stream is matched in full. TimeoutMs 0 uses the
+// server default.
+type WaitForOutputParams struct {
+	Pane      uint32 `json:"pane"`
+	Pattern   string `json:"pattern"`
+	Regex     bool   `json:"regex,omitempty"`
+	TimeoutMs uint32 `json:"timeout_ms,omitempty"`
+	Lines     uint32 `json:"lines,omitempty"`
+}
+
+// WaitForOutputResult is CmdResult.Data for pane.wait_for_output. Matched reports
+// whether Pattern appeared before the timeout (false = timed out or the pane
+// exited first); Text is the buffer line the match landed on, for context.
+type WaitForOutputResult struct {
+	Matched bool   `json:"matched"`
+	Text    string `json:"text,omitempty"`
+}
+
+// Matcher compiles Pattern into a predicate over a pane's captured text: it
+// returns the matched line (trimmed, for the result's Text) and whether the
+// pattern is present. It also validates the params — an empty pattern or an
+// uncompilable regex is an error the dispatcher reports as bad params before it
+// registers a waiter. The backend calls Matcher to get the live predicate.
+func (p WaitForOutputParams) Matcher() (func(text string) (line string, ok bool), error) {
+	if p.Pattern == "" {
+		return nil, errors.New("wait_for_output: empty pattern")
+	}
+	if p.Regex {
+		re, err := regexp.Compile(p.Pattern)
+		if err != nil {
+			return nil, fmt.Errorf("wait_for_output: bad regex %q: %w", p.Pattern, err)
+		}
+		return func(text string) (string, bool) {
+			loc := re.FindStringIndex(text)
+			if loc == nil {
+				return "", false
+			}
+			return lineAround(text, loc[0]), true
+		}, nil
+	}
+	return func(text string) (string, bool) {
+		idx := strings.Index(text, p.Pattern)
+		if idx < 0 {
+			return "", false
+		}
+		return lineAround(text, idx), true
+	}, nil
+}
+
+// lineAround returns the trimmed line of text containing byte index idx (the
+// wait_for_output result's context line). idx is assumed in range.
+func lineAround(text string, idx int) string {
+	start := strings.LastIndexByte(text[:idx], '\n') + 1 // 0 if none
+	end := idx + strings.IndexByte(text[idx:], '\n')
+	if end < idx { // no trailing newline: run to the end
+		end = len(text)
+	}
+	return strings.TrimSpace(text[start:end])
+}
+
+// Wait-timeout bounds shared by the backend waiter and any client sizing its own
+// round-trip deadline, so both agree on how long a wait can run.
+const (
+	defaultWaitTimeout = 30 * time.Second
+	// MaxWaitTimeout caps a single wait; the ctlproto server sizes its backstop
+	// above this so a waiter always resolves on its own timer first.
+	MaxWaitTimeout = 10 * time.Minute
+)
+
+// WaitTimeout resolves a wait's TimeoutMs into a duration: 0 ⇒ the default, and
+// anything above MaxWaitTimeout is clamped.
+func WaitTimeout(ms uint32) time.Duration {
+	if ms == 0 {
+		return defaultWaitTimeout
+	}
+	if d := time.Duration(ms) * time.Millisecond; d < MaxWaitTimeout {
+		return d
+	}
+	return MaxWaitTimeout
+}
+
+// SendInputParams: pane.send_input — inject text into a pane's PTY as though
+// typed locally, the outbound half of the automation API (capture/wait are the
+// inbound half; together a client can drive an interactive program end-to-end).
+// Text is paste-encoded against the pane's live mode state, so when the
+// foreground app has bracketed paste on (readline, most TUIs) a multi-line
+// prompt lands in its input intact instead of executing line-by-line. Submit
+// follows the text with a real Enter keypress — separate from Text so a caller
+// can stage input for the user to review (Submit false) or fire it (true), and
+// an empty-Text Submit sends just the Enter. Encoding stays server-side, same
+// as browser input: clients never pre-encode VT bytes.
+type SendInputParams struct {
+	Pane   uint32 `json:"pane"`
+	Text   string `json:"text,omitempty"`
+	Submit bool   `json:"submit,omitempty"`
+}
+
+// Validate rejects a send with nothing to deliver — no text and no Enter — so
+// the dispatcher reports a bad call instead of silently acking a no-op.
+func (p SendInputParams) Validate() error {
+	if p.Text == "" && !p.Submit {
+		return errors.New("send_input: empty text and no submit — nothing to send")
+	}
+	return nil
+}
+
+// TabParams: tab.focus.
+type TabParams struct {
+	Num int `json:"num"`
+}
+
+// OptTabParams: tab.close. Num nil = the active tab.
+type OptTabParams struct {
+	Num *int `json:"num,omitempty"`
+}
+
+// RenameTabParams: tab.rename ("" clears the custom name).
+type RenameTabParams struct {
+	Num  int    `json:"num"`
+	Name string `json:"name"`
+}
+
+// MoveTabParams: tab.move — reorder the active workspace's tabs. Index is an
+// insertion point (a gap position 0..=len; len means "to the end"), the same
+// convention the drag-reorder UI computes from a drop location.
+type MoveTabParams struct {
+	Num   int `json:"num"`
+	Index int `json:"index"`
+}
+
+// MoveWorkspaceParams: workspace.move — reorder the workspace list. Index is an
+// insertion point (a gap position 0..=len).
+type MoveWorkspaceParams struct {
+	ID    string `json:"id"`
+	Index int    `json:"index"`
+}
+
+// WorkspaceParams: workspace.focus, workspace.close.
+type WorkspaceParams struct {
+	ID string `json:"id"` // public workspace id, e.g. "w1"
+}
+
+// WorkspaceCreateParams: workspace.create. Every field is optional — the whole
+// params object may be absent, which is what a key binding or `catctl new-ws`
+// sends. Name pins the new workspace's label (what workspace.rename would set);
+// leaving it empty keeps auto-naming, where the label follows the workspace's
+// identity cwd.
+type WorkspaceCreateParams struct {
+	Name string `json:"name,omitempty"`
+}
+
+// WorkspaceCreateResult is CmdResult.Data for workspace.create: the new
+// workspace's public id. Returned for the same reason tab.create returns its
+// tab number — a scripted caller can address the workspace it just made without
+// diffing workspace.list. The browser UI ignores it (the layout broadcast that
+// follows already carries the new workspace).
+type WorkspaceCreateResult struct {
+	ID string `json:"id"`
+}
+
+// RenameWorkspaceParams: workspace.rename ("" reverts to auto-naming).
+type RenameWorkspaceParams struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// --- Query params & results (§7 read-only commands) --------------------------
+
+// TabListParams: tab.list. Workspace "" = the active workspace.
+type TabListParams struct {
+	Workspace string `json:"workspace,omitempty"`
+}
+
+// SessionInfoResult is CmdResult.Data for session.get: a one-shot snapshot of the
+// whole session. FocusedPane is the public handle of the globally focused pane
+// (the active workspace's active tab's focused pane), empty if there is none.
+type SessionInfoResult struct {
+	ActiveWorkspace string `json:"active_workspace"`
+	FocusedPane     string `json:"focused_pane,omitempty"`
+	Workspaces      int    `json:"workspaces"`
+	Panes           int    `json:"panes"` // total live panes across all workspaces/tabs
+	Cwd             string `json:"cwd"`
+}
+
+// WorkspaceInfo describes one workspace for workspace.list.
+type WorkspaceInfo struct {
+	ID     string `json:"id"`   // stable public handle, e.g. "w1"
+	Name   string `json:"name"` // display name (custom or auto)
+	Active bool   `json:"active"`
+	Tabs   int    `json:"tabs"` // tab count
+}
+
+// WorkspaceListResult is CmdResult.Data for workspace.list.
+type WorkspaceListResult struct {
+	Workspaces []WorkspaceInfo `json:"workspaces"`
+}
+
+// TabInfo describes one tab for tab.list.
+type TabInfo struct {
+	Num    int    `json:"num"`  // stable public tab number
+	Name   string `json:"name"` // display name (custom or the number)
+	Active bool   `json:"active"`
+	Zoomed bool   `json:"zoomed"`
+	Panes  int    `json:"panes"` // pane count in this tab
+}
+
+// TabListResult is CmdResult.Data for tab.list. Workspace echoes the resolved
+// workspace id (useful when the request omitted it and got the active one).
+type TabListResult struct {
+	Workspace string    `json:"workspace"`
+	Tabs      []TabInfo `json:"tabs"`
+}
+
+// PaneInfo describes one pane for pane.list / pane.get. Pane is the internal id
+// used to address the pane in every other command; Handle is its human public
+// label ("w1:p3"). Focused marks the pane focused within its own tab (each tab
+// has one); Visible marks the panes in the current viewport.
+//
+// The session knows only the first five fields; the trailing PaneMeta block is
+// runtime-side state (detected agent, live title/cwd) filled in by the
+// dispatcher from Backend.PaneMeta, so automation clients (e.g. cats-todo's
+// drop-target picker) can find agent panes and show where they live without a
+// second protocol.
+type PaneInfo struct {
+	Pane    uint32 `json:"pane"`
+	Handle  string `json:"handle,omitempty"`
+	Name    string `json:"name,omitempty"` // custom name; empty if auto-named
+	Focused bool   `json:"focused"`
+	Visible bool   `json:"visible"`
+	PaneMeta
+}
+
+// PaneMeta is the runtime-side metadata for one pane, supplied by the Backend
+// (the session cannot know it): the arbitrated agent identity the sidebar shows
+// (hook authority first, daemon detection second), the pane's live title, and
+// its current working directory. All fields may be empty — an unknown pane, no
+// agent detected, or a title/cwd not yet reported.
+type PaneMeta struct {
+	Agent      string `json:"agent,omitempty"`       // detected agent label ("claude", "codex", …)
+	AgentState string `json:"agent_state,omitempty"` // agent activity state ("working", "idle", …); only when Agent is set
+	Title      string `json:"title,omitempty"`       // live terminal title
+	Cwd        string `json:"cwd,omitempty"`         // live working directory
+}
+
+// TabCreateParams is the optional params block for tab.create. The zero value
+// (or no params at all — the historical wire shape) keeps the old behavior: a
+// default-shell tab in the workspace's identity cwd. The optional fields let an
+// automation client (catctl plugin run, scripts) open a fully-formed tab in one
+// round trip instead of tab.create → tab.rename → typing a command into the
+// shell:
+//
+//   - Title pins the tab's display name (what tab.rename would set).
+//   - Cwd overrides the spawn directory for the tab's root pane.
+//   - Command is an argv to exec as the pane's process instead of a shell —
+//     the pane runs the program directly, so its exit closes the pane and no
+//     shell history/prompt noise precedes it (same mechanism as agent resume).
+//   - Env adds environment variables to the spawned process.
+//
+// Cwd/Env without Command still apply to the default shell spawn.
+type TabCreateParams struct {
+	Title   string            `json:"title,omitempty"`
+	Cwd     string            `json:"cwd,omitempty"`
+	Command []string          `json:"command,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+// Validate rejects a present-but-unusable Command (an empty argv slot cannot be
+// exec'd; an absent Command is the normal shell case and always fine).
+func (p TabCreateParams) Validate() error {
+	if len(p.Command) > 0 && strings.TrimSpace(p.Command[0]) == "" {
+		return errors.New("command[0] must be a program name")
+	}
+	return nil
+}
+
+// SpawnOverride is the runtime-side slice of TabCreateParams: what the Backend
+// must apply when it realizes the new pane's PTY (the dispatcher handles Title
+// itself via the session). Staged per pane before ApplyModel and consumed
+// exactly once by the pane's create.
+type SpawnOverride struct {
+	Cwd     string
+	Command []string
+	Env     map[string]string
+}
+
+// spawnOverride extracts the runtime-relevant fields; the zero flag tells the
+// dispatcher whether staging is needed at all.
+func (p TabCreateParams) spawnOverride() (SpawnOverride, bool) {
+	if p.Cwd == "" && len(p.Command) == 0 && len(p.Env) == 0 {
+		return SpawnOverride{}, false
+	}
+	return SpawnOverride{Cwd: p.Cwd, Command: p.Command, Env: p.Env}, true
+}
+
+// TabCreateResult is CmdResult.Data for tab.create: the new tab's public number
+// and its root pane's id. CreateTab focuses the new tab (and its sole pane), so
+// an automation client can chain straight into pane.send_input / wait_for_output
+// on Pane without a follow-up query — the reason this command returns data at
+// all (the browser UI ignores it).
+type TabCreateResult struct {
+	Num  int    `json:"num"`
+	Pane uint32 `json:"pane"`
+}
+
+// PaneListResult is CmdResult.Data for pane.list.
+type PaneListResult struct {
+	Panes []PaneInfo `json:"panes"`
+}
+
+// --- Worktree params & results (§7, WS8 dialogs) ------------------------------
+
+// WorktreeListParams: worktree.list. Pane nil = the focused pane; the repo is
+// resolved from that pane's live cwd (Backend supplies pane cwds).
+type WorktreeListParams struct {
+	Pane *uint32 `json:"pane,omitempty"`
+}
+
+// WorktreeInfo describes one existing checkout for worktree.list. Current marks
+// the checkout the anchoring pane is in; OpenWorkspace is the public id of a
+// workspace already open on the checkout ("" when none).
+type WorktreeInfo struct {
+	Path          string `json:"path"`
+	Branch        string `json:"branch,omitempty"`
+	Detached      bool   `json:"detached,omitempty"`
+	Prunable      bool   `json:"prunable,omitempty"`
+	Current       bool   `json:"current,omitempty"`
+	OpenWorkspace string `json:"open_workspace,omitempty"`
+}
+
+// WorktreeListResult is CmdResult.Data for worktree.list. WorktreeRoot is the
+// configured (tilde-expanded) directory new checkouts land under, so the
+// new-worktree dialog can preview the derived checkout path client-side.
+type WorktreeListResult struct {
+	RepoRoot     string         `json:"repo_root"`
+	RepoName     string         `json:"repo_name"`
+	WorktreeRoot string         `json:"worktree_root"`
+	Worktrees    []WorktreeInfo `json:"worktrees"`
+}
+
+// WorktreeCreateParams: worktree.create. Branch "" generates a slug; Path ""
+// derives the default checkout path under the configured worktree root.
+type WorktreeCreateParams struct {
+	Pane   *uint32 `json:"pane,omitempty"`
+	Branch string  `json:"branch,omitempty"`
+	Path   string  `json:"path,omitempty"`
+}
+
+// WorktreeCreateResult is CmdResult.Data for worktree.create: the new
+// workspace's public id and the resolved branch/checkout.
+type WorktreeCreateResult struct {
+	Workspace string `json:"workspace"`
+	Branch    string `json:"branch"`
+	Path      string `json:"path"`
+}
+
+// WorktreeOpenParams: worktree.open — focus the workspace already open on Path,
+// or create a new one there.
+type WorktreeOpenParams struct {
+	Pane *uint32 `json:"pane,omitempty"`
+	Path string  `json:"path"`
+}
+
+// WorktreeOpenResult is CmdResult.Data for worktree.open.
+type WorktreeOpenResult struct {
+	Workspace   string `json:"workspace"`
+	AlreadyOpen bool   `json:"already_open,omitempty"`
+}
+
+// WorktreeRemoveParams: worktree.remove — delete the checkout behind a
+// workspace (by public id) and close the workspace. Without Force, a dirty
+// checkout fails with the "dirty_worktree_requires_force:" prefix so the
+// front-end can escalate to the delete-anyway confirm. The branch is never
+// deleted.
+type WorktreeRemoveParams struct {
+	Workspace string `json:"workspace"`
+	Force     bool   `json:"force,omitempty"`
+}
+
+// --- Config params & results (§7, settings modal) -----------------------------
+
+// ConfigTheme is the theme section on the wire (config.get/config.set).
+type ConfigTheme struct {
+	Colors map[string]string `json:"colors,omitempty"`
+	Font   string            `json:"font,omitempty"`
+}
+
+// ConfigServerInfo is the read-only server section of config.get: informational
+// only (these settings are flag/config driven and need a restart).
+type ConfigServerInfo struct {
+	Addr          string `json:"addr"`
+	Auth          string `json:"auth"`
+	TLS           bool   `json:"tls"`
+	CathostSocket string `json:"cathost_socket"`
+	ControlSocket string `json:"control_socket,omitempty"`
+	HookSocket    string `json:"hook_socket,omitempty"`
+	SessionTTL    string `json:"session_ttl"`
+}
+
+// ConfigGetResult is CmdResult.Data for config.get (and config.set, which
+// echoes the saved state). CopyMode's keys are the full known action set — the
+// settings modal derives its rows (and validation) from them.
+type ConfigGetResult struct {
+	Path     string              `json:"path"`
+	Theme    ConfigTheme         `json:"theme"`
+	CopyMode map[string][]string `json:"copy_mode"`
+	Server   ConfigServerInfo    `json:"server"`
+}
+
+// ConfigSetParams: config.set — only the live-appliable sections. Absent fields
+// keep their current values; colors and copy-mode actions merge key-wise.
+type ConfigSetParams struct {
+	Theme    *ConfigTheme        `json:"theme,omitempty"`
+	CopyMode map[string][]string `json:"copy_mode,omitempty"`
+}
+
+// --- Plugin params & results (§7, plugins dialog) ------------------------------
+
+// PluginActionInfo describes one launchable action for plugin.list. Argv is the
+// fully resolved argv (plugin-root-relative "./bin/tool" paths anchored to the
+// install dir server-side), so a front-end can hand it straight to tab.create's
+// Command without knowing the manifest's path conventions.
+type PluginActionInfo struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title,omitempty"`
+	Argv  []string `json:"argv"`
+}
+
+// PluginInfo describes one installed plugin for plugin.list. Broken carries the
+// manifest load/validate error for an entry that exists on disk but cannot run
+// (the manifest fields are then empty apart from ID). Env is the identity
+// environment a launch must carry (CATS_PLUGIN_ID / CATS_PLUGIN_DIR) — included
+// per plugin so the front-end composes tab.create params without hard-coding
+// the env var names.
+type PluginInfo struct {
+	ID          string             `json:"id"`
+	Name        string             `json:"name,omitempty"`
+	Version     string             `json:"version,omitempty"`
+	Description string             `json:"description,omitempty"`
+	Linked      bool               `json:"linked,omitempty"`
+	Dir         string             `json:"dir"`
+	Source      string             `json:"source,omitempty"`
+	Ref         string             `json:"ref,omitempty"`
+	Broken      string             `json:"broken,omitempty"`
+	Actions     []PluginActionInfo `json:"actions,omitempty"`
+	Env         map[string]string  `json:"env,omitempty"`
+}
+
+// PluginListResult is CmdResult.Data for plugin.list. Catctl is the server's
+// best resolution of the catctl binary (PATH first, then a sibling of the
+// server executable) — the dialog spawns `catctl plugin install/update` tabs
+// and the browser has no way to resolve host paths itself.
+type PluginListResult struct {
+	Catctl  string       `json:"catctl"`
+	Plugins []PluginInfo `json:"plugins"`
+}
+
+// PluginUninstallParams: plugin.uninstall — remove an installed plugin's
+// directory (or unlink a linked one; the checkout itself is never touched).
+type PluginUninstallParams struct {
+	ID string `json:"id"`
+}
+
+// PluginUninstallResult is CmdResult.Data for plugin.uninstall: the same
+// human-readable outcome line the CLI prints.
+type PluginUninstallResult struct {
+	Message string `json:"message"`
+}

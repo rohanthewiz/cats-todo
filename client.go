@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rohanthewiz/cats/internal/app"
-	"github.com/rohanthewiz/cats/internal/ctlproto"
+	"github.com/rohanthewiz/cats-todo/internal/app"
+	"github.com/rohanthewiz/cats-todo/internal/ctlproto"
 )
 
 // catsClient talks to the running cats server (cmd/catway) over its control

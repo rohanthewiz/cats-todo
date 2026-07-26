@@ -16,8 +16,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rohanthewiz/cats/internal/app"
-	"github.com/rohanthewiz/cats/internal/integration"
+	"github.com/rohanthewiz/cats-todo/internal/app"
+	"github.com/rohanthewiz/cats-todo/internal/integration"
 )
 
 // RunContext describes where cats-todo is running: the pane's working directory

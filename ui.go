@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rohanthewiz/cats/internal/app"
+	"github.com/rohanthewiz/cats-todo/internal/app"
 )
 
 // uiStage is which screen the manager is currently showing.
