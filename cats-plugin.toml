@@ -13,7 +13,7 @@
 
 id = "rohanthewiz.cats-todo"
 name = "Cats Todo"
-version = "0.1.0"
+version = "0.2.0"
 description = "A prompt backlog for cats. Jot down prompts of future work (per-project and global), then fuzzy-pick one and drop it into a Claude Code session — an existing agent pane or a brand-new one — paste-only or run-now."
 platforms = ["linux", "macos"]
 
@@ -25,8 +25,19 @@ command = ["sh", "-c", "mkdir -p bin && go build -o bin/cats-todo ."]
 
 # The manager TUI. `catctl plugin run rohanthewiz.cats-todo` opens it in a new
 # tab whose cwd is the directory you invoked from, which is what scopes the
-# per-project backlog (.cats-todo/) correctly.
+# per-project backlog (.cats-todo/) correctly. First action = the default one
+# for a bare `plugin run`, so the project-scoped manager stays the default.
 [[actions]]
 id = "todo"
-title = "Cats Todo"
+title = "Cats Todo — this project"
 command = ["./bin/cats-todo"]
+
+# The same manager pinned to the global backlog only (--global skips the
+# project-root walk). In the plugins dialog, having two actions turns "run"
+# into a picker — this is what lets the user launch the global list even while
+# focused inside a project, and the project list even when its backlog is
+# still empty.
+[[actions]]
+id = "todo-global"
+title = "Cats Todo — global only"
+command = ["./bin/cats-todo", "--global"]

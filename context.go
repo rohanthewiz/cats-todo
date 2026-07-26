@@ -36,6 +36,14 @@ type RunContext struct {
 	OwnPane        string // CATS_PANE_ID handle: "w1:p3", or the "p_<id>" fallback
 	WorkspaceID    string // public workspace id ("w1")
 	WorkspaceLabel string
+	// GlobalOnly is the `cats-todo --global` launch mode: manage only the
+	// global backlog, with no project scope at all. Without it the manager
+	// always adopts whatever project the pane's directory resolves to — there
+	// was no way to look at just the global list from inside a project (the
+	// plugin dialog's "global" action needs exactly that). WorkDir is still
+	// gathered: a new-session drop has to root its tab somewhere, and the
+	// pane's own directory remains the honest default.
+	GlobalOnly bool
 }
 
 // projectDir is the directory that scopes project todos and roots a new
@@ -56,6 +64,12 @@ func (c RunContext) projectDir() string {
 // and a title has to stay short to survive tab-bar truncation. Degrades to the
 // bare app name when no directory resolved (global-only launch).
 func (c RunContext) paneTitle() string {
+	// Global-only mode is scoped to no project, so no project name belongs in
+	// the title — "global" is the fact that distinguishes this pane from a
+	// project-scoped manager sitting in the next tab.
+	if c.GlobalOnly {
+		return "todo: global"
+	}
 	if name := baseName(c.projectDir()); name != "" {
 		return "todo: " + name
 	}
@@ -104,11 +118,17 @@ func findProjectRoot(dir string) string {
 // "w1" prefix when present, else the active workspace — and is left empty when
 // the control socket is unavailable (client nil). A partial context still runs:
 // project todos scope to the resolved directory regardless.
-func gatherRunContext(client *catsClient) RunContext {
-	ctx := RunContext{OwnPane: os.Getenv(integration.CatsPaneIDEnvVar)}
+//
+// globalOnly skips the project-root walk entirely: no ProjectRoot means
+// projectDir falls back to the raw WorkDir (drops still root there), while
+// loadStores sees the mode and withholds the project store.
+func gatherRunContext(client *catsClient, globalOnly bool) RunContext {
+	ctx := RunContext{OwnPane: os.Getenv(integration.CatsPaneIDEnvVar), GlobalOnly: globalOnly}
 	if wd, err := os.Getwd(); err == nil {
 		ctx.WorkDir = wd
-		ctx.ProjectRoot = findProjectRoot(wd)
+		if !globalOnly {
+			ctx.ProjectRoot = findProjectRoot(wd)
+		}
 	}
 
 	if ws, _, ok := strings.Cut(ctx.OwnPane, ":"); ok {

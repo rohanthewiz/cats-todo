@@ -17,7 +17,7 @@ import (
 func TestGatherRunContextWithoutClient(t *testing.T) {
 	t.Run("handle-form pane id yields the workspace", func(t *testing.T) {
 		t.Setenv(integration.CatsPaneIDEnvVar, "w2:p5")
-		ctx := gatherRunContext(nil)
+		ctx := gatherRunContext(nil, false)
 		if ctx.OwnPane != "w2:p5" {
 			t.Errorf("OwnPane = %q, want w2:p5", ctx.OwnPane)
 		}
@@ -31,7 +31,7 @@ func TestGatherRunContextWithoutClient(t *testing.T) {
 
 	t.Run("fallback-form pane id yields no workspace", func(t *testing.T) {
 		t.Setenv(integration.CatsPaneIDEnvVar, "p_7")
-		ctx := gatherRunContext(nil)
+		ctx := gatherRunContext(nil, false)
 		if ctx.OwnPane != "p_7" || ctx.WorkspaceID != "" {
 			t.Errorf("ctx = %+v, want OwnPane p_7 with no workspace (needs the client)", ctx)
 		}
@@ -39,7 +39,7 @@ func TestGatherRunContextWithoutClient(t *testing.T) {
 
 	t.Run("outside cats yields a bare cwd context", func(t *testing.T) {
 		t.Setenv(integration.CatsPaneIDEnvVar, "")
-		ctx := gatherRunContext(nil)
+		ctx := gatherRunContext(nil, false)
 		if ctx.OwnPane != "" || ctx.WorkspaceID != "" || ctx.WorkspaceLabel != "" {
 			t.Errorf("ctx = %+v, want only the directory fields set outside cats", ctx)
 		}
@@ -61,7 +61,7 @@ func TestGatherRunContextWithoutClient(t *testing.T) {
 		}
 		t.Chdir(sub)
 		t.Setenv(integration.CatsPaneIDEnvVar, "")
-		ctx := gatherRunContext(nil)
+		ctx := gatherRunContext(nil, false)
 		if ctx.ProjectRoot == "" {
 			t.Fatal("ProjectRoot should resolve whenever WorkDir does")
 		}
@@ -70,6 +70,25 @@ func TestGatherRunContextWithoutClient(t *testing.T) {
 		}
 		if !strings.HasPrefix(ctx.WorkDir, ctx.ProjectRoot) {
 			t.Errorf("ProjectRoot %q is not an ancestor of WorkDir %q", ctx.ProjectRoot, ctx.WorkDir)
+		}
+	})
+
+	t.Run("global-only skips the project walk but keeps the cwd", func(t *testing.T) {
+		// Same marker-bearing layout as the subtest above — the point is that
+		// --global must NOT resolve the repo root it easily could have, while
+		// WorkDir stays for rooting new-session drop tabs.
+		root := t.TempDir()
+		mkdir(t, filepath.Join(root, ".git"))
+		sub := filepath.Join(root, "cmd", "deep")
+		mkdir(t, sub)
+		t.Chdir(sub)
+		t.Setenv(integration.CatsPaneIDEnvVar, "")
+		ctx := gatherRunContext(nil, true)
+		if !ctx.GlobalOnly || ctx.ProjectRoot != "" {
+			t.Errorf("ctx = %+v, want GlobalOnly with no ProjectRoot", ctx)
+		}
+		if ctx.WorkDir == "" {
+			t.Error("WorkDir should still resolve in global-only mode")
 		}
 	})
 }
@@ -147,6 +166,10 @@ func TestRunContextPaneTitle(t *testing.T) {
 		{"falls back to the workdir", RunContext{WorkDir: "/repo/sub"}, "todo: sub"},
 		{"bare name with no directory", RunContext{}, "todo"},
 		{"bare name at the filesystem root", RunContext{WorkDir: "/"}, "todo"},
+		// Global-only outranks any directory: the pane shows no project backlog,
+		// so no project name belongs in its title.
+		{"global-only names the scope, not the directory",
+			RunContext{WorkDir: "/repo/sub", GlobalOnly: true}, "todo: global"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

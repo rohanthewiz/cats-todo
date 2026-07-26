@@ -449,4 +449,18 @@ func TestLoadStores(t *testing.T) {
 			t.Error("global store should still be available")
 		}
 	})
+
+	t.Run("the --global launch withholds the project store", func(t *testing.T) {
+		// A directory IS resolvable here — global-only must decline it anyway.
+		project, global, err := loadStores(RunContext{WorkDir: t.TempDir(), GlobalOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if project.available() {
+			t.Error("project store should be unavailable in global-only mode")
+		}
+		if !global.available() {
+			t.Error("global store should be available in global-only mode")
+		}
+	})
 }
