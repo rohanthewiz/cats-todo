@@ -26,7 +26,7 @@ import (
 )
 
 // version is the binary's version.
-const version = "0.2.0"
+const version = "0.2.2"
 
 func main() {
 	if len(os.Args) > 1 {
