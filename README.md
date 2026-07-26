@@ -8,7 +8,8 @@ Code session — an existing agent pane (the picker lists every detected agent
 pane with its state and location) or a fresh tab that launches the agent first.
 
 ```bash
-cats-todo                              # open the manager in the current pane
+cats-todo                              # open the manager: project + global merged
+cats-todo -p                           # open it on this project's backlog only
 cats-todo -g                           # open it on the global backlog only
 cats-todo add fix the flaky reconnect  # quick-capture to the project backlog
 git log -p | cats-todo add -g -t huh   # capture piped stdin to the global backlog
@@ -17,11 +18,12 @@ git log -p | cats-todo add -g -t huh   # capture piped stdin to the global backl
 Both the manager and `add` scope the project backlog to the same place: the
 nearest ancestor holding a `.cats-todo/` directory, else the repo root, else the
 current directory — so it does not matter which subdirectory of a project you
-launch from. A drop into a fresh tab roots that tab there too. `-g`/`--global`
-skips project scoping entirely and manages just the global backlog — in the
-cats plugins dialog this is the second manifest action, so "run" offers both
-the project view (fine even when the project backlog is still empty) and the
-global one.
+launch from. A drop into a fresh tab roots that tab there too.
+`-p`/`--project` and `-g`/`--global` pin the manager to a single backlog
+(project-only works even when its backlog is still empty). The cats plugins
+dialog uses exactly these two as its manifest actions — "run" offers "this
+project" and "global only" — while the bare merged view stays the shell
+launch.
 
 In the manager: `enter` opens the target picker, then `enter` pastes the prompt
 staged for review while `ctrl+r` submits it to run (and marks the todo done).

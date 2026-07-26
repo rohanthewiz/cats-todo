@@ -7,8 +7,9 @@
 // runs as a cats plugin (`catctl plugin run rohanthewiz.cats-todo`) or as a
 // standalone TUI directly in any cats shell pane:
 //
-//	cats-todo                     open the manager in this pane
-//	cats-todo -g | --global       open the manager on the global backlog only
+//	cats-todo                     open the manager in this pane (project + global)
+//	cats-todo -p | --project      open it on this project's backlog only
+//	cats-todo -g | --global       open it on the global backlog only
 //	cats-todo add [-g] [-t] ...   quick-capture a prompt without the manager
 //	cats-todo version
 //
@@ -26,7 +27,7 @@ import (
 )
 
 // version is the binary's version.
-const version = "0.2.2"
+const version = "0.2.3"
 
 func main() {
 	if len(os.Args) > 1 {
@@ -35,21 +36,26 @@ func main() {
 			addFromCLI(os.Args[2:])
 			return
 		// The manager's -g mirrors add's -g: same letter, same meaning ("the
-		// global backlog, not this project's"), just applied to the TUI.
+		// global backlog, not this project's"), just applied to the TUI. -p is
+		// its mirror image; with neither, the manager shows both merged.
 		case "-g", "--global", "global":
-			runTodoUI(true)
+			runTodoUI(launchGlobalOnly)
+			return
+		case "-p", "--project", "project":
+			runTodoUI(launchProjectOnly)
 			return
 		case "version", "--version", "-v", "-V":
 			fmt.Println("cats-todo", version)
 			return
 		case "help", "--help", "-h":
-			fmt.Println("usage: cats-todo [-g] [add [-g] [-t title] [prompt...] | version]")
-			fmt.Println("  with no arguments, opens the manager TUI in the current pane")
-			fmt.Println("  -g / --global opens it on the global backlog only (no project scope)")
+			fmt.Println("usage: cats-todo [-p|-g] [add [-g] [-t title] [prompt...] | version]")
+			fmt.Println("  with no arguments, opens the manager TUI on both backlogs (project + global)")
+			fmt.Println("  -p / --project opens it on this project's backlog only")
+			fmt.Println("  -g / --global opens it on the global backlog only")
 			return
 		default:
 			errExit(fmt.Sprintf("unknown subcommand %q — run `cats-todo help`", os.Args[1]))
 		}
 	}
-	runTodoUI(false)
+	runTodoUI(launchBoth)
 }

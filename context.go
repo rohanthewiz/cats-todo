@@ -36,15 +36,27 @@ type RunContext struct {
 	OwnPane        string // CATS_PANE_ID handle: "w1:p3", or the "p_<id>" fallback
 	WorkspaceID    string // public workspace id ("w1")
 	WorkspaceLabel string
-	// GlobalOnly is the `cats-todo --global` launch mode: manage only the
-	// global backlog, with no project scope at all. Without it the manager
-	// always adopts whatever project the pane's directory resolves to — there
-	// was no way to look at just the global list from inside a project (the
-	// plugin dialog's "global" action needs exactly that). WorkDir is still
-	// gathered: a new-session drop has to root its tab somewhere, and the
-	// pane's own directory remains the honest default.
-	GlobalOnly bool
+	// Scope is the launch's backlog selection (--project / --global). The
+	// bare launch shows both backlogs merged; the only-modes exist for the
+	// plugins dialog, whose two actions promise a *project* view and a
+	// *global* view — a combined list under a "this project" label reads as
+	// the project's todos leaking global entries (and vice versa). In an
+	// only-mode the other store is simply unavailable, the state the UI
+	// already renders (header note, add-form default, no scope toggle).
+	// WorkDir is still gathered in every mode: a new-session drop has to root
+	// its tab somewhere, and the pane's own directory remains the honest
+	// default.
+	Scope launchScope
 }
+
+// launchScope selects which backlogs a manager launch manages.
+type launchScope int
+
+const (
+	launchBoth        launchScope = iota // project + global merged (bare `cats-todo`)
+	launchProjectOnly                    // --project: just this project's backlog
+	launchGlobalOnly                     // --global: just the global backlog
+)
 
 // projectDir is the directory that scopes project todos and roots a new
 // session's tab: the resolved project root, falling back to the raw working
@@ -67,7 +79,7 @@ func (c RunContext) paneTitle() string {
 	// Global-only mode is scoped to no project, so no project name belongs in
 	// the title — "global" is the fact that distinguishes this pane from a
 	// project-scoped manager sitting in the next tab.
-	if c.GlobalOnly {
+	if c.Scope == launchGlobalOnly {
 		return "todo: global"
 	}
 	if name := baseName(c.projectDir()); name != "" {
@@ -119,14 +131,14 @@ func findProjectRoot(dir string) string {
 // the control socket is unavailable (client nil). A partial context still runs:
 // project todos scope to the resolved directory regardless.
 //
-// globalOnly skips the project-root walk entirely: no ProjectRoot means
-// projectDir falls back to the raw WorkDir (drops still root there), while
-// loadStores sees the mode and withholds the project store.
-func gatherRunContext(client *catsClient, globalOnly bool) RunContext {
-	ctx := RunContext{OwnPane: os.Getenv(integration.CatsPaneIDEnvVar), GlobalOnly: globalOnly}
+// A global-only launch skips the project-root walk entirely: no ProjectRoot
+// means projectDir falls back to the raw WorkDir (drops still root there),
+// while loadStores sees the mode and withholds the project store.
+func gatherRunContext(client *catsClient, scope launchScope) RunContext {
+	ctx := RunContext{OwnPane: os.Getenv(integration.CatsPaneIDEnvVar), Scope: scope}
 	if wd, err := os.Getwd(); err == nil {
 		ctx.WorkDir = wd
-		if !globalOnly {
+		if scope != launchGlobalOnly {
 			ctx.ProjectRoot = findProjectRoot(wd)
 		}
 	}

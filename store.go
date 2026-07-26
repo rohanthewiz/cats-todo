@@ -307,10 +307,12 @@ func (s *store) find(id string) (Todo, bool) {
 // loadStores builds and loads the project and global stores for a launch
 // context. The project store is keyed off ctx.projectDir(); when that is empty
 // (no project) or the launch is global-only (--global), the project store is
-// unavailable and only the global backlog shows.
+// unavailable and only the global backlog shows. Symmetrically, a
+// project-only launch (--project) withholds the global store — same
+// unavailable-store mechanism, opposite side.
 func loadStores(ctx RunContext) (project *store, global *store, err error) {
 	projectPath := ""
-	if !ctx.GlobalOnly {
+	if ctx.Scope != launchGlobalOnly {
 		projectPath = projectTodosPath(ctx.projectDir())
 	}
 	project = &store{scope: scopeProject, path: projectPath}
@@ -318,11 +320,15 @@ func loadStores(ctx RunContext) (project *store, global *store, err error) {
 		return nil, nil, err
 	}
 
-	gp, err := globalTodosPath()
-	if err != nil {
-		return nil, nil, err
+	globalPath := ""
+	if ctx.Scope != launchProjectOnly {
+		// Resolved only when the launch will actually use it: a project-only
+		// launch must not fail over a missing home directory it never reads.
+		if globalPath, err = globalTodosPath(); err != nil {
+			return nil, nil, err
+		}
 	}
-	global = &store{scope: scopeGlobal, path: gp}
+	global = &store{scope: scopeGlobal, path: globalPath}
 	if err = global.load(); err != nil {
 		return nil, nil, err
 	}

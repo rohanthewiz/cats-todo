@@ -533,7 +533,10 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+s":
 		return m.saveForm()
 	case "ctrl+g":
-		if m.formMode == formAdd && m.project.available() {
+		// Toggling scope needs both stores: an only-mode launch (--project /
+		// --global) has one side unavailable, and switching to it would save
+		// into a store that writes to nothing.
+		if m.formMode == formAdd && m.project.available() && m.global.available() {
 			if m.formScope == scopeProject {
 				m.formScope = scopeGlobal
 			} else {
@@ -955,6 +958,11 @@ const listTitle = "📝 Cats Todo — prompt backlog"
 func (m model) scopeNote() string {
 	project := firstNonEmpty(baseName(m.ctx.projectDir()), "project")
 	note := project + " + global"
+	// A project-only launch (--project) has no global store; saying "+ global"
+	// would be the exact confusion the mode exists to remove.
+	if !m.global.available() {
+		note = project + " only"
+	}
 	ws := m.ctx.WorkspaceLabel
 	// A workspace named after the project adds nothing over the project name;
 	// skip the suffix rather than print "cats + global · ws:cats".
@@ -1041,7 +1049,9 @@ func (m model) viewForm() string {
 
 	b.WriteString("\n")
 	help := "tab switch field · ctrl+s save · esc cancel"
-	if m.formMode == formAdd && m.project.available() {
+	// Advertise the scope toggle only when it works (see the ctrl+g handler):
+	// an only-mode launch pins the scope, so the hint would be a lie there.
+	if m.formMode == formAdd && m.project.available() && m.global.available() {
 		help = "tab switch field · ctrl+s save · ctrl+g toggle scope · esc cancel"
 	}
 	b.WriteString(footerStyle.Render(help))

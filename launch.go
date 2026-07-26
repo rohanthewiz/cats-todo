@@ -12,15 +12,15 @@ import (
 // gathers the launch context (cwd, own pane, workspace), loads the project and
 // global backlogs, and runs the manager. Drops happen in-loop, off the UI
 // thread (see chooseTarget), so one manager pane serves many drops; Run() only
-// returns when the user quits. globalOnly (--global) drops the project scope
-// and manages just the global backlog.
-func runTodoUI(globalOnly bool) {
+// returns when the user quits. scope narrows the launch to one backlog:
+// --project drops the global list, --global drops the project scope.
+func runTodoUI(scope launchScope) {
 	// The socket client drives session drops; the manager still works without it
 	// (you can add/edit/organize prompts), so a missing/unresponsive control
 	// socket is not fatal here — startDrop reports it when a drop is attempted.
 	client, _ := newCatsClient()
 
-	ctx := gatherRunContext(client, globalOnly)
+	ctx := gatherRunContext(client, scope)
 
 	project, global, err := loadStores(ctx)
 	if err != nil {
