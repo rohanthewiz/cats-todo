@@ -25,9 +25,19 @@ dialog uses exactly these two as its manifest actions — "run" offers "this
 project" and "global only" — while the bare merged view stays the shell
 launch.
 
-In the manager: `enter` opens the target picker, then `enter` pastes the prompt
-staged for review while `ctrl+r` submits it to run (and marks the todo done).
-Outside cats it still manages backlogs; only drops need the socket.
+In the manager, `enter` opens what is in front of you — the highlighted prompt
+into the editor, or a brand-new entry when the list is empty — and `shift+enter`
+drops the prompt into an agent. That opens the target picker, where `enter`
+pastes the prompt staged for review and `shift+enter` submits it to run (and
+marks the todo done). Inside the editor `enter` saves and `shift+enter` inserts
+a newline. Outside cats it still manages backlogs; only drops need the socket.
+
+`alt+enter` is bound everywhere `shift+enter` is, and `ctrl+j` also inserts a
+newline in the editor. Distinguishing shift+enter from a bare enter needs the
+kitty keyboard protocol — cats speaks it, but a terminal that does not will
+send the two identically, so the footers advertise `alt+enter` (which every
+terminal encodes as `ESC CR`) until the terminal answers the protocol
+handshake.
 
 ## Installing
 

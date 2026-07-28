@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // runTodoUI renders the manager TUI in the current terminal — normally a cats
@@ -27,17 +27,18 @@ func runTodoUI(scope launchScope) {
 		errExit(err)
 	}
 
-	p := tea.NewProgram(newModel(ctx, project, global, client), tea.WithAltScreen())
+	// The alt screen is declared by the model's View in bubbletea v2, not here.
+	p := tea.NewProgram(newModel(ctx, project, global, client))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "cats-todo:", err)
 	}
 
-	// Hand the title back on the way out. The title we set is a property of the
-	// terminal, not of this process, so without an explicit clear it outlives the
-	// TUI and keeps naming a pane that is a plain shell again. OSC 2 with an empty
-	// payload is the standard clear — cats reads it as "no title" and the pane
-	// falls back to whatever the shell sets next. Written directly rather than via
-	// tea.SetWindowTitle because the renderer is already stopped here; it prints
-	// nothing visible, so it is safe after the alt screen is torn down.
+	// Hand the title back on the way out. The title the view sets is a property
+	// of the terminal, not of this process, so without a clear it outlives the
+	// TUI and keeps naming a pane that is a plain shell again. OSC 2 with an
+	// empty payload is the standard clear — cats reads it as "no title" and the
+	// pane falls back to whatever the shell sets next. Bubbletea v2 clears the
+	// title itself when it tears the view down; this stays as the backstop for
+	// an exit that skips the renderer, and prints nothing visible either way.
 	fmt.Print("\x1b]2;\a")
 }

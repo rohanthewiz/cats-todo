@@ -7,11 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/rohanthewiz/cats-todo/internal/app"
 )
 
@@ -145,8 +146,27 @@ type model struct {
 	status    string // transient message under the list
 	statusErr bool
 
+	// kbEnhanced records that the terminal answered bubbletea's keyboard
+	// enhancement request (kitty protocol) — the only way shift+enter arrives
+	// as its own key rather than a bare CR. It decides which of the two
+	// equivalent modifier bindings the footers advertise; both stay live either
+	// way. See modEnter.
+	kbEnhanced bool
+
 	dropping bool // a drop is in flight (off the UI thread); guards re-entry
 	quitting bool
+}
+
+// modEnter names the modifier+enter chord for the footers: the drop key in the
+// list and view, the newline key in the form. shift+enter is the one to show
+// when the terminal can actually send it; alt+enter is the legacy fallback
+// every terminal encodes as ESC CR, so it leads until the terminal says
+// otherwise.
+func (m model) modEnter() string {
+	if m.kbEnhanced {
+		return "shift+enter"
+	}
+	return "alt+enter"
 }
 
 // newModel builds the initial manager state showing the todo list.
@@ -157,12 +177,10 @@ func newModel(ctx RunContext, project, global *store, client *catsClient) model 
 	return m
 }
 
-// Init starts the cursor blinking and names the pane after the project this
-// backlog belongs to (see RunContext.paneTitle). Setting it here rather than
-// before tea.NewProgram keeps the write inside bubbletea's renderer, so it can
-// never interleave with the frame the program is drawing.
+// Init starts the cursor blinking. The pane title and alt screen are properties
+// of the view in bubbletea v2 (see View), not one-shot startup commands.
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, tea.SetWindowTitle(m.ctx.paneTitle()))
+	return textinput.Blink
 }
 
 // Update routes by stage; non-key messages flow to whatever input is active so
@@ -194,7 +212,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.setStatus(status, false)
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyboardEnhancementsMsg:
+		// The terminal accepted the kitty keyboard request, so shift+enter is a
+		// distinct key here and the footers can name it.
+		m.kbEnhanced = true
+		return m, nil
+	case tea.KeyPressMsg:
 		switch m.stage {
 		case stageList:
 			return m.updateList(msg)
@@ -227,7 +250,7 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // --- List stage ---------------------------------------------------------------
 
-func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
@@ -248,6 +271,20 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.list.moveDown()
 		return m, nil
 	case "enter":
+		// Enter is the "open what's in front of me" key: the highlighted todo
+		// into the edit form, or — with nothing to open, whether the backlog is
+		// empty or the filter matched nothing — straight into a new entry.
+		// Dropping, the one action that leaves the manager and touches another
+		// pane, is deliberately not on a bare keystroke.
+		if _, ok := m.selectedRef(); ok {
+			return m.beginEdit()
+		}
+		return m.beginAdd()
+	case "shift+enter", "alt+enter":
+		// Two spellings of one chord: shift+enter is what the user presses when
+		// the terminal speaks the kitty protocol, alt+enter is the legacy
+		// encoding every terminal manages. Both are bound always so the binding
+		// never depends on what the terminal negotiated.
 		return m.beginDrop()
 	case "ctrl+a":
 		return m.beginAdd()
@@ -512,13 +549,24 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 	ta.Placeholder = "The prompt to hand Claude Code later…"
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
+	// Move the newline off plain enter, which now saves the form, onto the
+	// modifier chord. All three spellings are bound: shift+enter needs the
+	// kitty protocol, alt+enter is the legacy ESC CR every terminal sends, and
+	// ctrl+j is the raw line feed that survives even a terminal which eats
+	// Option. ctrl+m — the default binding's second key, and literally the CR
+	// that plain enter sends on a legacy terminal — has to go, or enter would
+	// still insert a newline there instead of saving.
+	ta.KeyMap.InsertNewline = key.NewBinding(
+		key.WithKeys("shift+enter", "alt+enter", "ctrl+j"),
+		key.WithHelp("shift+enter", "insert newline"),
+	)
 	ta.SetValue(prompt)
 
 	w := m.width - 4
 	if w < 20 {
 		w = 60
 	}
-	ti.Width = w
+	ti.SetWidth(w)
 	ta.SetWidth(w)
 	h := m.height - 12
 	if h < 4 {
@@ -528,7 +576,7 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 	return ti, ta
 }
 
-func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
@@ -537,6 +585,11 @@ func (m model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.stage = stageList
 		m.formErr = ""
 		return m, nil
+	case "enter":
+		// Enter saves from either field. The prompt area's newline lives on
+		// modifier+enter instead (see newFormInputs, which rebinds the
+		// textarea's InsertNewline off plain enter so it never swallows this).
+		return m.saveForm()
 	case "tab", "shift+tab":
 		return m.toggleFormFocus()
 	case "ctrl+s":
@@ -646,7 +699,7 @@ func (m model) beginClearDone() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
@@ -804,7 +857,7 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 	return targets, newFuzzyList("Filter targets…", items)
 }
 
-func (m model) updateTarget(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateTarget(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
@@ -820,7 +873,10 @@ func (m model) updateTarget(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.chooseTarget(dropPaste)
-	case "ctrl+r":
+	case "shift+enter", "alt+enter", "ctrl+r":
+		// modifier+enter keeps its meaning from the list — the more committing
+		// of the two things enter could do here — so the picker's "submit it to
+		// run" sits on the same chord. ctrl+r stays as the older spelling.
 		return m.chooseTarget(dropRun)
 	}
 	cmd := m.targetList.editQuery(msg)
@@ -892,13 +948,13 @@ func (m model) beginView() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.viewRef = ref
-	m.viewVP = viewport.New(m.viewWidth(), m.viewHeight())
+	m.viewVP = viewport.New(viewport.WithWidth(m.viewWidth()), viewport.WithHeight(m.viewHeight()))
 	m.viewVP.SetContent(m.viewContent(td))
 	m.stage = stageView
 	return m, nil
 }
 
-func (m model) updateView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) updateView(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
@@ -907,6 +963,10 @@ func (m model) updateView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.stage = stageList
 		return m, nil
 	case "enter":
+		// Same split as the list: enter opens the prompt for editing,
+		// modifier+enter hands it to an agent.
+		return m.beginEditRef(m.viewRef)
+	case "shift+enter", "alt+enter":
 		return m.startDrop(m.viewRef)
 	case "ctrl+e":
 		return m.beginEditRef(m.viewRef)
@@ -940,7 +1000,19 @@ func (m model) viewContent(td Todo) string {
 
 // --- View ---------------------------------------------------------------------
 
-func (m model) View() string {
+// View renders the active stage. In bubbletea v2 the alt screen and the pane
+// title are properties of the view rather than startup options, so they are
+// declared on every frame — the title names the pane after the project this
+// backlog belongs to (see RunContext.paneTitle).
+func (m model) View() tea.View {
+	v := tea.NewView(m.renderStage())
+	v.AltScreen = true
+	v.WindowTitle = m.ctx.paneTitle()
+	return v
+}
+
+// renderStage is the rendered body of the current stage.
+func (m model) renderStage() string {
 	if m.quitting {
 		return ""
 	}
@@ -1027,9 +1099,9 @@ func (m model) viewList() string {
 	b.WriteString("\n\n")
 
 	// The empty list is where "there is nowhere to write" has to be said: with
-	// no backlog available, ctrl+a is not the answer and pointing at it would
+	// no backlog available, enter is not the answer and pointing at it would
 	// send the user in a circle.
-	empty := "No prompts yet — press ctrl+a to add one."
+	empty := "No prompts yet — press enter to add one."
 	if !m.project.available() && !m.global.available() {
 		empty = "No backlog here — this pane is not in a project. Relaunch from a project directory, or with --global."
 	}
@@ -1046,7 +1118,7 @@ func (m model) viewList() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("enter drop · ctrl+v view · ctrl+a add · ctrl+e edit · ctrl+t done · ctrl+x delete"))
+	b.WriteString(footerStyle.Render("enter edit · " + m.modEnter() + " drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+x delete"))
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("ctrl+↑/↓ move · ctrl+d hide/show done · ctrl+w clear done · esc quit"))
 	return b.String()
@@ -1077,11 +1149,11 @@ func (m model) viewForm() string {
 	}
 
 	b.WriteString("\n")
-	help := "tab switch field · ctrl+s save · esc cancel"
+	help := "enter save · " + m.modEnter() + " newline · tab switch field · esc cancel"
 	// Advertise the scope toggle only when it works (see the ctrl+g handler):
 	// an only-mode launch pins the scope, so the hint would be a lie there.
 	if m.formMode == formAdd && m.project.available() && m.global.available() {
-		help = "tab switch field · ctrl+s save · ctrl+g toggle scope · esc cancel"
+		help = "enter save · " + m.modEnter() + " newline · tab switch field · ctrl+g toggle scope · esc cancel"
 	}
 	b.WriteString(footerStyle.Render(help))
 	return b.String()
@@ -1136,7 +1208,7 @@ func (m model) viewPrompt() string {
 
 	b.WriteString(m.viewVP.View())
 	b.WriteString("\n\n")
-	b.WriteString(footerStyle.Render("↑/↓ scroll · enter drop · ctrl+e edit · esc back"))
+	b.WriteString(footerStyle.Render("↑/↓ scroll · enter edit · " + m.modEnter() + " drop · esc back"))
 	return b.String()
 }
 
@@ -1150,7 +1222,7 @@ func (m model) viewTarget() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.targetList.view("no agent sessions detected — pick New Claude Code session"))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("enter paste (don't submit) · ctrl+r drop & run · esc back"))
+	b.WriteString(footerStyle.Render("enter paste (don't submit) · " + m.modEnter() + " drop & run · esc back"))
 	return b.String()
 }
 
@@ -1164,19 +1236,19 @@ func (m *model) applySizes() {
 	if w < 20 {
 		return
 	}
-	m.list.input.Width = w
+	m.list.input.SetWidth(w)
 	switch m.stage {
 	case stageForm:
-		m.titleInput.Width = w
+		m.titleInput.SetWidth(w)
 		m.promptArea.SetWidth(w)
 		if h := m.height - 12; h >= 4 {
 			m.promptArea.SetHeight(h)
 		}
 	case stageTarget:
-		m.targetList.input.Width = w
+		m.targetList.input.SetWidth(w)
 	case stageView:
-		m.viewVP.Width = m.viewWidth()
-		m.viewVP.Height = m.viewHeight()
+		m.viewVP.SetWidth(m.viewWidth())
+		m.viewVP.SetHeight(m.viewHeight())
 		if td, ok := m.resolve(m.viewRef); ok {
 			m.viewVP.SetContent(m.viewContent(td))
 		}

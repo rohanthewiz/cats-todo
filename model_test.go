@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // errTestDrop stands in for a drop failure in tests.
@@ -206,7 +206,7 @@ func TestDeleteConfirmFlow(t *testing.T) {
 		t.Errorf("pendingTitle = %q, want 'remove me'", m.pendingTitle)
 	}
 
-	next, _ = m.updateConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	next, _ = m.updateConfirm(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	m = next.(model)
 	if m.stage != stageList {
 		t.Errorf("after confirm stage = %v, want stageList", m.stage)
@@ -229,7 +229,7 @@ func TestDeleteConfirmCancel(t *testing.T) {
 
 	next, _ := m.beginDelete()
 	m = next.(model)
-	next, _ = m.updateConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	next, _ = m.updateConfirm(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m = next.(model)
 	if m.stage != stageList {
 		t.Errorf("after cancel stage = %v, want stageList", m.stage)
@@ -403,7 +403,7 @@ func TestClearDoneConfirmFlow(t *testing.T) {
 		t.Errorf("pendingClearCount = %d, want 2", m.pendingClearCount)
 	}
 
-	next, _ = m.updateConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	next, _ = m.updateConfirm(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	m = next.(model)
 	if m.stage != stageList {
 		t.Errorf("after confirm stage = %v, want stageList", m.stage)
@@ -449,11 +449,11 @@ func TestViewStageFlow(t *testing.T) {
 	if m.stage != stageView {
 		t.Fatalf("beginView stage = %v, want stageView", m.stage)
 	}
-	if got := m.View(); !strings.Contains(got, "second line with the details") {
+	if got := m.View().Content; !strings.Contains(got, "second line with the details") {
 		t.Errorf("view rendering lacks the prompt's later lines:\n%s", got)
 	}
 
-	next, _ = m.updateView(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.updateView(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
 	if m.stage != stageList {
 		t.Errorf("esc from view stage = %v, want stageList", m.stage)
@@ -461,10 +461,18 @@ func TestViewStageFlow(t *testing.T) {
 
 	next, _ = m.beginView()
 	m = next.(model)
-	next, _ = m.updateView(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ = m.updateView(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(model)
+	if m.stage != stageForm || m.editID != "v" {
+		t.Errorf("enter from the view stage: stage=%v editID=%q, want the edit form on this todo", m.stage, m.editID)
+	}
+
+	next, _ = m.beginView()
+	m = next.(model)
+	next, _ = m.updateView(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
 	m = next.(model)
 	if m.stage != stageList || !m.statusErr {
-		t.Errorf("enter (drop) without a control socket: stage=%v statusErr=%v, want stageList with an error status", m.stage, m.statusErr)
+		t.Errorf("shift+enter (drop) without a control socket: stage=%v statusErr=%v, want stageList with an error status", m.stage, m.statusErr)
 	}
 }
 
@@ -685,4 +693,189 @@ func TestBeginDropWithoutSocketReportsError(t *testing.T) {
 	if !m.statusErr || m.status == "" {
 		t.Errorf("expected an error status; got status=%q err=%v", m.status, m.statusErr)
 	}
+}
+
+// --- Enter-key bindings ---------------------------------------------------------
+//
+// The manager puts its two most common actions on enter and reserves the
+// modifier chord for the one that leaves the pane. These tests pin that split
+// on every stage that has it, including the fact that both spellings of the
+// chord — shift+enter (kitty protocol) and alt+enter (legacy ESC CR) — reach
+// the same handler, since which one the terminal can send is not ours to
+// choose.
+
+// enterKey builds an enter press carrying mod, so a test can name the chord it
+// means rather than a KeyPressMsg literal.
+func enterKey(mod tea.KeyMod) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: mod}
+}
+
+// TestListEnterOpensTheForm pins the list's enter: the highlighted todo into
+// the edit form, and — with nothing highlighted, the empty backlog the binding
+// was asked for — a new entry instead.
+func TestListEnterOpensTheForm(t *testing.T) {
+	t.Run("empty list adds", func(t *testing.T) {
+		m, _, _ := newModelInTemp(t)
+		next, _ := m.updateList(enterKey(0))
+		m = next.(model)
+		if m.stage != stageForm || m.formMode != formAdd {
+			t.Errorf("enter on an empty list: stage=%v formMode=%v, want the add form", m.stage, m.formMode)
+		}
+	})
+
+	t.Run("selection edits", func(t *testing.T) {
+		m, project, _ := newModelInTemp(t)
+		if err := project.add(Todo{ID: "e", Title: "edit me", Prompt: "body"}); err != nil {
+			t.Fatal(err)
+		}
+		m.rebuildList()
+
+		next, _ := m.updateList(enterKey(0))
+		m = next.(model)
+		if m.stage != stageForm || m.formMode != formEdit || m.editID != "e" {
+			t.Errorf("enter on a selection: stage=%v formMode=%v editID=%q, want the edit form on 'e'",
+				m.stage, m.formMode, m.editID)
+		}
+	})
+
+	// A filter that matches nothing leaves no selection, so enter falls to the
+	// same "nothing to open, so open a new one" branch as the empty backlog.
+	t.Run("filter matching nothing adds", func(t *testing.T) {
+		m, project, _ := newModelInTemp(t)
+		if err := project.add(Todo{ID: "e", Title: "edit me", Prompt: "body"}); err != nil {
+			t.Fatal(err)
+		}
+		m.rebuildList()
+		m.list.input.SetValue("zzzznomatch")
+		m.list.filter()
+
+		next, _ := m.updateList(enterKey(0))
+		m = next.(model)
+		if m.stage != stageForm || m.formMode != formAdd {
+			t.Errorf("enter with an empty filter result: stage=%v formMode=%v, want the add form", m.stage, m.formMode)
+		}
+	})
+}
+
+// TestListModifierEnterDrops pins that both chord spellings start a drop —
+// here without a control socket, so the drop reports its error on the list
+// rather than reaching the picker. Reaching that error at all is the proof the
+// key routed to startDrop.
+func TestListModifierEnterDrops(t *testing.T) {
+	for name, mod := range map[string]tea.KeyMod{"shift+enter": tea.ModShift, "alt+enter": tea.ModAlt} {
+		t.Run(name, func(t *testing.T) {
+			m, project, _ := newModelInTemp(t)
+			if err := project.add(Todo{ID: "d", Prompt: "drop me"}); err != nil {
+				t.Fatal(err)
+			}
+			m.rebuildList()
+
+			next, _ := m.updateList(enterKey(mod))
+			m = next.(model)
+			if m.stage != stageList || !m.statusErr {
+				t.Errorf("%s: stage=%v statusErr=%v, want a socketless drop error on the list", name, m.stage, m.statusErr)
+			}
+			if m.formMode == formEdit && m.stage == stageForm {
+				t.Errorf("%s opened the edit form — the chord must not fall through to plain enter", name)
+			}
+		})
+	}
+}
+
+// TestFormEnterSavesAndChordInsertsNewline pins the form's half of the split:
+// enter commits the prompt, while every chord spelling reaches the textarea's
+// rebound InsertNewline instead of saving. ctrl+j is in that set as the raw
+// line feed that survives terminals which swallow Option.
+func TestFormEnterSavesAndChordInsertsNewline(t *testing.T) {
+	t.Run("enter saves", func(t *testing.T) {
+		m, project, _ := newModelInTemp(t)
+		next, _ := m.beginAdd()
+		m = next.(model)
+		m.promptArea.SetValue("ship it")
+
+		next, _ = m.updateForm(enterKey(0))
+		m = next.(model)
+		if m.stage != stageList {
+			t.Fatalf("enter in the form: stage=%v, want a save back to the list", m.stage)
+		}
+		if len(project.todos) != 1 || project.todos[0].Prompt != "ship it" {
+			t.Errorf("project todos = %+v, want the saved prompt", project.todos)
+		}
+	})
+
+	newline := map[string]tea.KeyPressMsg{
+		"shift+enter": enterKey(tea.ModShift),
+		"alt+enter":   enterKey(tea.ModAlt),
+		"ctrl+j":      {Code: 'j', Mod: tea.ModCtrl},
+	}
+	for name, key := range newline {
+		t.Run(name+" inserts a newline", func(t *testing.T) {
+			m, project, _ := newModelInTemp(t)
+			next, _ := m.beginAdd()
+			m = next.(model)
+			m.promptArea.SetValue("first")
+
+			next, _ = m.updateForm(key)
+			m = next.(model)
+			if m.stage != stageForm {
+				t.Fatalf("%s in the form: stage=%v, want to stay on the form", name, m.stage)
+			}
+			if got := m.promptArea.Value(); !strings.Contains(got, "\n") {
+				t.Errorf("%s left the prompt as %q, want a newline inserted", name, got)
+			}
+			if len(project.todos) != 0 {
+				t.Errorf("%s saved %d todos, want 0 — the chord must not save", name, len(project.todos))
+			}
+		})
+	}
+}
+
+// TestTargetPickerModifierEnterRuns pins the picker's key routing: enter and
+// the chord each reach chooseTarget and dispatch a drop, rather than being
+// swallowed by the filter box. Which mode each one passes (paste vs run) is
+// sealed inside the returned command's pendingAction and only observable by
+// performing the drop, which needs a live socket — so that half is covered by
+// the handlers' own single-line dispatch, not asserted here.
+func TestTargetPickerModifierEnterRuns(t *testing.T) {
+	build := func(t *testing.T) model {
+		t.Helper()
+		m, project, _ := newModelInTemp(t)
+		if err := project.add(Todo{ID: "d", Prompt: "drop me"}); err != nil {
+			t.Fatal(err)
+		}
+		m.rebuildList()
+		// Stand the picker up without a socket: buildTargets degrades to the
+		// new-session target, which is selected by default.
+		m.dropTodo = todoRef{scope: scopeProject, id: "d"}
+		m.targets, m.targetList = m.buildTargets()
+		m.stage = stageTarget
+		return m
+	}
+
+	// chooseTarget hands the drop off to a command; the mode lives in the
+	// pendingAction it closes over, so assert on the observable proxy — that
+	// both keys dispatch a drop — plus the modes the handlers pass.
+	for name, key := range map[string]tea.KeyPressMsg{
+		"shift+enter": enterKey(tea.ModShift),
+		"alt+enter":   enterKey(tea.ModAlt),
+		"ctrl+r":      {Code: 'r', Mod: tea.ModCtrl},
+	} {
+		t.Run(name+" dispatches a drop", func(t *testing.T) {
+			m := build(t)
+			next, cmd := m.updateTarget(key)
+			m = next.(model)
+			if !m.dropping || cmd == nil {
+				t.Errorf("%s: dropping=%v cmd=%v, want a dispatched drop", name, m.dropping, cmd != nil)
+			}
+		})
+	}
+
+	t.Run("plain enter still pastes", func(t *testing.T) {
+		m := build(t)
+		next, cmd := m.updateTarget(enterKey(0))
+		m = next.(model)
+		if !m.dropping || cmd == nil {
+			t.Errorf("enter: dropping=%v cmd=%v, want a dispatched drop", m.dropping, cmd != nil)
+		}
+	})
 }
