@@ -28,10 +28,11 @@ import (
 type RunContext struct {
 	WorkDir string
 	// ProjectRoot is the directory that owns the project backlog: WorkDir or an
-	// ancestor of it (see findProjectRoot). Kept separate from WorkDir so the
-	// pane's actual location stays available, and so a context built without a
-	// root — the tests, and any caller that only knows a directory — still
-	// scopes sensibly via projectDir.
+	// ancestor of it, and "" when no directory qualifies — a pane sitting at the
+	// filesystem root has no project (see findProjectRoot). Kept separate from
+	// WorkDir so the pane's actual location stays available, and so a context
+	// built without a root — the tests, and any caller that only knows a
+	// directory — still scopes sensibly via projectDir.
 	ProjectRoot    string
 	OwnPane        string // CATS_PANE_ID handle: "w1:p3", or the "p_<id>" fallback
 	WorkspaceID    string // public workspace id ("w1")
@@ -61,9 +62,17 @@ const (
 // projectDir is the directory that scopes project todos and roots a new
 // session's tab: the resolved project root, falling back to the raw working
 // directory when no root was resolved. Empty when neither is known — launched
-// somewhere we could not even name, where only the global backlog applies.
+// somewhere we could not even name, where only the global backlog applies —
+// and equally empty at the filesystem root, which we *can* name but which is
+// never a project (see findProjectRoot). The fallback needs that check of its
+// own: a global-only launch skips the root walk entirely, so a WorkDir of "/"
+// would otherwise arrive here unfiltered.
 func (c RunContext) projectDir() string {
-	return firstNonEmpty(c.ProjectRoot, c.WorkDir)
+	dir := firstNonEmpty(c.ProjectRoot, c.WorkDir)
+	if isFilesystemRoot(dir) {
+		return ""
+	}
+	return dir
 }
 
 // paneTitle is the terminal title the manager advertises while it runs, named
@@ -88,7 +97,33 @@ func (c RunContext) paneTitle() string {
 	return "todo"
 }
 
-// findProjectRoot walks up from dir to the directory that owns the project
+// findProjectRoot resolves the directory that owns the project backlog (see
+// walkProjectRoot), except that the filesystem root is never one: "" — no
+// project — is the answer there.
+//
+// A pane can genuinely wake up at "/": a GUI launch of the mac app inherits
+// launchd's cwd, and every pane spawned from it used to inherit that in turn.
+// Rooting the backlog there produces a path (/.cats-todo/todos.json) that looks
+// fine until the first save, which fails on macOS's read-only system volume
+// with a bare errno. Refusing the root up front turns that into the state the
+// UI already knows how to render — no project, offer the global backlog.
+func findProjectRoot(dir string) string {
+	if root := walkProjectRoot(dir); !isFilesystemRoot(root) {
+		return root
+	}
+	return ""
+}
+
+// isFilesystemRoot reports whether dir is the top of the filesystem ("/"). That
+// is the one directory whose parent is itself, which is also how the walks below
+// know when to stop. Empty is "unknown", not the root, and is left to callers;
+// the absolute-path requirement keeps a relative "." — also its own parent — out
+// of it, since a relative directory names a real place we can write to.
+func isFilesystemRoot(dir string) bool {
+	return dir != "" && filepath.IsAbs(dir) && filepath.Dir(dir) == dir
+}
+
+// walkProjectRoot walks up from dir to the directory that owns the project
 // backlog: the nearest ancestor with an existing .cats-todo backlog wins, then
 // the nearest with a .git directory (the repo root). With neither, dir itself is
 // the root — a directory that is not in a repo and has no backlog yet gets its
@@ -98,7 +133,7 @@ func (c RunContext) paneTitle() string {
 // established backlog always beats a repo root that merely encloses it — a repo
 // with a backlog in a subdirectory keeps using that subdirectory rather than
 // silently starting a second one at the root.
-func findProjectRoot(dir string) string {
+func walkProjectRoot(dir string) string {
 	for d := dir; ; {
 		if fi, err := os.Stat(filepath.Join(d, projectConfigDirName)); err == nil && fi.IsDir() {
 			return d
@@ -123,9 +158,10 @@ func findProjectRoot(dir string) string {
 }
 
 // gatherRunContext builds the launch context. The working directory always
-// resolves (it is this process's cwd) and the project root is walked up from it,
-// so opening the manager from a subdirectory reaches the same backlog `cats-todo
-// add` writes to from that subdirectory; the pane handle comes from the
+// resolves (it is this process's cwd) and the project root is walked up from it
+// — empty only when the cwd is the filesystem root — so opening the manager
+// from a subdirectory reaches the same backlog `cats-todo add` writes to from
+// that subdirectory; the pane handle comes from the
 // environment; the workspace resolves via the client — from the pane handle's
 // "w1" prefix when present, else the active workspace — and is left empty when
 // the control socket is unavailable (client nil). A partial context still runs:

@@ -52,7 +52,15 @@ func addFromCLI(args []string) {
 		if err != nil {
 			errExit("could not determine the working directory:", err)
 		}
-		st = &store{scope: scopeProject, path: projectTodosPath(findProjectRoot(wd))}
+		root := findProjectRoot(wd)
+		// No project owns this directory (the cwd is the filesystem root). An
+		// unavailable store saves to nothing and reports success, so without
+		// this the prompt would be swallowed and the command would still print
+		// "added".
+		if root == "" {
+			errExit("no project backlog here — run from a project directory, or use -g for the global backlog")
+		}
+		st = &store{scope: scopeProject, path: projectTodosPath(root)}
 	}
 
 	t := strings.TrimSpace(*title)

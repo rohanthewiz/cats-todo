@@ -102,6 +102,64 @@ func TestBeginAddDefaultsToGlobalOutsideProject(t *testing.T) {
 	}
 }
 
+// TestBeginAddRefusesWithNoBacklog covers the one launch where neither store is
+// writable: --project from a directory no project owns (a pane at the filesystem
+// root). An unavailable store's save is a silent no-op that reports success, so
+// the form must not open at all — otherwise the user types a prompt, is told it
+// was added, and it is gone.
+func TestBeginAddRefusesWithNoBacklog(t *testing.T) {
+	project := &store{scope: scopeProject, path: ""} // no project owns the cwd
+	global := &store{scope: scopeGlobal, path: ""}   // --project withholds it
+	m := newModel(RunContext{WorkDir: "/"}, project, global, nil)
+
+	next, _ := m.beginAdd()
+	m = next.(model)
+	if m.stage != stageList {
+		t.Errorf("stage = %v, want stageList — the form must not open with nowhere to write", m.stage)
+	}
+	if !m.statusErr || !strings.Contains(m.status, "no project backlog here") {
+		t.Errorf("status = %q (err %v), want an error naming the missing backlog", m.status, m.statusErr)
+	}
+
+	// The list itself has to say so too: ctrl+a is not the way out of this
+	// state, so the empty-list hint must not point at it.
+	view := m.viewList()
+	if !strings.Contains(view, "No backlog here") || strings.Contains(view, "press ctrl+a") {
+		t.Errorf("viewList = %q, want the no-backlog hint instead of the ctrl+a one", view)
+	}
+	if !strings.Contains(view, "no backlog here") {
+		t.Errorf("viewList = %q, want the header to read \"no backlog here\"", view)
+	}
+}
+
+// TestSaveFormRefusesUnavailableStore is the backstop behind beginAdd's guard:
+// reaching the form with an unavailable target must fail loudly rather than
+// report a save that wrote nothing.
+func TestSaveFormRefusesUnavailableStore(t *testing.T) {
+	project := &store{scope: scopeProject, path: ""}
+	global := &store{scope: scopeGlobal, path: ""}
+	m := newModel(RunContext{WorkDir: "/"}, project, global, nil)
+
+	// Enter the form the way beginAdd would if its guard were not there.
+	m.formMode = formAdd
+	m.formScope = scopeProject
+	m.titleInput, m.promptArea = m.newFormInputs("", "")
+	m.promptArea.SetValue("something worth keeping")
+	m.stage = stageForm
+
+	next, _ := m.saveForm()
+	m = next.(model)
+	if m.stage != stageForm {
+		t.Errorf("stage = %v, want stageForm — a refused save stays in the form", m.stage)
+	}
+	if !strings.Contains(m.formErr, "no project backlog is available") {
+		t.Errorf("formErr = %q, want it to name the unavailable backlog", m.formErr)
+	}
+	if len(project.todos) != 0 {
+		t.Errorf("project has %d todos, want none saved", len(project.todos))
+	}
+}
+
 // TestToggleSelected flips the highlighted todo's done flag and reports the right
 // status, both directions.
 func TestToggleSelected(t *testing.T) {

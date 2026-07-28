@@ -92,6 +92,27 @@ func TestGatherRunContextWithoutClient(t *testing.T) {
 		}
 	})
 
+	t.Run("a launch at the filesystem root has no project", func(t *testing.T) {
+		// The mac app's GUI-launch cwd, inherited all the way down to the pane.
+		// WorkDir stays honest (that IS where the pane is), but no project owns
+		// it, so loadStores leaves the project backlog unavailable instead of
+		// aiming it at a read-only /.cats-todo.
+		t.Chdir(string(filepath.Separator))
+		t.Setenv(integration.CatsPaneIDEnvVar, "")
+		ctx := gatherRunContext(nil, launchProjectOnly)
+		if ctx.ProjectRoot != "" || ctx.projectDir() != "" {
+			t.Errorf("ctx = %+v, projectDir = %q; want no project at the filesystem root",
+				ctx, ctx.projectDir())
+		}
+		project, _, err := loadStores(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if project.available() {
+			t.Errorf("project store path = %q, want unavailable", project.path)
+		}
+	})
+
 	t.Run("project-only keeps the project walk", func(t *testing.T) {
 		// --project narrows what shows, not where it looks: the root walk must
 		// still run so the subdirectory launch reaches the project's backlog.
@@ -145,6 +166,37 @@ func TestFindProjectRoot(t *testing.T) {
 			t.Errorf("findProjectRoot = %q, want the directory itself %q", got, dir)
 		}
 	})
+
+	t.Run("the filesystem root is never a project", func(t *testing.T) {
+		// A pane that woke up at "/" (mac app GUI launch inheriting launchd's
+		// cwd) used to root the backlog there: /.cats-todo/todos.json, a path
+		// that only fails at save time, on a read-only volume, with a bare
+		// errno. "" — no project — is the answer, whatever markers the root
+		// happens to carry.
+		if got := findProjectRoot(string(filepath.Separator)); got != "" {
+			t.Errorf("findProjectRoot(/) = %q, want \"\" (no project owns the filesystem root)", got)
+		}
+	})
+}
+
+// TestIsFilesystemRoot pins the one directory that can never be a project root,
+// and the near-misses that still can.
+func TestIsFilesystemRoot(t *testing.T) {
+	tests := []struct {
+		dir  string
+		want bool
+	}{
+		{"/", true},
+		{"/repo", false},
+		{"/repo/sub", false},
+		{"", false},  // unknown, not the root — callers handle it themselves
+		{".", false}, // its own parent too, but a real writable place
+	}
+	for _, tt := range tests {
+		if got := isFilesystemRoot(tt.dir); got != tt.want {
+			t.Errorf("isFilesystemRoot(%q) = %v, want %v", tt.dir, got, tt.want)
+		}
+	}
 }
 
 // TestRunContextProjectDir pins the fallback order for the directory that scopes
@@ -158,6 +210,12 @@ func TestRunContextProjectDir(t *testing.T) {
 		{"root wins when resolved", RunContext{WorkDir: "/repo/sub", ProjectRoot: "/repo"}, "/repo"},
 		{"falls back to the workdir", RunContext{WorkDir: "/repo/sub"}, "/repo/sub"},
 		{"empty when neither is known", RunContext{}, ""},
+		// The filesystem root is a directory we can name but never a project:
+		// both the fallback and a (never-produced) root ProjectRoot drop it, so
+		// the project store comes out unavailable rather than pointed at
+		// /.cats-todo.
+		{"empty at the filesystem root", RunContext{WorkDir: "/"}, ""},
+		{"empty for a root project root", RunContext{WorkDir: "/", ProjectRoot: "/"}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

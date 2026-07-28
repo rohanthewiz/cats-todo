@@ -446,6 +446,15 @@ func (m *model) selectRow(ref todoRef) {
 // --- Add / Edit form ----------------------------------------------------------
 
 func (m model) beginAdd() (tea.Model, tea.Cmd) {
+	// Neither backlog is writable: a --project launch that found no project
+	// (the pane woke up at the filesystem root), the one combination that
+	// leaves both stores unavailable. An unavailable store's save is a silent
+	// no-op that reports success, so the form would take the prompt and drop
+	// it — refuse to open it instead.
+	if !m.project.available() && !m.global.available() {
+		m.setStatus("no project backlog here — relaunch from a project directory, or with --global", true)
+		return m, nil
+	}
 	m.formMode = formAdd
 	// Default to the project backlog when launched inside a project, else global.
 	if m.project.available() {
@@ -581,6 +590,13 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 	}
 
 	st := m.storeFor(m.formScope)
+	// Backstop for the same silent-no-op hazard beginAdd guards: any future
+	// path into the form with an unavailable target must fail loudly rather
+	// than report a save that wrote nothing.
+	if !st.available() {
+		m.formErr = "no " + strings.ToLower(m.formScope.String()) + " backlog is available here"
+		return m, nil
+	}
 	if m.formMode == formAdd {
 		err := st.add(Todo{ID: newID(), Title: title, Prompt: prompt, Created: time.Now()})
 		if err != nil {
@@ -991,9 +1007,15 @@ func (m model) scopeNote() string {
 func (m model) viewList() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(listTitle))
+	// "global only" is the ordinary no-project header — but a --project launch
+	// with no project has no global store either, and naming a backlog that is
+	// not on screen is exactly the confusion the only-modes exist to remove.
 	scopeNote := "global only"
-	if m.project.available() {
+	switch {
+	case m.project.available():
 		scopeNote = m.scopeNote()
+	case !m.global.available():
+		scopeNote = "no backlog here"
 	}
 	b.WriteString("  ")
 	b.WriteString(descStyle.Render(scopeNote))
@@ -1004,7 +1026,14 @@ func (m model) viewList() string {
 	}
 	b.WriteString("\n\n")
 
-	b.WriteString(m.list.view("No prompts yet — press ctrl+a to add one."))
+	// The empty list is where "there is nowhere to write" has to be said: with
+	// no backlog available, ctrl+a is not the answer and pointing at it would
+	// send the user in a circle.
+	empty := "No prompts yet — press ctrl+a to add one."
+	if !m.project.available() && !m.global.available() {
+		empty = "No backlog here — this pane is not in a project. Relaunch from a project directory, or with --global."
+	}
+	b.WriteString(m.list.view(empty))
 
 	if m.status != "" {
 		b.WriteString("\n")
