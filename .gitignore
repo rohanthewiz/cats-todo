@@ -1,1 +1,7 @@
 bin/
+.claude/
+
+# This repo's own prompt backlog, written by the tool it builds. A project
+# backlog is committed with the repo in a normal project (see README); here it
+# is just dogfooding scratch and does not belong in the history.
+.cats-todo/todos.json

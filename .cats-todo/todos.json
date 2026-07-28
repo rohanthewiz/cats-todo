@@ -1,9 +1,0 @@
-[
-  {
-    "id": "810432603138f921",
-    "title": "Let's change the default keys in cats-todo. How about ENTER…",
-    "prompt": "Let's change the default keys in cats-todo. How about ENTER on an empty list adds a new todo, and ENTER while editing a todo saves it. If the user wants a new line then can we use ALT-ENTER, or SHIFT-ENTER or we can discuss about other modifiers. Then we'll use some similar modifier and ENTER combination to drop the todo to claude.",
-    "done": true,
-    "created": "2026-07-28T13:57:10.15554-05:00"
-  }
-]
