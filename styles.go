@@ -29,4 +29,13 @@ var (
 	checkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ECE6A"))
 	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E"))
 	okStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ECE6A"))
+
+	// Action-bar buttons. Each chip is rendered by exactly one of these styles —
+	// label and key hint together — because nesting a second style inside a
+	// chip would let the outer reset clobber the inner one (see the badge note
+	// in fuzzylist.view). btnOffStyle marks a button whose action needs a
+	// highlighted todo when there isn't one: still readable, plainly inert.
+	btnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#C0CAF5")).Background(lipgloss.Color("#2A2F3A")).Padding(0, 1)
+	btnFocusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#11111B")).Background(lipgloss.Color("#7AA2F7")).Bold(true).Padding(0, 1)
+	btnOffStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563")).Background(lipgloss.Color("#22262C")).Padding(0, 1)
 )

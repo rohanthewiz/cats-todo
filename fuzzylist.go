@@ -190,8 +190,11 @@ func (l *fuzzyList) editQuery(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// view renders the query line, the match count, and the result rows.
-func (l fuzzyList) view(emptyMsg string) string {
+// view renders the query line, the match count, and the result rows. bar, when
+// non-empty, is written on its own line between the query and the rows — the
+// manager's action bar. It is passed in pre-rendered rather than built here
+// because the buttons act on the caller's model, not on the list.
+func (l fuzzyList) view(emptyMsg, bar string) string {
 	var b strings.Builder
 
 	matched, total := 0, 0
@@ -210,7 +213,13 @@ func (l fuzzyList) view(emptyMsg string) string {
 	b.WriteString(l.input.View())
 	b.WriteString("   ")
 	b.WriteString(countStyle.Render(fmt.Sprintf("%d/%d", matched, total)))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	if bar != "" {
+		b.WriteString("\n")
+		b.WriteString(bar)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	if matched == 0 {
 		b.WriteString(descStyle.Render("  " + emptyMsg))

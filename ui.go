@@ -140,6 +140,12 @@ type model struct {
 	list     fuzzyList
 	rows     []todoRef // selectable row index -> todo
 	hideDone bool      // fold completed todos out of the list
+	// Action bar. actionFocus says whether tab has walked the focus out of the
+	// query box and onto a button; actionIdx is which one. Focus is a bool
+	// rather than a -1 sentinel in actionIdx so the zero-value model starts
+	// where every launch should — typing into the filter.
+	actionFocus bool
+	actionIdx   int
 
 	// Form stage.
 	formMode   formMode
@@ -310,7 +316,13 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "esc":
-		// Clear an active filter first; quit only when there's nothing to clear.
+		// Step back out of the action bar first, then clear an active filter;
+		// quit only when there's nothing left to back out of. Esc is the "undo
+		// the state I'm in" key, and quitting the manager is the last resort.
+		if m.actionFocus {
+			m.actionFocus = false
+			return m, nil
+		}
 		if strings.TrimSpace(m.list.input.Value()) != "" {
 			m.list.input.SetValue("")
 			m.list.filter()
@@ -318,18 +330,42 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.quitting = true
 		return m, tea.Quit
+	case "tab":
+		m.moveActionFocus(1)
+		return m, nil
+	case "shift+tab":
+		m.moveActionFocus(-1)
+		return m, nil
+	case "left", "right":
+		// Only while a button holds the focus; otherwise these belong to the
+		// query box's cursor, which is where they fall through to.
+		if m.actionFocus {
+			delta := 1
+			if msg.String() == "left" {
+				delta = -1
+			}
+			n := len(m.listActions())
+			m.actionIdx = (m.actionIdx + delta + n) % n
+			return m, nil
+		}
 	case "up", "ctrl+p":
+		// The row highlight keeps moving while a button is focused: pick the
+		// prompt, then press the button that acts on it.
 		m.list.moveUp()
 		return m, nil
 	case "down", "ctrl+n":
 		m.list.moveDown()
 		return m, nil
 	case "enter":
-		// Enter is the "open what's in front of me" key: the highlighted todo
-		// into the edit form, or — with nothing to open, whether the backlog is
-		// empty or the filter matched nothing — straight into a new entry.
-		// Dropping, the one action that leaves the manager and touches another
-		// pane, is deliberately not on a bare keystroke.
+		// On a button, enter presses it. Otherwise enter is the "open what's in
+		// front of me" key: the highlighted todo into the edit form, or — with
+		// nothing to open, whether the backlog is empty or the filter matched
+		// nothing — straight into a new entry. Dropping, the one action that
+		// leaves the manager and touches another pane, is deliberately not on a
+		// bare keystroke.
+		if m.actionFocus {
+			return m.runAction(m.actionIdx)
+		}
 		if _, ok := m.selectedRef(); ok {
 			return m.beginEdit()
 		}
@@ -366,8 +402,89 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+down":
 		return m.moveSelected(1)
 	}
+	// Anything else is text for the filter — so the focus goes back with it.
+	// Leaving a button lit while the characters land in the query box would
+	// show the focus in one place and put it in another.
+	m.actionFocus = false
 	cmd := m.list.editQuery(msg)
 	return m, cmd
+}
+
+// listAction is one button in the action bar under the filter. Every button
+// mirrors a key binding rather than replacing it: hint is the chord it stands
+// for, printed on the chip so the bar teaches the keyboard path instead of
+// competing with it. needsSel marks the actions that have nothing to act on
+// until a prompt is highlighted.
+type listAction struct {
+	label    string
+	hint     string
+	needsSel bool
+}
+
+// Indexes into listActions — used by runAction to name what it is dispatching.
+const (
+	actionAdd = iota
+	actionEdit
+	actionSend
+	actionDelete
+)
+
+// listActions is the action bar's contents, in order. Send's hint follows
+// modEnter because which spelling of the drop chord the terminal can send is
+// only known once it answers the keyboard-enhancement request.
+func (m model) listActions() []listAction {
+	return []listAction{
+		{label: "+ Add", hint: "ctrl+a"},
+		{label: "✎ Edit", hint: "enter", needsSel: true},
+		{label: "➤ Send", hint: m.modEnter(), needsSel: true},
+		{label: "✕ Delete", hint: "ctrl+x", needsSel: true},
+	}
+}
+
+// moveActionFocus walks the focus one stop around the ring of query box and
+// buttons: tab out of the filter, across the buttons, and back into the filter.
+func (m *model) moveActionFocus(delta int) {
+	n := len(m.listActions())
+	i := m.actionIdx
+	if !m.actionFocus {
+		i = -1 // the query box, the ring's first stop
+	}
+	switch i += delta; {
+	case i < -1:
+		i = n - 1
+	case i >= n:
+		i = -1
+	}
+	m.actionFocus = i >= 0
+	if m.actionFocus {
+		m.actionIdx = i
+	}
+}
+
+// runAction presses button i. A button whose action needs a highlighted prompt
+// says so rather than doing nothing: the underlying begin* helpers return
+// silently when there is no selection, which on a button press reads as a dead
+// control.
+func (m model) runAction(i int) (tea.Model, tea.Cmd) {
+	acts := m.listActions()
+	if i < 0 || i >= len(acts) {
+		return m, nil
+	}
+	if _, ok := m.selectedRef(); acts[i].needsSel && !ok {
+		m.setStatus("highlight a prompt first — ↑/↓ to choose one", false)
+		return m, nil
+	}
+	switch i {
+	case actionAdd:
+		return m.beginAdd()
+	case actionEdit:
+		return m.beginEdit()
+	case actionSend:
+		return m.beginDrop()
+	case actionDelete:
+		return m.beginDelete()
+	}
+	return m, nil
 }
 
 // selectedRef returns the highlighted todo's ref, and whether one is selected.
@@ -1516,7 +1633,7 @@ func (m model) viewList() string {
 	if !m.project.available() && !m.global.available() {
 		empty = "No backlog here — this pane is not in a project. Relaunch from a project directory, or with --global."
 	}
-	b.WriteString(m.list.view(empty))
+	b.WriteString(m.list.view(empty, m.actionBar()))
 
 	if m.status != "" {
 		b.WriteString("\n")
@@ -1531,9 +1648,59 @@ func (m model) viewList() string {
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("enter edit · " + m.modEnter() + " drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+x delete"))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("ctrl+↑/↓ move · ctrl+d hide/show done · ctrl+w clear done · esc quit"))
+	b.WriteString(footerStyle.Render("tab buttons · ctrl+↑/↓ move · ctrl+d hide/show done · ctrl+w clear done · esc quit"))
 	return b.String()
 }
+
+// actionBar renders the row of buttons under the filter. A button whose action
+// needs a highlighted prompt is greyed when there isn't one, so the bar also
+// answers "why did nothing happen".
+//
+// The key hints ride inside the chips whenever the row fits with them — a
+// button that names its shortcut is a lesson, not just a target. In a pane too
+// narrow for that, the labels are what has to survive; the footer still names
+// every chord.
+func (m model) actionBar() string {
+	acts := m.listActions()
+	_, hasSel := m.selectedRef()
+
+	chip := func(a listAction, withHint bool) string {
+		if withHint {
+			return a.label + " " + a.hint
+		}
+		return a.label
+	}
+
+	withHints := true
+	if m.width > 0 {
+		w := indentWidth
+		for _, a := range acts {
+			w += lipgloss.Width(btnStyle.Render(chip(a, true))) + 1
+		}
+		withHints = w <= m.width
+	}
+
+	var b strings.Builder
+	b.WriteString(strings.Repeat(" ", indentWidth))
+	for i, a := range acts {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		st := btnStyle
+		switch {
+		case m.actionFocus && i == m.actionIdx:
+			st = btnFocusStyle
+		case a.needsSel && !hasSel:
+			st = btnOffStyle
+		}
+		b.WriteString(st.Render(chip(a, withHints)))
+	}
+	return b.String()
+}
+
+// indentWidth is the left margin the list's rows sit at (the two columns the
+// selection bar occupies), so the action bar lines up with them.
+const indentWidth = 2
 
 func (m model) viewForm() string {
 	var b strings.Builder
@@ -1708,7 +1875,7 @@ func (m model) viewTarget() string {
 	b.WriteString("  ")
 	b.WriteString(descStyle.Render(truncate(title, 60)))
 	b.WriteString("\n\n")
-	b.WriteString(m.targetList.view("no agent sessions detected — pick New Claude Code session"))
+	b.WriteString(m.targetList.view("no agent sessions detected — pick New Claude Code session", ""))
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("enter paste (don't submit) · " + m.modEnter() + " drop & run · esc back"))
 	return b.String()

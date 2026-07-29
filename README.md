@@ -33,6 +33,14 @@ pastes the prompt staged for review and `shift+enter` submits it to run (and
 marks the todo done). Inside the editor `enter` saves and `shift+enter` inserts
 a newline. Outside cats it still manages backlogs; only drops need the socket.
 
+Under the filter box sits a row of action buttons — **Add**, **Edit**, **Send**,
+**Delete** — each labelled with the chord it stands for. `tab` walks the focus
+out of the filter and across them (`shift+tab` walks back, `←`/`→` move along
+the row, `enter` presses, `esc` returns to the filter); `↑`/`↓` keep moving the
+row highlight the whole time, so you can pick a prompt and then press the button
+that acts on it. Typing anything hands the focus straight back to the filter. A
+button that needs a highlighted prompt is greyed out until there is one.
+
 ## Images
 
 In the editor, `ctrl+o` opens the attachment editor. Three ways to get an image
