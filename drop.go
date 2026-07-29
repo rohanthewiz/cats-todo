@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"strings"
 )
 
 // performDrop carries out the chosen drop. For an existing pane it types the
@@ -12,7 +13,7 @@ func performDrop(client *catsClient, act pendingAction) error {
 	if client == nil {
 		return errors.New("cats control socket unavailable")
 	}
-	prompt := act.todo.Prompt
+	prompt := composePrompt(act.todo.Prompt, act.images)
 	switch act.target.kind {
 	case targetExistingPane:
 		if err := client.sendInput(act.target.pane, prompt, act.mode == dropRun); err != nil {
@@ -27,6 +28,41 @@ func performDrop(client *catsClient, act pendingAction) error {
 		return dropIntoNewSession(client, act, prompt)
 	}
 	return errors.New("unknown drop target")
+}
+
+// imageBlockHeader introduces the attachment paths appended to a dropped
+// prompt. It is a sentence rather than a bare "Images:" label because a path
+// sitting in a prompt reads as a mention — the agent has to be told the file is
+// there to be opened.
+const imageBlockHeader = "Attached images — read these files:"
+
+// composePrompt is the text actually delivered to an agent: the prompt body,
+// plus one absolute path per attachment.
+//
+// This is the whole of image "support" on the wire. pane.send_input types
+// keystrokes, so the bytes of an image can never cross it; the path can, and
+// the agent reads the file itself. Paths are given one per line and bare — no
+// "@" prefix, which Claude Code's input treats as the start of a file-picker
+// mention and would rewrite mid-paste.
+//
+// The result never ends in a newline: sendInput's contract is that a trailing
+// newline in the text would be inserted literally by the line editor rather
+// than submitting (submission is the separate Enter that dropRun sends).
+func composePrompt(prompt string, images []string) string {
+	if len(images) == 0 {
+		return prompt
+	}
+	var b strings.Builder
+	if prompt != "" {
+		b.WriteString(prompt)
+		b.WriteString("\n\n")
+	}
+	b.WriteString(imageBlockHeader)
+	for _, p := range images {
+		b.WriteString("\n")
+		b.WriteString(p)
+	}
+	return b.String()
 }
 
 // dropIntoNewSession opens a fresh tab (in the active workspace — the one the

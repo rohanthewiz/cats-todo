@@ -91,6 +91,11 @@ type pendingAction struct {
 	// reference to). Only targetNewSession uses it; a drop into an existing pane
 	// inherits that pane's directory.
 	cwd string
+	// images are the todo's attachments as absolute paths, resolved against
+	// their store at dispatch for the same reason as cwd — the drop goroutine
+	// holds no store to resolve them itself. Already filtered to files that
+	// exist (see store.imagePaths).
+	images []string
 }
 
 // dropResultMsg reports the outcome of an asynchronous drop back to the Update
@@ -394,9 +399,17 @@ func (m *model) rebuildList() {
 			if name == "" {
 				name = firstLine(t.Prompt, 60)
 			}
+			// Attachments lead the description: a prompt written about a
+			// screenshot usually reads as a fragment without it ("this is
+			// wrong"), so the fact that one is carried is what makes the row
+			// make sense.
+			desc := firstLine(t.Prompt, 70)
+			if n := len(t.Images); n > 0 {
+				desc = fmt.Sprintf("📎%d  %s", n, desc)
+			}
 			items = append(items, listItem{
 				name: name,
-				desc: firstLine(t.Prompt, 70),
+				desc: desc,
 				// Match against the whole prompt (flattened to one line), not
 				// just the rendered first-line preview, so a filter can hit
 				// text buried deep in a multi-line prompt.
@@ -905,7 +918,13 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 	m.dropping = true
 	m.stage = stageList
 	m.setStatus("dropping into "+targetDesc(target)+"…", false)
-	return m, m.performDropCmd(m.dropTodo, pendingAction{todo: td, target: target, mode: mode, cwd: m.ctx.projectDir()})
+	return m, m.performDropCmd(m.dropTodo, pendingAction{
+		todo:   td,
+		target: target,
+		mode:   mode,
+		cwd:    m.ctx.projectDir(),
+		images: m.storeFor(m.dropTodo.scope).imagePaths(td),
+	})
 }
 
 // performDropCmd runs the chosen drop in a goroutine (a tea.Cmd) so cats's
@@ -993,9 +1012,31 @@ func (m model) viewHeight() int {
 	return 16
 }
 
-// viewContent renders the todo's full prompt wrapped to the view's width.
+// viewContent renders the todo's full prompt wrapped to the view's width,
+// followed by its attachments when it has any.
+//
+// The attachment lines are plain text rather than styled: the whole body goes
+// through one lipgloss Width() wrap, and pre-styled spans inside a wrapped
+// block have their ANSI resets clobbered at the wrap points — the same hazard
+// the list's badges are written verbatim to avoid.
 func (m model) viewContent(td Todo) string {
-	return lipgloss.NewStyle().Width(m.viewWidth()).Render(td.Prompt)
+	body := td.Prompt
+	if refs := m.storeFor(m.viewRef.scope).resolveImages(td); len(refs) > 0 {
+		var b strings.Builder
+		b.WriteString(body)
+		fmt.Fprintf(&b, "\n\n📎 %d attached:", len(refs))
+		for _, ref := range refs {
+			b.WriteString("\n  " + ref.rel)
+			// A missing file is dropped from the delivered prompt rather than
+			// sent for the agent to chase, so this view is the only place the
+			// user finds out it went.
+			if ref.missing {
+				b.WriteString("   (missing — will not be sent)")
+			}
+		}
+		body = b.String()
+	}
+	return lipgloss.NewStyle().Width(m.viewWidth()).Render(body)
 }
 
 // --- View ---------------------------------------------------------------------

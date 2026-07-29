@@ -13,6 +13,7 @@ cats-todo -p                           # open it on this project's backlog only
 cats-todo -g                           # open it on the global backlog only
 cats-todo add fix the flaky reconnect  # quick-capture to the project backlog
 git log -p | cats-todo add -g -t huh   # capture piped stdin to the global backlog
+cats-todo add -i ~/Desktop/shot.png this layout is wrong   # attach an image
 ```
 
 Both the manager and `add` scope the project backlog to the same place: the
@@ -31,6 +32,19 @@ drops the prompt into an agent. That opens the target picker, where `enter`
 pastes the prompt staged for review and `shift+enter` submits it to run (and
 marks the todo done). Inside the editor `enter` saves and `shift+enter` inserts
 a newline. Outside cats it still manages backlogs; only drops need the socket.
+
+## Images
+
+`add -i <file>` attaches an image to a prompt, repeatably. The file is *copied*
+into the backlog (`.cats-todo/images/<todo-id>/`, or the config dir for a global
+todo), so you can attach a screenshot and then clear it off your Desktop. The
+list marks an attachment-carrying prompt with `📎n`, and `ctrl+v` lists the files.
+
+Nothing binary crosses the wire: a drop delivers the prompt with each
+attachment's absolute path appended, and the agent reads the files itself. An
+attachment that has since been deleted is left out of the delivered prompt and
+flagged in the `ctrl+v` view rather than sent for the agent to chase. Accepted
+formats are `.png`, `.jpg`/`.jpeg`, `.gif` and `.webp`, up to 10 MiB each.
 
 `alt+enter` is bound everywhere `shift+enter` is, and `ctrl+j` also inserts a
 newline in the editor. Distinguishing shift+enter from a bare enter needs the

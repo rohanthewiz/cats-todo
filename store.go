@@ -16,9 +16,14 @@ var errTodoNotFound = errors.New("todo not found (changed from another pane?)")
 
 // Todo is one saved prompt of future work.
 type Todo struct {
-	ID      string    `json:"id"`
-	Title   string    `json:"title"`
-	Prompt  string    `json:"prompt"`
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Prompt string `json:"prompt"`
+	// Images are the todo's attachments, as paths relative to the backlog
+	// file's directory (see images.go). Omitted from the JSON when empty, so a
+	// backlog without attachments reads exactly as it did before the field
+	// existed — and an older binary ignores the field rather than choking.
+	Images  []string  `json:"images,omitempty"`
 	Done    bool      `json:"done"`
 	Created time.Time `json:"created"`
 }
@@ -178,6 +183,12 @@ func (s *store) add(t Todo) error {
 }
 
 // update replaces the todo with the same ID (title/prompt) and persists.
+//
+// The field-by-field copy is deliberate rather than a whole-struct assignment:
+// the caller is the edit form, which knows only the two fields it showed. Done,
+// Created and Images stay as they are on disk, so editing a prompt's text can
+// never silently drop its attachments — or resurrect ones deleted from another
+// pane. Attaching and detaching are their own operations (see images.go).
 func (s *store) update(t Todo) error {
 	if err := s.reload(); err != nil {
 		return err
@@ -192,7 +203,9 @@ func (s *store) update(t Todo) error {
 	return errTodoNotFound
 }
 
-// delete removes the todo with id and persists.
+// delete removes the todo with id and persists, along with any attachments it
+// owned. The files go only after the save succeeds: a backlog still listing a
+// todo whose images we had already deleted is the worse of the two failures.
 func (s *store) delete(id string) error {
 	if err := s.reload(); err != nil {
 		return err
@@ -200,7 +213,11 @@ func (s *store) delete(id string) error {
 	for i, t := range s.todos {
 		if t.ID == id {
 			s.todos = append(s.todos[:i], s.todos[i+1:]...)
-			return s.save()
+			if err := s.save(); err != nil {
+				return err
+			}
+			s.removeImages(id)
+			return nil
 		}
 	}
 	return errTodoNotFound
@@ -279,19 +296,27 @@ func (s *store) clearDone() (int, error) {
 		return 0, err
 	}
 	kept := s.todos[:0]
-	removed := 0
+	var clearedIDs []string
 	for _, t := range s.todos {
 		if t.Done {
-			removed++
+			clearedIDs = append(clearedIDs, t.ID)
 			continue
 		}
 		kept = append(kept, t)
 	}
 	s.todos = kept
-	if removed == 0 {
+	if len(clearedIDs) == 0 {
 		return 0, nil
 	}
-	return removed, s.save()
+	if err := s.save(); err != nil {
+		return 0, err
+	}
+	// Same ordering as delete: the backlog is authoritative, so the files go
+	// only once it no longer mentions them.
+	for _, id := range clearedIDs {
+		s.removeImages(id)
+	}
+	return len(clearedIDs), nil
 }
 
 // find returns a copy of the todo with id, and whether it was found.
