@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,5 +60,57 @@ func TestEnterKeysEndToEnd(t *testing.T) {
 	}
 	if out.Len() == 0 {
 		t.Error("the program rendered nothing")
+	}
+}
+
+// TestAttachKeysEndToEnd drives the attachment editor with real terminal bytes,
+// for the reason the test above exists: the binding is the feature, and only the
+// wire proves it. It is here because the obvious mnemonic does not survive the
+// wire at all — ctrl+i and tab are both 0x09, so on a terminal without the kitty
+// protocol ctrl+i arrives as the tab that switches form fields, and the editor
+// never opens. ctrl+o (0x0f) is bound because it cannot collide.
+//
+// Keys: enter (the list is empty, so the add form) · the prompt · ctrl+o (open
+// the attachment editor) · ctrl+r (offer the newest image in CATS_TODO_IMAGE_DIR)
+// · enter (attach it) · enter (empty box — back to the form) · enter (save) ·
+// ctrl+c.
+func TestAttachKeysEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	shot := filepath.Join(dir, "shot.png")
+	if err := os.WriteFile(shot, make([]byte, 16), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(imageSourceDirEnvVar, dir)
+
+	project := &store{scope: scopeProject, path: filepath.Join(dir, "project", "todos.json")}
+	global := &store{scope: scopeGlobal, path: filepath.Join(dir, "global", "todos.json")}
+	m := newModel(RunContext{WorkDir: filepath.Join(dir, "project")}, project, global, nil)
+
+	keys := "\r" + "this layout is wrong" + "\x0f" + "\x12" + "\r" + "\r" + "\r" + "\x03"
+
+	var out bytes.Buffer
+	p := tea.NewProgram(m, tea.WithInput(strings.NewReader(keys)), tea.WithOutput(&out))
+	done := make(chan error, 1)
+	go func() { _, err := p.Run(); done <- err }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("program run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		p.Kill()
+		t.Fatal("program did not exit on ctrl+c")
+	}
+
+	if len(project.todos) != 1 {
+		t.Fatalf("project todos = %+v, want the single prompt the keystrokes entered", project.todos)
+	}
+	td := project.todos[0]
+	if len(td.Images) != 1 {
+		t.Fatalf("Images = %v, want the one ctrl+o/ctrl+r/enter attached "+
+			"(empty means the editor never opened, or ctrl+r offered nothing)", td.Images)
+	}
+	if refs := project.resolveImages(td); refs[0].missing {
+		t.Errorf("attachment %s was recorded but never copied in", refs[0].rel)
 	}
 }

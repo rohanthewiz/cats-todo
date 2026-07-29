@@ -35,10 +35,27 @@ a newline. Outside cats it still manages backlogs; only drops need the socket.
 
 ## Images
 
-`add -i <file>` attaches an image to a prompt, repeatably. The file is *copied*
-into the backlog (`.cats-todo/images/<todo-id>/`, or the config dir for a global
-todo), so you can attach a screenshot and then clear it off your Desktop. The
-list marks an attachment-carrying prompt with `📎n`, and `ctrl+v` lists the files.
+In the editor, `ctrl+o` opens the attachment editor: paste a path or drag the
+file onto the pane and press `enter`, or press `ctrl+r` to fill the box with your
+most recent screenshot (press it again for the one before that). `ctrl+x` removes
+the highlighted attachment, `esc` goes back to the prompt. Nothing is copied
+until you save the prompt, so cancelling costs nothing — and removing an
+attachment only deletes the file once the save succeeds.
+
+From a shell, `add -i <file>` does the same thing, repeatably:
+
+```bash
+cats-todo add -i ~/Desktop/shot.png -i ~/Desktop/other.png the header wraps wrong
+```
+
+Either way the file is *copied* into the backlog
+(`.cats-todo/images/<todo-id>/`, or the config dir for a global todo), so you can
+attach a screenshot and then clear it off your Desktop. The list marks an
+attachment-carrying prompt with `📎n`, and `ctrl+v` lists the files.
+
+`ctrl+r` scans `~/Desktop` and `~/Downloads`; set `CATS_TODO_IMAGE_DIR` to point
+it somewhere else (macOS can be told to save screenshots anywhere, and cats-todo
+does not shell out to `defaults` to find out where).
 
 Nothing binary crosses the wire: a drop delivers the prompt with each
 attachment's absolute path appended, and the agent reads the files itself. An

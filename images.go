@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // imagesDirName is the directory beside todos.json that holds attachment
@@ -147,23 +148,9 @@ func (s *store) attachImages(todoID string, srcs []string) ([]string, error) {
 // backlog-relative path to record and the absolute path written (so the caller
 // can roll it back).
 func attachOne(dir, todoID, src string) (rel, dst string, err error) {
-	abs, err := filepath.Abs(src)
+	abs, err := validateImageSource(src)
 	if err != nil {
-		return "", "", fmt.Errorf("%s: %w", src, err)
-	}
-	fi, err := os.Stat(abs)
-	if err != nil {
-		return "", "", fmt.Errorf("%s: %w", src, err)
-	}
-	if !fi.Mode().IsRegular() {
-		return "", "", fmt.Errorf("%s: not a regular file", src)
-	}
-	if fi.Size() > maxImageBytes {
-		return "", "", fmt.Errorf("%s: %.1f MiB is over the %d MiB attachment limit",
-			src, float64(fi.Size())/(1<<20), maxImageBytes>>20)
-	}
-	if ext := strings.ToLower(filepath.Ext(abs)); !imageExts[ext] {
-		return "", "", fmt.Errorf("%s: %q is not an image (accepted: %s)", src, ext, acceptedExts())
+		return "", "", err
 	}
 
 	name := uniqueName(dir, filepath.Base(abs))
@@ -174,6 +161,147 @@ func attachOne(dir, todoID, src string) (rel, dst string, err error) {
 	// path.Join, not filepath.Join: the stored form is forward-slashed so a
 	// backlog written on one platform reads on another.
 	return path.Join(imagesDirName, todoID, name), dst, nil
+}
+
+// validateImageSource checks that src is something we can attach and returns
+// its absolute path. Split out from the copy so the form can refuse a bad path
+// the moment it is typed — the user is right there to fix it, which they will
+// not be at save time, let alone at drop time.
+func validateImageSource(src string) (string, error) {
+	abs, err := filepath.Abs(src)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", src, err)
+	}
+	fi, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", src, err)
+	}
+	if !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("%s: not a regular file", src)
+	}
+	if fi.Size() > maxImageBytes {
+		return "", fmt.Errorf("%s: %.1f MiB is over the %d MiB attachment limit",
+			src, float64(fi.Size())/(1<<20), maxImageBytes>>20)
+	}
+	if ext := strings.ToLower(filepath.Ext(abs)); !imageExts[ext] {
+		return "", fmt.Errorf("%s: %q is not an image (accepted: %s)", src, ext, acceptedExts())
+	}
+	return abs, nil
+}
+
+// cleanSourcePath turns what a terminal actually delivers into a path we can
+// stat. Dragging a file onto a pane inserts it the way a shell would need it —
+// quoted, or with spaces backslash-escaped — and some sources hand over a
+// file:// URL; a hand-typed path may start with ~. None of that is a filename,
+// and all of it arrives in the same one-line input.
+func cleanSourcePath(in string) string {
+	s := strings.TrimSpace(in)
+	if len(s) >= 2 {
+		if q := s[0]; (q == '\'' || q == '"') && s[len(s)-1] == q {
+			s = s[1 : len(s)-1]
+		}
+	}
+	s = strings.TrimPrefix(s, "file://")
+	// Shell escaping, not Go escaping: a backslash before any character means
+	// that literal character. Only the escapes a terminal's drop actually emits
+	// matter here (space, and the backslash itself), but treating every pair
+	// this way is both simpler and right.
+	if strings.Contains(s, `\`) {
+		var b strings.Builder
+		for i := 0; i < len(s); i++ {
+			if s[i] == '\\' && i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+				continue
+			}
+			b.WriteByte(s[i])
+		}
+		s = b.String()
+	}
+	if s == "~" || strings.HasPrefix(s, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			s = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(s, "~"), "/"))
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+// imageSourceDirEnvVar overrides where recentImages looks. macOS can be told to
+// drop screenshots anywhere, and we do not shell out to `defaults` to find out —
+// so anyone who moved theirs points this at it instead.
+const imageSourceDirEnvVar = "CATS_TODO_IMAGE_DIR"
+
+// recentImageLimit bounds how many recent files the form will cycle through.
+// Enough to reach the screenshot before last, short enough that cycling stays
+// faster than typing a path.
+const recentImageLimit = 12
+
+// recentImageDirs are the directories scanned for a recent image: the override
+// when set, else the two places a screenshot or a download actually lands.
+func recentImageDirs() []string {
+	if d := os.Getenv(imageSourceDirEnvVar); d != "" {
+		return []string{d}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	return []string{filepath.Join(home, "Desktop"), filepath.Join(home, "Downloads")}
+}
+
+// recentImages returns the newest attachable image files from recentImageDirs,
+// most recent first — the "I just took a screenshot" path, which is the usual
+// reason an image is going onto a todo at all. Directories are scanned one level
+// deep only; unreadable ones are skipped rather than reported, since this is a
+// convenience offered next to a perfectly good text input.
+func recentImages() []string {
+	type candidate struct {
+		path string
+		mod  time.Time
+	}
+	var found []candidate
+	for _, dir := range recentImageDirs() {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !imageExts[strings.ToLower(filepath.Ext(e.Name()))] {
+				continue
+			}
+			fi, err := e.Info()
+			if err != nil || fi.Size() > maxImageBytes {
+				continue
+			}
+			found = append(found, candidate{path: filepath.Join(dir, e.Name()), mod: fi.ModTime()})
+		}
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].mod.After(found[j].mod) })
+	if len(found) > recentImageLimit {
+		found = found[:recentImageLimit]
+	}
+	paths := make([]string, len(found))
+	for i, c := range found {
+		paths[i] = c.path
+	}
+	return paths
+}
+
+// removeImageFiles deletes specific attachments of todoID — the ones detached in
+// the form, or ones just copied in for a save that then failed. Best effort, for
+// the same reason as removeImages. The now-possibly-empty directory goes too,
+// but only if it is empty (Remove, not RemoveAll), so surviving attachments are
+// never caught up in it.
+func (s *store) removeImageFiles(todoID string, rels []string) {
+	if s.path == "" || len(rels) == 0 {
+		return
+	}
+	for _, rel := range rels {
+		if abs := s.imagePath(rel); abs != "" {
+			_ = os.Remove(abs)
+		}
+	}
+	_ = os.Remove(filepath.Join(s.imagesDir(), todoID))
 }
 
 // acceptedExts lists the accepted extensions for an error message, in a stable

@@ -203,6 +203,25 @@ func (s *store) update(t Todo) error {
 	return errTodoNotFound
 }
 
+// setImages replaces the attachment list of the todo with id and persists. It is
+// separate from update so that update stays a text-only operation (see its
+// comment): a caller that knows nothing about images cannot blank them, and a
+// caller that does — the form's attachment editor — says so explicitly. It
+// records paths only; the files themselves are the caller's business, since
+// which ones to copy in or delete depends on what the edit did.
+func (s *store) setImages(id string, images []string) error {
+	if err := s.reload(); err != nil {
+		return err
+	}
+	for i := range s.todos {
+		if s.todos[i].ID == id {
+			s.todos[i].Images = images
+			return s.save()
+		}
+	}
+	return errTodoNotFound
+}
+
 // delete removes the todo with id and persists, along with any attachments it
 // owned. The files go only after the save succeeds: a backlog still listing a
 // todo whose images we had already deleted is the worse of the two failures.

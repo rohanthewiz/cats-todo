@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -25,6 +26,7 @@ const (
 	stageConfirm                // confirm a delete / clear-completed
 	stageTarget                 // pick where to drop the chosen prompt
 	stageView                   // read-only view of a prompt's full body
+	stageImages                 // attach / detach the form's images
 )
 
 // confirmKind distinguishes what the confirm stage is about to do.
@@ -42,6 +44,18 @@ const (
 	formAdd formMode = iota
 	formEdit
 )
+
+// formImage is one row of the form's attachment editor. An entry is either
+// already attached (rel — the path recorded on the todo) or pending (src — an
+// absolute source path not yet copied into the backlog): an add has no todo id
+// to copy under until it saves, so everything it collects stays pending until
+// then. Both kinds are edited the same way; only saveForm cares which is which.
+type formImage struct {
+	rel     string // backlog-relative path of an attachment already on the todo
+	src     string // absolute source path of one not yet copied in
+	name    string // basename, for display
+	missing bool   // an existing attachment whose file has gone
+}
 
 // dropTargetKind is the two ways a prompt can land: into a brand-new Claude Code
 // session, or into an already-running agent pane.
@@ -130,6 +144,27 @@ type model struct {
 	promptArea textarea.Model
 	formFocus  int // 0 = title, 1 = prompt
 	formErr    string
+
+	// Attachment editor (a sub-stage of the form, so its state lives and dies
+	// with the form's).
+	formImages []formImage
+	// formImagesOrig is the attachment list the form opened with, so a save can
+	// tell which of the todo's files the edit dropped. The form's own list is
+	// not enough: it records what survived, not what was there.
+	formImagesOrig []string
+	imgInput       textinput.Model
+	imgCursor      int
+	// imgStatus is the editor's one message line, error or not — the same split
+	// as the list's status/statusErr, since "removed shot.png" and "that is not
+	// an image" must not look alike.
+	imgStatus    string
+	imgStatusErr bool
+	// recent is the lazily-scanned recent-image list that ctrl+r cycles, with
+	// the next index to offer. Scanned once per visit to the editor — a
+	// screenshot taken while it is open is the rare case, and rescanning on
+	// every keypress to catch it is not worth the directory walk.
+	recent    []string
+	recentIdx int
 
 	// Confirm stage.
 	confirmKind       confirmKind
@@ -234,6 +269,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateTarget(msg)
 		case stageView:
 			return m.updateView(msg)
+		case stageImages:
+			return m.updateImages(msg)
 		}
 	}
 	return m.forward(msg)
@@ -249,6 +286,8 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = m.targetList.editQuery(msg)
 	case stageForm:
 		return m.forwardForm(msg)
+	case stageImages:
+		m.imgInput, cmd = m.imgInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -514,6 +553,7 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	}
 	m.editID = ""
 	m.titleInput, m.promptArea = m.newFormInputs("", "")
+	m.formImages, m.formImagesOrig = nil, nil
 	m.formFocus = 1 // start in the prompt — that's the point of an entry
 	m.titleInput.Blur()
 	cmd := m.promptArea.Focus()
@@ -541,6 +581,8 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.formScope = ref.scope
 	m.editID = ref.id
 	m.titleInput, m.promptArea = m.newFormInputs(td.Title, td.Prompt)
+	m.formImages = m.newFormImages(ref.scope, td)
+	m.formImagesOrig = td.Images
 	m.formFocus = 1
 	m.titleInput.Blur()
 	cmd := m.promptArea.Focus()
@@ -607,6 +649,15 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.toggleFormFocus()
 	case "ctrl+s":
 		return m.saveForm()
+	case "ctrl+o", "ctrl+i":
+		// ctrl+o is the binding that always works; ctrl+i is the mnemonic that
+		// mostly cannot. ctrl+i *is* tab on the wire — both are 0x09 — so a
+		// terminal without the kitty protocol delivers it as the tab above,
+		// switching fields. Under kitty they are distinct keys and the mnemonic
+		// works, which is why it stays bound; the footer advertises ctrl+o,
+		// the one that cannot lose. (Same problem, same shape of answer, as
+		// shift+enter vs alt+enter — see modEnter.)
+		return m.beginImages()
 	case "ctrl+g":
 		// Toggling scope needs both stores: an only-mode launch (--project /
 		// --global) has one side unavailable, and switching to it would save
@@ -644,6 +695,216 @@ func (m model) forwardForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// --- Attachment editor --------------------------------------------------------
+
+// newFormImages builds the editor's starting rows from a todo's stored
+// attachments, carrying each one's missing state so an edit can see — and
+// choose to drop — a file that has gone.
+func (m model) newFormImages(sc scope, td Todo) []formImage {
+	refs := m.storeFor(sc).resolveImages(td)
+	if len(refs) == 0 {
+		return nil
+	}
+	imgs := make([]formImage, len(refs))
+	for i, ref := range refs {
+		imgs[i] = formImage{rel: ref.rel, name: path.Base(ref.rel), missing: ref.missing}
+	}
+	return imgs
+}
+
+// beginImages opens the attachment editor over the form. The form's own inputs
+// are blurred so only one cursor blinks; closeImages restores whichever field
+// had focus.
+func (m model) beginImages() (tea.Model, tea.Cmd) {
+	ti := textinput.New()
+	ti.Placeholder = "path to an image — paste it, or drag the file onto this pane"
+	ti.Prompt = ""
+	if w := m.width - 4; w >= 20 {
+		ti.SetWidth(w)
+	}
+	m.imgInput = ti
+	m.imgCursor = 0
+	m.setImgStatus("", false)
+	m.recent, m.recentIdx = nil, 0
+	m.titleInput.Blur()
+	m.promptArea.Blur()
+	m.stage = stageImages
+	return m, m.imgInput.Focus()
+}
+
+// setImgStatus sets the attachment editor's message line, mirroring setStatus.
+func (m *model) setImgStatus(s string, isErr bool) {
+	m.imgStatus = s
+	m.imgStatusErr = isErr
+}
+
+// closeImages returns to the form, restoring focus to the field that had it.
+func (m model) closeImages() (tea.Model, tea.Cmd) {
+	m.setImgStatus("", false)
+	m.stage = stageForm
+	if m.formFocus == 0 {
+		return m, m.titleInput.Focus()
+	}
+	return m, m.promptArea.Focus()
+}
+
+func (m model) updateImages(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	case "esc":
+		return m.closeImages()
+	case "enter":
+		// The same "do what's in front of me" split the list uses: a path in the
+		// box gets attached, an empty box means there is nothing left to add.
+		if strings.TrimSpace(m.imgInput.Value()) == "" {
+			return m.closeImages()
+		}
+		return m.addFormImage()
+	case "up", "ctrl+p":
+		if m.imgCursor > 0 {
+			m.imgCursor--
+		}
+		return m, nil
+	case "down", "ctrl+n":
+		if m.imgCursor < len(m.formImages)-1 {
+			m.imgCursor++
+		}
+		return m, nil
+	case "ctrl+x":
+		return m.removeFormImage()
+	case "ctrl+r":
+		return m.cycleRecentImage()
+	}
+	var cmd tea.Cmd
+	m.imgInput, cmd = m.imgInput.Update(msg)
+	return m, cmd
+}
+
+// addFormImage validates what is in the box and queues it as a pending
+// attachment. Nothing is copied here — an add has no todo id yet, and an edit
+// should not leave files behind if the form is then cancelled — so this only
+// checks that the file is one we could copy at save time.
+func (m model) addFormImage() (tea.Model, tea.Cmd) {
+	src := cleanSourcePath(m.imgInput.Value())
+	if src == "" {
+		return m, nil
+	}
+	abs, err := validateImageSource(src)
+	if err != nil {
+		m.setImgStatus(err.Error(), true)
+		return m, nil
+	}
+	for _, img := range m.formImages {
+		if img.src == abs {
+			m.setImgStatus(path.Base(abs)+" is already attached", true)
+			return m, nil
+		}
+	}
+	m.formImages = append(m.formImages, formImage{src: abs, name: filepath.Base(abs)})
+	m.imgCursor = len(m.formImages) - 1
+	m.imgInput.SetValue("")
+	m.setImgStatus("", false)
+	return m, nil
+}
+
+// removeFormImage drops the highlighted row. For a pending source that is the
+// whole story; for one already on the todo it only marks it dropped — the file
+// goes when the form is saved, so cancelling the form still changes nothing.
+func (m model) removeFormImage() (tea.Model, tea.Cmd) {
+	if m.imgCursor < 0 || m.imgCursor >= len(m.formImages) {
+		return m, nil
+	}
+	gone := m.formImages[m.imgCursor]
+	m.formImages = append(m.formImages[:m.imgCursor], m.formImages[m.imgCursor+1:]...)
+	if m.imgCursor >= len(m.formImages) {
+		m.imgCursor = len(m.formImages) - 1
+	}
+	if m.imgCursor < 0 {
+		m.imgCursor = 0
+	}
+	note := "removed " + gone.name
+	if gone.rel != "" {
+		note += " — the file goes when you save"
+	}
+	m.setImgStatus(note, false)
+	return m, nil
+}
+
+// cycleRecentImage fills the box with the most recent image found on disk, then
+// the next older one on each press — the screenshot-then-attach path, without
+// typing a path at all. It only offers the path; enter still attaches, so a
+// wrong guess costs nothing.
+func (m model) cycleRecentImage() (tea.Model, tea.Cmd) {
+	if m.recent == nil {
+		m.recent = recentImages()
+		m.recentIdx = 0
+	}
+	if len(m.recent) == 0 {
+		m.setImgStatus("no recent images found — set "+imageSourceDirEnvVar+" to point at your screenshot folder", true)
+		return m, nil
+	}
+	m.imgInput.SetValue(m.recent[m.recentIdx])
+	m.imgInput.CursorEnd()
+	m.recentIdx = (m.recentIdx + 1) % len(m.recent)
+	m.setImgStatus(fmt.Sprintf("recent %d/%d — enter to attach, ctrl+r for the next",
+		((m.recentIdx-1)+len(m.recent))%len(m.recent)+1, len(m.recent)), false)
+	return m, nil
+}
+
+// pendingSources are the queued attachment sources, in the order the user added
+// them — the list saveForm copies into the backlog.
+func (m model) pendingSources() []string {
+	var srcs []string
+	for _, img := range m.formImages {
+		if img.src != "" {
+			srcs = append(srcs, img.src)
+		}
+	}
+	return srcs
+}
+
+// keptRels are the todo's existing attachments that survived the edit, in
+// display order.
+func (m model) keptRels() []string {
+	var rels []string
+	for _, img := range m.formImages {
+		if img.rel != "" {
+			rels = append(rels, img.rel)
+		}
+	}
+	return rels
+}
+
+// droppedRels are the attachments the todo had when the form opened and no
+// longer has — the files to delete once the new list is safely saved.
+func (m model) droppedRels() []string {
+	kept := make(map[string]bool, len(m.formImages))
+	for _, rel := range m.keptRels() {
+		kept[rel] = true
+	}
+	var dropped []string
+	for _, rel := range m.formImagesOrig {
+		if !kept[rel] {
+			dropped = append(dropped, rel)
+		}
+	}
+	return dropped
+}
+
+// imageCountNote describes the form's attachment list for a heading or status
+// line, or "" when there is nothing attached.
+func (m model) imageCountNote() string {
+	if len(m.formImages) == 0 {
+		return ""
+	}
+	if len(m.formImages) == 1 {
+		return "1 image"
+	}
+	return fmt.Sprintf("%d images", len(m.formImages))
+}
+
 func (m model) saveForm() (tea.Model, tea.Cmd) {
 	title := strings.TrimSpace(m.titleInput.Value())
 	prompt := strings.TrimSpace(m.promptArea.Value())
@@ -663,20 +924,49 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 		m.formErr = "no " + strings.ToLower(m.formScope.String()) + " backlog is available here"
 		return m, nil
 	}
+	note := ""
+	if n := m.imageCountNote(); n != "" {
+		note = " · " + n
+	}
+
 	if m.formMode == formAdd {
-		err := st.add(Todo{ID: newID(), Title: title, Prompt: prompt, Created: time.Now()})
+		// The id has to exist before the copy — it names the attachment
+		// directory — so it is minted here rather than inline below.
+		id := newID()
+		added, err := st.attachImages(id, m.pendingSources())
 		if err != nil {
+			m.formErr = "attach failed: " + err.Error()
+			return m, nil
+		}
+		if err := st.add(Todo{ID: id, Title: title, Prompt: prompt, Images: added, Created: time.Now()}); err != nil {
+			// The copies are on disk but no todo will ever reference them.
+			st.removeImages(id)
 			m.formErr = "save failed: " + err.Error()
 			return m, nil
 		}
-		m.setStatus("added to "+m.formScope.String()+" backlog", false)
+		m.setStatus("added to "+m.formScope.String()+" backlog"+note, false)
 	} else {
-		err := st.update(Todo{ID: m.editID, Title: title, Prompt: prompt})
+		// Copy first, then record, then delete: every step leaves the todo
+		// either as it was or as the user asked for, and a failure anywhere
+		// takes this save's own copies back out with it.
+		added, err := st.attachImages(m.editID, m.pendingSources())
 		if err != nil {
+			m.formErr = "attach failed: " + err.Error()
+			return m, nil
+		}
+		if err := st.update(Todo{ID: m.editID, Title: title, Prompt: prompt}); err != nil {
+			st.removeImageFiles(m.editID, added)
 			m.formErr = "save failed: " + err.Error()
 			return m, nil
 		}
-		m.setStatus("updated", false)
+		if err := st.setImages(m.editID, append(m.keptRels(), added...)); err != nil {
+			st.removeImageFiles(m.editID, added)
+			m.formErr = "save failed: " + err.Error()
+			return m, nil
+		}
+		// Only now does the record no longer mention them.
+		st.removeImageFiles(m.editID, m.droppedRels())
+		m.setStatus("updated"+note, false)
 	}
 	m.rebuildList()
 	m.stage = stageList
@@ -1066,6 +1356,8 @@ func (m model) renderStage() string {
 		return m.viewTarget()
 	case stageView:
 		return m.viewPrompt()
+	case stageImages:
+		return m.viewImages()
 	default:
 		return m.viewList()
 	}
@@ -1184,19 +1476,81 @@ func (m model) viewForm() string {
 	b.WriteString(m.promptArea.View())
 	b.WriteString("\n")
 
+	// The attachment line is always shown, empty or not: an attachment editor
+	// nobody knows about is one nobody uses, and "none" is also the answer to
+	// "did my screenshot make it in".
+	b.WriteString(descStyle.Render("📎 " + firstNonEmpty(m.imageCountNote(), "no images") + " — ctrl+o to attach"))
+	b.WriteString("\n")
+
 	if m.formErr != "" {
 		b.WriteString(errStyle.Render(m.formErr))
 		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")
-	help := "enter save · " + m.modEnter() + " newline · tab switch field · esc cancel"
+	help := "enter save · " + m.modEnter() + " newline · tab switch field · ctrl+o images · esc cancel"
 	// Advertise the scope toggle only when it works (see the ctrl+g handler):
 	// an only-mode launch pins the scope, so the hint would be a lie there.
 	if m.formMode == formAdd && m.project.available() && m.global.available() {
-		help = "enter save · " + m.modEnter() + " newline · tab switch field · ctrl+g toggle scope · esc cancel"
+		help = "enter save · " + m.modEnter() + " newline · tab switch · ctrl+o images · ctrl+g scope · esc cancel"
 	}
 	b.WriteString(footerStyle.Render(help))
+	return b.String()
+}
+
+// viewImages renders the attachment editor: the path box, then one row per
+// attachment. A pending row shows where it will be copied from, an existing row
+// shows where it already lives — the distinction decides what saving will do, so
+// it is on screen rather than implied.
+func (m model) viewImages() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Attachments"))
+	b.WriteString("  ")
+	b.WriteString(descStyle.Render(firstNonEmpty(m.imageCountNote(), "none yet")))
+	b.WriteString("\n\n")
+
+	b.WriteString(promptStyle.Render("❯ "))
+	b.WriteString(m.imgInput.View())
+	b.WriteString("\n\n")
+
+	if len(m.formImages) == 0 {
+		b.WriteString(descStyle.Render("  nothing attached yet — paste a path above, or press ctrl+r for your latest screenshot"))
+		b.WriteString("\n")
+	}
+	for i, img := range m.formImages {
+		if i == m.imgCursor {
+			b.WriteString(barStyle.Render("▌ "))
+			b.WriteString(nameSelStyle.Render(img.name))
+		} else {
+			b.WriteString("  ")
+			b.WriteString(nameStyle.Render(img.name))
+		}
+		b.WriteString("  ")
+		switch {
+		case img.missing:
+			b.WriteString(errStyle.Render("missing — " + img.rel))
+		case img.rel != "":
+			b.WriteString(descStyle.Render("attached · " + img.rel))
+		default:
+			b.WriteString(descStyle.Render("new · " + img.src))
+		}
+		b.WriteString("\n")
+	}
+
+	if m.imgStatus != "" {
+		st := okStyle
+		if m.imgStatusErr {
+			st = errStyle
+		}
+		b.WriteString("\n")
+		b.WriteString(st.Render("• " + m.imgStatus))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(footerStyle.Render("enter attach (empty: back) · ctrl+r recent screenshot · ↑/↓ select · ctrl+x remove · esc back"))
+	b.WriteString("\n")
+	b.WriteString(footerStyle.Render("nothing is copied until you save the prompt"))
 	return b.String()
 }
 
@@ -1287,6 +1641,8 @@ func (m *model) applySizes() {
 		}
 	case stageTarget:
 		m.targetList.input.SetWidth(w)
+	case stageImages:
+		m.imgInput.SetWidth(w)
 	case stageView:
 		m.viewVP.SetWidth(m.viewWidth())
 		m.viewVP.SetHeight(m.viewHeight())
