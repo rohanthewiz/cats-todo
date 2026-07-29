@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -55,6 +56,10 @@ type formImage struct {
 	src     string // absolute source path of one not yet copied in
 	name    string // basename, for display
 	missing bool   // an existing attachment whose file has gone
+	// pasted marks a pending source that came off the clipboard rather than
+	// from a path the user can see. Its src is a temp file this process wrote,
+	// so the row says "pasted" instead of showing plumbing.
+	pasted bool
 }
 
 // dropTargetKind is the two ways a prompt can land: into a brand-new Claude Code
@@ -159,6 +164,11 @@ type model struct {
 	// an image" must not look alike.
 	imgStatus    string
 	imgStatusErr bool
+	// clipboardDirs are the temp directories holding clipboard captures queued
+	// in this form. They are removed once the images have been copied into a
+	// backlog, or when the form is abandoned — the capture is the one pending
+	// source with a file of its own to answer for.
+	clipboardDirs []string
 	// recent is the lazily-scanned recent-image list that ctrl+r cycles, with
 	// the next index to offer. Scanned once per visit to the editor — a
 	// screenshot taken while it is open is the rare case, and rescanning on
@@ -554,6 +564,7 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	m.editID = ""
 	m.titleInput, m.promptArea = m.newFormInputs("", "")
 	m.formImages, m.formImagesOrig = nil, nil
+	m.discardClipboardCaptures()
 	m.formFocus = 1 // start in the prompt — that's the point of an entry
 	m.titleInput.Blur()
 	cmd := m.promptArea.Focus()
@@ -583,6 +594,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.titleInput, m.promptArea = m.newFormInputs(td.Title, td.Prompt)
 	m.formImages = m.newFormImages(ref.scope, td)
 	m.formImagesOrig = td.Images
+	m.discardClipboardCaptures()
 	m.formFocus = 1
 	m.titleInput.Blur()
 	cmd := m.promptArea.Focus()
@@ -637,6 +649,9 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "esc":
+		// Abandoning the form abandons its clipboard captures with it: their temp
+		// files exist only because this form was open.
+		m.discardClipboardCaptures()
 		m.stage = stageList
 		m.formErr = ""
 		return m, nil
@@ -776,10 +791,62 @@ func (m model) updateImages(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.removeFormImage()
 	case "ctrl+r":
 		return m.cycleRecentImage()
+	case "ctrl+v":
+		// One key for both kinds of paste. An image on the clipboard gets
+		// captured; anything else falls through to the input's own ctrl+v, which
+		// pastes text — exactly what someone who just copied a path wants, and
+		// the only thing this key could have done before captures existed.
+		switch clipboardOffer() {
+		case clipPNG:
+			return m.pasteClipboardImage()
+		case clipUnusableImage:
+			m.setImgStatus("the clipboard has an image macOS will not hand over as PNG — save it to a file and attach that", true)
+			return m, nil
+		}
 	}
 	var cmd tea.Cmd
 	m.imgInput, cmd = m.imgInput.Update(msg)
 	return m, cmd
+}
+
+// pasteClipboardImage captures the clipboard image to a temp file and queues it
+// like any other pending source, so it goes through the same validation (size,
+// format) and the same copy-at-save path as a typed one.
+func (m model) pasteClipboardImage() (tea.Model, tea.Cmd) {
+	if !clipboardImageSupported() {
+		m.setImgStatus("pasting an image is only supported on macOS — save it to a file and attach the path", true)
+		return m, nil
+	}
+	src, err := captureClipboardImage()
+	if err != nil {
+		m.setImgStatus(err.Error(), true)
+		return m, nil
+	}
+	abs, err := validateImageSource(src)
+	if err != nil {
+		// The capture is ours and no longer wanted — an oversized paste must not
+		// leave the temp copy behind.
+		os.RemoveAll(filepath.Dir(src))
+		m.setImgStatus(err.Error(), true)
+		return m, nil
+	}
+
+	m.clipboardDirs = append(m.clipboardDirs, filepath.Dir(abs))
+	m.formImages = append(m.formImages, formImage{src: abs, name: clipboardImageName, pasted: true})
+	m.imgCursor = len(m.formImages) - 1
+	m.setImgStatus("pasted from the clipboard", false)
+	return m, nil
+}
+
+// discardClipboardCaptures removes the temp directories behind this form's
+// clipboard captures. Called on both exits from the form: after a save has
+// copied them into the backlog, and when the form is abandoned. Best effort —
+// a temp file we failed to delete is not worth failing a save over.
+func (m *model) discardClipboardCaptures() {
+	for _, dir := range m.clipboardDirs {
+		_ = os.RemoveAll(dir)
+	}
+	m.clipboardDirs = nil
 }
 
 // addFormImage validates what is in the box and queues it as a pending
@@ -818,6 +885,11 @@ func (m model) removeFormImage() (tea.Model, tea.Cmd) {
 	}
 	gone := m.formImages[m.imgCursor]
 	m.formImages = append(m.formImages[:m.imgCursor], m.formImages[m.imgCursor+1:]...)
+	if gone.pasted {
+		// Nothing else refers to a capture's temp file, so it goes now rather
+		// than waiting for the form to close.
+		_ = os.RemoveAll(filepath.Dir(gone.src))
+	}
 	if m.imgCursor >= len(m.formImages) {
 		m.imgCursor = len(m.formImages) - 1
 	}
@@ -827,6 +899,9 @@ func (m model) removeFormImage() (tea.Model, tea.Cmd) {
 	note := "removed " + gone.name
 	if gone.rel != "" {
 		note += " — the file goes when you save"
+	}
+	if gone.pasted {
+		note = "removed the pasted image"
 	}
 	m.setImgStatus(note, false)
 	return m, nil
@@ -968,6 +1043,9 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 		st.removeImageFiles(m.editID, m.droppedRels())
 		m.setStatus("updated"+note, false)
 	}
+	// The backlog holds its own copies now, so the captures' temp files have
+	// nothing left to answer for.
+	m.discardClipboardCaptures()
 	m.rebuildList()
 	m.stage = stageList
 	return m, nil
@@ -1514,7 +1592,11 @@ func (m model) viewImages() string {
 	b.WriteString("\n\n")
 
 	if len(m.formImages) == 0 {
-		b.WriteString(descStyle.Render("  nothing attached yet — paste a path above, or press ctrl+r for your latest screenshot"))
+		hint := "  nothing attached yet — paste a path above, or press ctrl+r for your latest screenshot"
+		if clipboardImageSupported() {
+			hint = "  nothing attached yet — ctrl+v pastes a copied image, ctrl+r finds your latest screenshot"
+		}
+		b.WriteString(descStyle.Render(hint))
 		b.WriteString("\n")
 	}
 	for i, img := range m.formImages {
@@ -1531,6 +1613,10 @@ func (m model) viewImages() string {
 			b.WriteString(errStyle.Render("missing — " + img.rel))
 		case img.rel != "":
 			b.WriteString(descStyle.Render("attached · " + img.rel))
+		case img.pasted:
+			// The temp path is this process's plumbing, not something the user
+			// chose or can act on — where it came from is the useful fact.
+			b.WriteString(descStyle.Render("new · pasted from the clipboard"))
 		default:
 			b.WriteString(descStyle.Render("new · " + img.src))
 		}
@@ -1548,9 +1634,16 @@ func (m model) viewImages() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("enter attach (empty: back) · ctrl+r recent screenshot · ↑/↓ select · ctrl+x remove · esc back"))
+	// Split across two lines to survive an 80-column pane, with the keys that
+	// put an image in on the first. The paste key is only advertised where it can
+	// work — see clipboardImageSupported.
+	paste := ""
+	if clipboardImageSupported() {
+		paste = " · ctrl+v paste image"
+	}
+	b.WriteString(footerStyle.Render("enter attach (empty: back)" + paste + " · ctrl+r recent screenshot"))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("nothing is copied until you save the prompt"))
+	b.WriteString(footerStyle.Render("↑/↓ select · ctrl+x remove · esc back — nothing is copied until you save"))
 	return b.String()
 }
 

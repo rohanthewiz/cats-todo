@@ -35,12 +35,22 @@ a newline. Outside cats it still manages backlogs; only drops need the socket.
 
 ## Images
 
-In the editor, `ctrl+o` opens the attachment editor: paste a path or drag the
-file onto the pane and press `enter`, or press `ctrl+r` to fill the box with your
-most recent screenshot (press it again for the one before that). `ctrl+x` removes
-the highlighted attachment, `esc` goes back to the prompt. Nothing is copied
-until you save the prompt, so cancelling costs nothing — and removing an
-attachment only deletes the file once the save succeeds.
+In the editor, `ctrl+o` opens the attachment editor. Three ways to get an image
+in:
+
+- **`ctrl+v`** pastes an image straight off the clipboard — copy one out of a
+  browser, or take a screenshot with `shift+cmd+ctrl+4`, and it lands as
+  `clipboard.png`. macOS only (the pasteboard is the system's, not the
+  terminal's); the key is only offered where it works, and with anything other
+  than an image on the clipboard it stays an ordinary text paste.
+- **`ctrl+r`** fills the box with your most recent screenshot; press again for the
+  one before that.
+- **paste or drag a path** into the box and press `enter` — dragging a file onto
+  the pane inserts its path, quoting and escaping included.
+
+`ctrl+x` removes the highlighted attachment, `esc` goes back to the prompt.
+Nothing is copied until you save the prompt, so cancelling costs nothing — and
+removing an existing attachment only deletes the file once the save succeeds.
 
 From a shell, `add -i <file>` does the same thing, repeatably:
 
