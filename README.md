@@ -88,6 +88,16 @@ send the two identically, so the footers advertise `alt+enter` (which every
 terminal encodes as `ESC CR`) until the terminal answers the protocol
 handshake.
 
+The manager wears cats' own muted green: the palette in `styles.go` is cats'
+`defaultColors` (`internal/config`) — the same values the served page sets as
+its `:root` custom properties — so a manager pane and the terminal around it
+read as one product. Keep the two tables in sync. The greys are the exception:
+cats' chrome tones are surfaces for a web page and sit too close together to
+separate a terminal's four tiers of text, so the name/description/footer/done
+ramp is interpolated down from `fg` toward `line` instead. The manager sets the
+terminal's background and foreground while it runs and hands both back on the
+way out.
+
 ## Installing
 
 cats-todo is a cats plugin — `cats-plugin.toml` here is the reference manifest

@@ -2,40 +2,68 @@ package main
 
 import "charm.land/lipgloss/v2"
 
+// The muted green palette, shared with cats itself (internal/config's
+// defaultColors, which are the served page's :root custom properties). cats-todo
+// runs inside a cats pane far more often than it runs anywhere else, so the two
+// reading as one product matters more than the manager having a look of its own.
+// Keep these in sync with that table.
+//
+// Only the greys are ours: cats' chrome tones are surfaces for a web page and
+// too close together to separate a terminal's four tiers of text, so the
+// name/desc/footer/done ramp is interpolated down from fg toward line rather
+// than taken from the map.
+const (
+	colBg     = "#1f2420" // page background — the dark side of a title chip
+	colFg     = "#d6ddd6" // ordinary text
+	colFgHi   = "#f0f5f0" // the selected row, a step brighter than fg
+	colAccent = "#4db380" // the green everything of consequence is drawn in
+	colPanel  = "#242a25" // the recessed surface an inert button sits on
+	colChrome = "#2b322c" // the raised surface a live button sits on
+	colMuted  = "#9db0a2" // secondary text — group headings
+	colDim    = "#7d8f83" // tertiary text — descriptions, counts
+	colFaint  = "#5f6f64" // quietest text — footers, completed prompts
+	colOk     = "#6ac47a"
+	colWarn   = "#e0b64e"
+	colErr    = "#e57373"
+)
+
 // Palette — a small, cohesive set of styles for a clean dark-terminal look,
 // shared by the fuzzyList component and the manager views.
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#11111B")).
-			Background(lipgloss.Color("#7AA2F7")).
+			Foreground(lipgloss.Color(colBg)).
+			Background(lipgloss.Color(colAccent)).
 			Padding(0, 1)
 
-	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#7AA2F7")).Bold(true)
-	countStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
+	countStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
 
-	nameStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB"))
-	nameSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
-	descStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	matchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F2A900")).Bold(true)
-	barStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#7AA2F7")).Bold(true)
-	footerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
-	headingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9D7CD8")).Bold(true)
+	nameStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colFg))
+	nameSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Bold(true)
+	descStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
+	// matchStyle stays amber. It is the one thing on screen that must not read
+	// as part of the green ramp — a fuzzy hit inside a name has to jump out of
+	// the letters around it, and warm-against-green is what does that.
+	matchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colWarn)).Bold(true)
+	barStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
+	footerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint))
+	headingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colMuted)).Bold(true)
 
 	// Todo-specific accents. checkStyle is deliberately unbolded: a completed
 	// todo should recede, so the green tick reads as a quiet marker rather than
 	// competing with the open rows above it for attention.
-	doneStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563")).Strikethrough(true)
-	checkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ECE6A"))
-	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F7768E"))
-	okStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#9ECE6A"))
+	doneStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint)).Strikethrough(true)
+	checkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
+	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
+	okStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
 
 	// Action-bar buttons. Each chip is rendered by exactly one of these styles —
 	// label and key hint together — because nesting a second style inside a
 	// chip would let the outer reset clobber the inner one (see the badge note
 	// in fuzzylist.view). btnOffStyle marks a button whose action needs a
 	// highlighted todo when there isn't one: still readable, plainly inert.
-	btnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#C0CAF5")).Background(lipgloss.Color("#2A2F3A")).Padding(0, 1)
-	btnFocusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#11111B")).Background(lipgloss.Color("#7AA2F7")).Bold(true).Padding(0, 1)
-	btnOffStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563")).Background(lipgloss.Color("#22262C")).Padding(0, 1)
+	btnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colFg)).Background(lipgloss.Color(colChrome)).Padding(0, 1)
+	btnFocusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colBg)).Background(lipgloss.Color(colAccent)).Bold(true).Padding(0, 1)
+	btnOffStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint)).Background(lipgloss.Color(colPanel)).Padding(0, 1)
 )

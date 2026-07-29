@@ -33,12 +33,15 @@ func runTodoUI(scope launchScope) {
 		fmt.Fprintln(os.Stderr, "cats-todo:", err)
 	}
 
-	// Hand the title back on the way out. The title the view sets is a property
-	// of the terminal, not of this process, so without a clear it outlives the
-	// TUI and keeps naming a pane that is a plain shell again. OSC 2 with an
-	// empty payload is the standard clear — cats reads it as "no title" and the
-	// pane falls back to whatever the shell sets next. Bubbletea v2 clears the
-	// title itself when it tears the view down; this stays as the backstop for
-	// an exit that skips the renderer, and prints nothing visible either way.
-	fmt.Print("\x1b]2;\a")
+	// Hand the terminal back on the way out. The title and the colours the view
+	// sets are properties of the terminal, not of this process, so without a
+	// reset they outlive the TUI — the title keeps naming a pane that is a
+	// plain shell again, and the ground stays green under the shell's own
+	// palette. OSC 2 with an empty payload is the standard title clear (cats
+	// reads it as "no title" and the pane falls back to whatever the shell sets
+	// next); OSC 111 and 110 put the background and foreground back to the
+	// terminal's defaults. Bubbletea v2 does all three itself when it tears the
+	// view down; these stay as the backstop for an exit that skips the
+	// renderer, and print nothing visible either way.
+	fmt.Print("\x1b]2;\a\x1b]111\a\x1b]110\a")
 }

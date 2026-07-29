@@ -1534,6 +1534,13 @@ func (m model) View() tea.View {
 	v := tea.NewView(m.renderStage())
 	v.AltScreen = true
 	v.WindowTitle = m.ctx.paneTitle()
+	// The manager's ground, so the palette reads as a theme rather than as
+	// green text on whatever the pane happened to be. Like the window title
+	// this is a property of the terminal, not of this process — bubbletea
+	// resets it when it tears the view down, and runTodoUI carries the backstop
+	// for an exit that skips the renderer.
+	v.BackgroundColor = lipgloss.Color(colBg)
+	v.ForegroundColor = lipgloss.Color(colFg)
 	return v
 }
 
