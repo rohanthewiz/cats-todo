@@ -432,12 +432,25 @@ const (
 // listActions is the action bar's contents, in order. Send's hint follows
 // modEnter because which spelling of the drop chord the terminal can send is
 // only known once it answers the keyboard-enhancement request.
+//
+// A terminal can't scale a glyph, so an icon is only as large as the character
+// chosen. These are the double-width emoji forms — twice the cells and twice
+// the drawing of the one-cell dingbats they replace. The trade is colour: an
+// emoji renders in its font's own palette and ignores the chip's foreground, so
+// they sit outside the green. Size won that argument. lipgloss.Width measures
+// the chips, so the wider cells cost the bar's layout nothing.
+//
+// Add is the exception, and it keeps its one-cell cross. Neither wide plus
+// works: the emoji (➕) is drawn near-black by most emoji fonts and vanishes
+// into the chip, and the fullwidth text plus (＋) is drawn past the two columns
+// the terminal advances, so its right arm gets clipped. A smaller plus that is
+// wholly visible beats a large one that is dark or cut in half.
 func (m model) listActions() []listAction {
 	return []listAction{
 		{label: "✚ Add", hint: "ctrl+a"},
-		{label: "✏ Edit", hint: "enter", needsSel: true},
-		{label: "➜ Send", hint: m.modEnter(), needsSel: true},
-		{label: "✖ Delete", hint: "ctrl+x", needsSel: true},
+		{label: "✏️ Edit", hint: "enter", needsSel: true},
+		{label: "➡️ Send", hint: m.modEnter(), needsSel: true},
+		{label: "❌ Delete", hint: "ctrl+x", needsSel: true},
 	}
 }
 

@@ -17,7 +17,7 @@ const (
 	colFg     = "#d6ddd6" // ordinary text
 	colFgHi   = "#f0f5f0" // the selected row, a step brighter than fg
 	colAccent = "#4db380" // the green everything of consequence is drawn in
-	colTitle  = "#265940" // colAccent at half brightness — the title chip's field
+	colTitle  = "#1d4330" // colAccent at three-eighths brightness — the title chip's field
 	colPanel  = "#2b322c" // the recessed surface an inert button sits on
 	colChrome = "#3b453d" // the raised surface a live button sits on
 	colMuted  = "#9db0a2" // secondary text — group headings
@@ -31,11 +31,11 @@ const (
 // Palette — a small, cohesive set of styles for a clean dark-terminal look,
 // shared by the fuzzyList component and the manager views.
 var (
-	// The title chip is colAccent halved: the full-strength green was a lamp in
-	// a dark pane. Halving the field flips the chip's polarity — the text has to
-	// be the bright half now, and bold keeps it the heaviest thing on the row.
+	// The title chip is colAccent taken down twice: the full-strength green was a
+	// lamp in a dark pane, and half of it still glowed. Darkening the field flips
+	// the chip's polarity — the text is the bright half now, and with that much
+	// contrast behind it the weight is redundant, so the label stays regular.
 	titleStyle = lipgloss.NewStyle().
-			Bold(true).
 			Foreground(lipgloss.Color(colFgHi)).
 			Background(lipgloss.Color(colTitle)).
 			Padding(0, 1)
@@ -67,7 +67,11 @@ var (
 	// chip would let the outer reset clobber the inner one (see the badge note
 	// in fuzzylist.view). btnOffStyle marks a button whose action needs a
 	// highlighted todo when there isn't one: still readable, plainly inert.
-	btnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Background(lipgloss.Color(colChrome)).Bold(true).Padding(0, 1)
-	btnFocusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colBg)).Background(lipgloss.Color(colAccent)).Bold(true).Padding(0, 1)
+	//
+	// None of the three is bold: the chips already separate themselves from the
+	// pane by their fields, and weight on top of that made the bar shout over the
+	// list it acts on. The surface carries the tier; the letters stay quiet.
+	btnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Background(lipgloss.Color(colChrome)).Padding(0, 1)
+	btnFocusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colBg)).Background(lipgloss.Color(colAccent)).Padding(0, 1)
 	btnOffStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim)).Background(lipgloss.Color(colPanel)).Padding(0, 1)
 )
