@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -487,6 +488,175 @@ func TestTargetRowsAreClickable(t *testing.T) {
 			t.Fatal("a click below the last visible row must not drop")
 		}
 	})
+}
+
+// withBothScopes returns a model holding two project prompts and one global
+// one, so the list carries what a click has to see past: the two group headings
+// and the blank spacer each one opens with.
+func withBothScopes() model {
+	m := newTestModel()
+	m.project.todos = []Todo{
+		{ID: "p1", Title: "first", Prompt: "p"},
+		{ID: "p2", Title: "second", Prompt: "p"},
+	}
+	m.global.todos = []Todo{{ID: "g1", Title: "third", Prompt: "p"}}
+	m.width = 200
+	m.rebuildList()
+	return m
+}
+
+// TestListRowsAreClickable covers the pointer on the todo list: one click
+// selects a row, a second opens it. The split matters — the bar acts on the
+// highlight, so a single click that opened the edit form would make "click the
+// prompt, then click Send" impossible to say with the pointer.
+func TestListRowsAreClickable(t *testing.T) {
+	click := func(m model, y int) model {
+		next, _ := m.Update(tea.MouseClickMsg{X: 8, Y: y, Button: tea.MouseLeft})
+		return next.(model)
+	}
+	// rowLine is the screen line of the nth selectable row, headings included.
+	rowLine := func(m model, n int) int {
+		seen := 0
+		for line := 0; line < 40; line++ {
+			if i, ok := m.list.rowAtLine(line); ok {
+				if seen == n {
+					_ = i
+					return listRowsRow + line
+				}
+				seen++
+			}
+		}
+		t.Fatalf("row %d is not drawn", n)
+		return -1
+	}
+
+	t.Run("one click selects, and only selects", func(t *testing.T) {
+		m := withBothScopes()
+		got := click(m, rowLine(m, 2)) // the global prompt, past both headings
+		if got.stage != stageList {
+			t.Fatalf("stage = %v, want to stay on the list", got.stage)
+		}
+		ref, ok := got.selectedRef()
+		if !ok || ref.id != "g1" {
+			t.Fatalf("selected %+v (ok=%v), want the clicked global prompt", ref, ok)
+		}
+	})
+
+	t.Run("selecting takes the focus off the bar", func(t *testing.T) {
+		m := withBothScopes()
+		m = pressList(t, m, "tab") // onto Add, where a stale focus used to strand it
+		got := click(m, rowLine(m, 0))
+		if got.actionFocus {
+			t.Fatal("clicking a row must hand the focus back to the list")
+		}
+		// …so enter now means "edit what I clicked", not "press Add".
+		got = pressList(t, got, "enter")
+		if got.stage != stageForm || got.formMode != formEdit {
+			t.Fatalf("enter gave stage=%v mode=%v, want the clicked prompt's edit form", got.stage, got.formMode)
+		}
+	})
+
+	t.Run("a second click hands the prompt to an agent", func(t *testing.T) {
+		m := withBothScopes()
+		// A drop needs a control socket; this one answers nothing, which is
+		// enough — buildTargets degrades to the new-session target.
+		m.client = &catsClient{socket: "/nonexistent/cats.sock"}
+		y := rowLine(m, 1)
+		got := click(click(m, y), y)
+		if got.stage != stageTarget {
+			t.Fatalf("stage = %v, want the drop picker (status: %q)", got.stage, got.status)
+		}
+		if got.dropTodo.id != "p2" {
+			t.Fatalf("dropping %q, want the double-clicked prompt", got.dropTodo.id)
+		}
+		// Choosing an agent is still a separate act — the double-click asks
+		// where, it doesn't send anywhere on its own.
+		if got.dropping {
+			t.Fatal("a double-click must not drop before a target is picked")
+		}
+	})
+
+	t.Run("a double-click with no socket says so and stays put", func(t *testing.T) {
+		m := withBothScopes() // no client, as when launched outside cats
+		y := rowLine(m, 1)
+		got := click(click(m, y), y)
+		if got.stage != stageList || got.status == "" {
+			t.Fatalf("stage=%v status=%q, want the list with an explanation", got.stage, got.status)
+		}
+	})
+
+	t.Run("two clicks far apart are two selections", func(t *testing.T) {
+		m := withBothScopes()
+		y := rowLine(m, 1)
+		got := click(m, y)
+		got.lastClickAt = got.lastClickAt.Add(-time.Second) // the user paused
+		if got = click(got, y); got.stage != stageList {
+			t.Fatalf("stage = %v, want a slow second click to select, not open", got.stage)
+		}
+	})
+
+	t.Run("a second click elsewhere is a first click there", func(t *testing.T) {
+		m := withBothScopes()
+		got := click(click(m, rowLine(m, 0)), rowLine(m, 2))
+		if got.stage != stageList {
+			t.Fatalf("stage = %v, want two different rows to be two selections", got.stage)
+		}
+		if ref, _ := got.selectedRef(); ref.id != "g1" {
+			t.Fatalf("selected %q, want the second row clicked", ref.id)
+		}
+	})
+
+	t.Run("headings and empty space are not rows", func(t *testing.T) {
+		m := withBothScopes()
+		before, _ := m.selectedRef()
+		for _, y := range []int{listRowsRow, listRowsRow + 1, 0, 1, 100} {
+			if _, ok := m.list.rowAtLine(y - listRowsRow); ok {
+				continue // this one really is a row; the loop is about the gaps
+			}
+			got := click(m, y)
+			if got.stage != stageList {
+				t.Fatalf("click at y=%d changed the stage to %v", y, got.stage)
+			}
+			if ref, _ := got.selectedRef(); ref != before {
+				t.Fatalf("click at y=%d moved the highlight to %+v", y, ref)
+			}
+		}
+	})
+}
+
+// TestListRowsMatchWhatIsDrawn holds listRowsRow and the hit test to the frame
+// the list actually renders — headings and spacers included, since those are
+// exactly what a click must not resolve to.
+func TestListRowsMatchWhatIsDrawn(t *testing.T) {
+	m := withBothScopes()
+	lines := strings.Split(m.viewList(), "\n")
+
+	for i, want := range []string{"first", "second", "third"} {
+		ref := m.rows[i]
+		var line int
+		found := false
+		for n := 0; n < 20 && !found; n++ {
+			if got, ok := m.list.rowAtLine(n); ok && got >= 0 && m.list.filtered[got].item.ref == i {
+				line, found = listRowsRow+n, true
+			}
+		}
+		if !found {
+			t.Fatalf("no line hit-tests to row %d (%s)", i, want)
+		}
+		if line >= len(lines) || !strings.Contains(lines[line], want) {
+			t.Fatalf("line %d is %q, want the row for %q (ref %+v):\n%s", line, lines[min(line, len(lines)-1)], want, ref, m.viewList())
+		}
+	}
+
+	// The group headings sit on lines of their own, and none of them answers.
+	for n, line := range lines {
+		if !strings.Contains(line, "Project") && !strings.Contains(line, "Global") {
+			continue
+		}
+		if _, ok := m.list.rowAtLine(n - listRowsRow); ok {
+			t.Fatalf("the heading on line %d hit-tests as a row: %q", n, line)
+		}
+	}
 }
 
 // TestTargetRowsMatchWhatIsDrawn pins rowAtLine's line arithmetic to the frame

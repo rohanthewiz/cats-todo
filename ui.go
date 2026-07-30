@@ -146,6 +146,10 @@ type model struct {
 	// where every launch should — typing into the filter.
 	actionFocus bool
 	actionIdx   int
+	// The last row a click landed on, and when — the whole of double-click
+	// detection, since the terminal reports every click as a first one.
+	lastClickRow int
+	lastClickAt  time.Time
 
 	// Form stage.
 	formMode   formMode
@@ -426,18 +430,54 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	switch m.stage {
 	case stageList:
-		return m.clickActionBar(msg)
+		if msg.Y == actionBarRow {
+			return m.clickActionBar(msg)
+		}
+		return m.clickRow(msg)
 	case stageTarget:
 		return m.clickTarget(msg)
 	}
 	return m, nil
 }
 
-// clickActionBar presses the button under the pointer, if it is on one.
-func (m model) clickActionBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if msg.Y != actionBarRow {
+// clickRow moves the highlight to the todo row under the pointer, and hands the
+// prompt to an agent on the second click.
+//
+// A single click deliberately only selects. The list's rows and its buttons
+// share a screen: the bar acts on whatever is highlighted, so a click that ran
+// anything outright would make "click the prompt, then click Edit" — the
+// plainest thing the pointer is for — impossible to express.
+//
+// The second click opens the drop picker, because handing a prompt to an agent
+// is what the backlog is for, and the picker's rows are clickable too: a prompt
+// gets from the list into a session without the keyboard. Editing keeps both of
+// its ways in — enter, and the bar's ✎ Edit — so nothing was displaced to make
+// room. Nothing is submitted to an agent by clicking: the picker still asks
+// where, and its own enter pastes without running.
+//
+// Selecting also hands the bar's focus back to the list, so the pointer and the
+// keyboard agree on what the next enter acts on.
+func (m model) clickRow(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	i, ok := m.list.rowAtLine(msg.Y - listRowsRow)
+	if !ok || !m.list.focusRow(i) {
 		return m, nil
 	}
+	m.actionFocus = false
+	if i == m.lastClickRow && time.Since(m.lastClickAt) < doubleClickWindow {
+		m.lastClickAt = time.Time{} // a third click starts over, not another drop
+		return m.beginDrop()
+	}
+	m.lastClickRow, m.lastClickAt = i, time.Now()
+	return m, nil
+}
+
+// doubleClickWindow is how close together two clicks on one row have to be to
+// count as a double. Terminals report clicks one at a time with no count, so the
+// pairing is ours to do.
+const doubleClickWindow = 500 * time.Millisecond
+
+// clickActionBar presses the button under the pointer, if it is on one.
+func (m model) clickActionBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for i, c := range m.actionChips() {
 		if msg.X >= c.start && msg.X < c.end {
 			m.actionFocus, m.actionIdx = true, i
@@ -1783,7 +1823,9 @@ func (m model) viewList() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("enter edit · " + m.modEnter() + " drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+x delete"))
+	// The pointer's two gestures ride along with the chords they stand for —
+	// a double-click opening the picker is not something anyone guesses.
+	b.WriteString(footerStyle.Render("enter edit · " + m.modEnter() + " / dbl-click drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+x delete"))
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("tab buttons · ctrl+↑/↓ move · ctrl+d hide/show done · ctrl+w clear done · esc quit"))
 	return b.String()
@@ -1873,6 +1915,10 @@ const indentWidth = 2
 // of the view being re-measured. TestActionBarRow finds the bar in the rendered
 // frame and fails if the layout above it ever grows a line.
 const actionBarRow = 4
+
+// listRowsRow is the first line the todo rows are drawn on: the bar (4), a blank
+// (5), then the rows. TestListRowsMatchWhatIsDrawn holds it to the frame.
+const listRowsRow = actionBarRow + 2
 
 // targetRowsRow is the first line the drop picker's target rows are drawn on,
 // counting from the top of that view: the heading (0), a blank (1), the filter
