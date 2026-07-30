@@ -250,10 +250,43 @@ func (s *store) toggle(id string) error {
 	for i := range s.todos {
 		if s.todos[i].ID == id {
 			s.todos[i].Done = !s.todos[i].Done
+			if s.todos[i].Done {
+				s.fileAsLatestDone(i)
+			}
 			return s.save()
 		}
 	}
 	return errTodoNotFound
+}
+
+// fileAsLatestDone moves the todo at index i to the head of the done group, so
+// the completed list reads newest-first: what was just finished is what the user
+// is looking for, and the pile it lands on only gets longer.
+//
+// Completion order lives in the array rather than in a timestamp on the todo,
+// which keeps two things true. Nothing has to be migrated — an existing backlog
+// keeps the order it has, and newly completed prompts stack on top of it. And
+// ctrl+up/down still reorders done todos by hand (see move), which a view sorted
+// by a completion time would silently undo on the next rebuild.
+//
+// The todos between the head of the done group and i slide down one, keeping
+// their order among themselves — including any open todos caught in the middle,
+// whose own order is what the list renders.
+func (s *store) fileAsLatestDone(i int) {
+	first := -1
+	for j := range s.todos {
+		if j != i && s.todos[j].Done {
+			first = j
+			break
+		}
+	}
+	// No other done todo, or i already precedes them all: nothing to move.
+	if first < 0 || first > i {
+		return
+	}
+	td := s.todos[i]
+	copy(s.todos[first+1:i+1], s.todos[first:i])
+	s.todos[first] = td
 }
 
 // setDone sets the done flag of the todo with id to done and persists. Unlike
@@ -270,6 +303,9 @@ func (s *store) setDone(id string, done bool) error {
 				return nil
 			}
 			s.todos[i].Done = done
+			if done {
+				s.fileAsLatestDone(i)
+			}
 			return s.save()
 		}
 	}

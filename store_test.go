@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -306,6 +307,79 @@ func TestMove(t *testing.T) {
 	}
 	if reloaded.todos[0].ID != "a" || reloaded.todos[1].ID != "b" {
 		t.Errorf("disk order = %v, want the moved order persisted", reloaded.todos)
+	}
+}
+
+// TestCompletionOrder pins the done pile as newest-first: completing a prompt
+// files it ahead of everything already finished, however far down the backlog it
+// started, and the open todos it passed keep their own order.
+func TestCompletionOrder(t *testing.T) {
+	s := tempStore(t)
+	for _, id := range []string{"a", "b", "c", "d"} {
+		if err := s.add(Todo{ID: id, Prompt: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	order := func() string {
+		var b strings.Builder
+		for _, td := range s.todos {
+			b.WriteString(td.ID)
+			if td.Done {
+				b.WriteString("✓")
+			}
+			b.WriteString(" ")
+		}
+		return strings.TrimSpace(b.String())
+	}
+
+	// The first completion has no done pile to lead, so nothing moves.
+	if err := s.toggle("c"); err != nil {
+		t.Fatal(err)
+	}
+	if got := order(); got != "a b c✓ d" {
+		t.Fatalf("order = %q, want the first completion left in place", got)
+	}
+
+	// The next one jumps the whole pile — a and b slide down, still in order.
+	if err := s.toggle("d"); err != nil {
+		t.Fatal(err)
+	}
+	if got := order(); got != "a b d✓ c✓" {
+		t.Fatalf("order = %q, want d✓ ahead of c✓", got)
+	}
+
+	// A drop auto-completes through setDone, which files it the same way — from
+	// above the pile this time, where there is nothing to move past.
+	if err := s.setDone("a", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := order(); got != "a✓ b d✓ c✓" {
+		t.Fatalf("order = %q, want a✓ ahead of the pile", got)
+	}
+	if err := s.setDone("b", true); err != nil {
+		t.Fatal(err)
+	}
+	if got := order(); got != "b✓ a✓ d✓ c✓" {
+		t.Fatalf("order = %q, want newest-completed first", got)
+	}
+
+	// Reopening leaves the todo where it is — it rejoins the open list rather
+	// than being filed anywhere new.
+	if err := s.toggle("d"); err != nil {
+		t.Fatal(err)
+	}
+	if got := order(); got != "b✓ a✓ d c✓" {
+		t.Fatalf("order = %q, want the reopened todo left in place", got)
+	}
+
+	// The order is on disk, not just in memory.
+	reloaded := &store{scope: s.scope, path: s.path}
+	if err := reloaded.load(); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.todos[0].ID != "b" || reloaded.todos[3].ID != "c" {
+		t.Errorf("disk order = %+v, want the completion order persisted", reloaded.todos)
 	}
 }
 
