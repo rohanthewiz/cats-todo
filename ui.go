@@ -496,6 +496,21 @@ func (m *model) moveActionFocus(delta int) {
 	}
 }
 
+// backToList returns to the list stage and hands the action bar's focus back to
+// the query box.
+//
+// The focus has to be given back, not just left where it was: every stage is
+// entered by running an action, and once that action is over the lit chip is
+// stale. Left parked on Add — where a click on the Add chip, or a single tab,
+// puts it — the next bare enter pressed that button again, so enter on a
+// highlighted prompt opened a blank new todo instead of editing the one in
+// front of the user. The query box is where the list's keys belong once nothing
+// is mid-action.
+func (m *model) backToList() {
+	m.stage = stageList
+	m.actionFocus = false
+}
+
 // runAction presses button i. A button whose action needs a highlighted prompt
 // says so rather than doing nothing: the underlying begin* helpers return
 // silently when there is no selection, which on a button press reads as a dead
@@ -804,7 +819,7 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Abandoning the form abandons its clipboard captures with it: their temp
 		// files exist only because this form was open.
 		m.discardClipboardCaptures()
-		m.stage = stageList
+		m.backToList()
 		m.formErr = ""
 		return m, nil
 	case "enter":
@@ -1199,7 +1214,7 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 	// nothing left to answer for.
 	m.discardClipboardCaptures()
 	m.rebuildList()
-	m.stage = stageList
+	m.backToList()
 	return m, nil
 }
 
@@ -1248,10 +1263,10 @@ func (m model) updateConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.rebuildList()
-		m.stage = stageList
+		m.backToList()
 		return m, nil
 	case "n", "N", "esc":
-		m.stage = stageList
+		m.backToList()
 		return m, nil
 	}
 	return m, nil
@@ -1296,12 +1311,12 @@ func (m model) beginDrop() (tea.Model, tea.Cmd) {
 func (m model) startDrop(ref todoRef) (tea.Model, tea.Cmd) {
 	if m.dropping {
 		m.setStatus("a drop is still in progress…", false)
-		m.stage = stageList
+		m.backToList()
 		return m, nil
 	}
 	if m.client == nil {
 		m.setStatus("cats control socket unavailable — can't drop into a session", true)
-		m.stage = stageList
+		m.backToList()
 		return m, nil
 	}
 	m.dropTodo = ref
@@ -1396,7 +1411,7 @@ func (m model) updateTarget(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "esc":
-		m.stage = stageList
+		m.backToList()
 		return m, nil
 	case "up", "ctrl+p":
 		m.targetList.moveUp()
@@ -1427,7 +1442,7 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 	td, ok := m.resolve(m.dropTodo)
 	if !ok {
 		m.setStatus("could not find that prompt", true)
-		m.stage = stageList
+		m.backToList()
 		return m, nil
 	}
 	target := m.targets[idx]
@@ -1436,7 +1451,7 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 	// via dropResultMsg. A drop into a new session focuses the freshly-created
 	// tab, leaving this manager alive in the background to reuse later.
 	m.dropping = true
-	m.stage = stageList
+	m.backToList()
 	m.setStatus("dropping into "+targetDesc(target)+"…", false)
 	return m, m.performDropCmd(m.dropTodo, pendingAction{
 		todo:   td,
@@ -1499,7 +1514,7 @@ func (m model) updateView(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "esc", "q":
-		m.stage = stageList
+		m.backToList()
 		return m, nil
 	case "enter":
 		// Same split as the list: enter opens the prompt for editing,

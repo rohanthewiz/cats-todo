@@ -324,6 +324,72 @@ func TestActionBarClick(t *testing.T) {
 	})
 }
 
+// TestActionFocusReleasedOnReturn is a regression test for the bug where enter
+// on a highlighted prompt opened a blank new todo. Entering a stage leaves the
+// bar's focus on the chip that took the user there — deliberately, so pointer
+// and keyboard agree — but coming back left it parked there with nothing
+// running. With Add still lit, the next bare enter pressed Add again instead of
+// editing the prompt under the highlight.
+func TestActionFocusReleasedOnReturn(t *testing.T) {
+	// Every way into another stage, and the key that walks back out of it.
+	for _, tc := range []struct {
+		name string
+		open func(model) model
+		back func(model) model
+	}{
+		{
+			name: "add form, escaped",
+			open: func(m model) model { return clickChip(t, m, actionAdd) },
+			back: func(m model) model { return stepForm(t, m, "esc") },
+		},
+		{
+			name: "delete confirm, declined",
+			open: func(m model) model { return clickChip(t, m, actionDelete) },
+			back: func(m model) model {
+				next, _ := m.updateConfirm(pressKey("n"))
+				return next.(model)
+			},
+		},
+		{
+			// The keyboard falls into the same trap: one tab lands on Add.
+			name: "add form, reached by tab",
+			open: func(m model) model { return pressList(t, pressList(t, m, "tab"), "enter") },
+			back: func(m model) model { return stepForm(t, m, "esc") },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := withTodo("ship it")
+			m.width = 200
+			m = tc.back(tc.open(m))
+			if m.stage != stageList {
+				t.Fatalf("stage = %v, want to be back on the list", m.stage)
+			}
+			if m.actionFocus {
+				t.Fatalf("the bar kept the focus on button %d after the action finished", m.actionIdx)
+			}
+			// The point of releasing it: enter means "open what's highlighted".
+			m = pressList(t, m, "enter")
+			if m.stage != stageForm || m.formMode != formEdit {
+				t.Fatalf("enter gave stage=%v mode=%v, want the highlighted prompt's edit form", m.stage, m.formMode)
+			}
+		})
+	}
+}
+
+// clickChip presses action bar button i with the pointer.
+func clickChip(t *testing.T, m model, i int) model {
+	t.Helper()
+	next, _ := m.Update(tea.MouseClickMsg{X: m.actionChips()[i].start + 1, Y: actionBarRow, Button: tea.MouseLeft})
+	return next.(model)
+}
+
+// stepForm sends one key to the form stage.
+func stepForm(t *testing.T, m model, key string) model {
+	t.Helper()
+	next, _ := m.updateForm(pressKey(key))
+	return next.(model)
+}
+
 // TestMouseReportingScopedToList pins where the pointer is claimed. The bar is
 // the only clickable thing, and mouse reporting costs the pane its own
 // click-to-select — so the prompt view, the screen whose text gets copied out,
