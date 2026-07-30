@@ -140,15 +140,22 @@ func (c *catsClient) waitForOutput(pane uint32, pattern string, regex bool, time
 // public number and its root pane's id. The server focuses the new tab, so the
 // returned pane is immediately drivable.
 //
-// cwd roots the new tab's shell. Passing it matters because the workspace's
-// identity cwd — what tab.create defaults to — is not necessarily the project
-// the dropped todo belongs to; an agent launched in the wrong directory reads
-// the wrong repo. An empty cwd sends no params at all, preserving the historical
-// wire shape (and the server's default) for callers with no directory to pin.
-func (c *catsClient) tabCreate(cwd string) (num int, pane uint32, err error) {
+// cwd roots the new tab. Passing it matters because the workspace's identity
+// cwd — what tab.create defaults to — is not necessarily the project the
+// dropped todo belongs to; an agent launched in the wrong directory reads the
+// wrong repo.
+//
+// title and command are tab.create's spawn override, and they are what make a
+// new-session drop quick: command is an argv exec'd as the pane's process
+// instead of a shell, so there is no shell to start, no prompt to wait for, no
+// command to type and echo-match, and no follow-up tab.rename — one round trip
+// where there used to be four, and the agent begins booting immediately. All
+// three fields are optional; empty ones send no params at all, preserving the
+// historical wire shape (and the server's defaults).
+func (c *catsClient) tabCreate(cwd, title string, command []string) (num int, pane uint32, err error) {
 	var params any // nil, not an empty struct: keeps the no-params request shape
-	if cwd != "" {
-		params = app.TabCreateParams{Cwd: cwd}
+	if cwd != "" || title != "" || len(command) > 0 {
+		params = app.TabCreateParams{Cwd: cwd, Title: title, Command: command}
 	}
 	var out app.TabCreateResult
 	if err = c.call(app.CmdTabCreate, params, &out, callTimeout); err != nil {
@@ -157,50 +164,12 @@ func (c *catsClient) tabCreate(cwd string) (num int, pane uint32, err error) {
 	return out.Num, out.Pane, nil
 }
 
-// tabRename gives a tab a human label (the new-session drop labels its tab
-// after the agent + prompt title).
-func (c *catsClient) tabRename(num int, label string) error {
-	return c.call(app.CmdTabRename, app.RenameTabParams{Num: num, Name: label}, nil, callTimeout)
-}
-
 // focusPane reveals the pane into the viewport. agent.focus rather than
 // pane.focus: the drop target may live in another workspace or tab, and
 // agent.focus (like the agents sidebar it serves) crosses both, while
 // pane.focus only moves focus within the pane's own tab.
 func (c *catsClient) focusPane(pane uint32) error {
 	return c.call(app.CmdAgentFocus, app.PaneParams{Pane: pane}, nil, callTimeout)
-}
-
-// runCommand types command into a freshly created pane and submits it, pacing
-// itself to the shell's startup so the command actually runs instead of sitting
-// unsubmitted at the prompt. It waits for the shell prompt to draw (any
-// non-blank output), types the command (no trailing newline), waits for the
-// command to echo, then submits with a real Enter key. Every wait is best
-// effort: on timeout or error it proceeds.
-func (c *catsClient) runCommand(pane uint32, command string) error {
-	// `\S` = any non-whitespace character: the first sign the shell has drawn
-	// its prompt. wait_for_output seeds with the current screen, so a prompt
-	// that beat us here still matches immediately.
-	_, _ = c.waitForOutput(pane, `\S`, true, 5*time.Second)
-	if err := c.sendInput(pane, command, false); err != nil {
-		return err
-	}
-	_, _ = c.waitForOutput(pane, commandEchoProbe(command), false, 5*time.Second)
-	return c.sendInput(pane, "", true)
-}
-
-// commandEchoProbe returns a short, stable leading fragment of a command to look
-// for when confirming it was typed at the prompt. A long command wraps across
-// rows, so a short leading fragment is more reliable to match.
-func commandEchoProbe(command string) string {
-	probe := command
-	if i := strings.IndexByte(probe, '\n'); i >= 0 {
-		probe = probe[:i]
-	}
-	if len(probe) > 12 {
-		probe = probe[:12]
-	}
-	return strings.TrimSpace(probe)
 }
 
 // claudeReadyProbes are substrings that signal Claude Code's input UI has drawn
@@ -216,11 +185,19 @@ var claudeReadyProbes = []string{
 	"Bypassing Permissions",
 }
 
+// agentFirstDrawSettle is how long an unrecognized agent gets to finish drawing
+// after its first byte of output. There is no banner we can probe for, so this
+// is the one blind wait left in a drop — kept short because it starts from the
+// agent's first draw rather than from launch.
+const agentFirstDrawSettle = 600 * time.Millisecond
+
 // waitForAgentReady blocks until a freshly launched agent looks ready to accept
 // a pasted prompt. Claude Code has known footer/banner strings to probe for —
 // folded into one alternation regex so a single server-side waiter watches for
-// all of them at once; other agents get a short fixed grace period instead.
-// Best effort either way — on timeout we paste anyway.
+// all of them at once. Any other agent has no banner we know, so we wait for its
+// first output (the pane is exec'd straight into the agent, so any non-blank
+// byte is the agent itself, not a shell prompt) and give it a short settle.
+// Best effort throughout — on timeout we paste anyway.
 func (c *catsClient) waitForAgentReady(pane uint32, command string) {
 	if command == "claude" {
 		quoted := make([]string, len(claudeReadyProbes))
@@ -230,5 +207,8 @@ func (c *catsClient) waitForAgentReady(pane uint32, command string) {
 		_, _ = c.waitForOutput(pane, strings.Join(quoted, "|"), true, 12*time.Second)
 		return
 	}
-	time.Sleep(2500 * time.Millisecond)
+	if matched, err := c.waitForOutput(pane, `\S`, true, 5*time.Second); err != nil || !matched {
+		return // timed out or the call failed: paste anyway, no extra sleep on top
+	}
+	time.Sleep(agentFirstDrawSettle)
 }

@@ -67,17 +67,21 @@ func composePrompt(prompt string, images []string) string {
 
 // dropIntoNewSession opens a fresh tab (in the active workspace — the one the
 // manager pane lives in, rooted at the manager's own working directory so the
-// agent sees the same project the todo was scoped to), launches the target's
-// agent (claude by default),
-// waits for its input UI, and delivers the prompt as typed input. Run mode adds
-// a real Enter so the agent starts working; paste mode stops short so the user
-// can review and edit. One delivery path for both modes — and for any agent —
-// with no shell quoting to get wrong and no prompt leaking into shell history
-// or `ps` output.
+// agent sees the same project the todo was scoped to) running the target's
+// agent (claude by default), waits for its input UI, and delivers the prompt as
+// typed input. Run mode adds a real Enter so the agent starts working; paste
+// mode stops short so the user can review and edit. One delivery path for both
+// modes — and for any agent — with no shell quoting to get wrong and no prompt
+// leaking into shell history or `ps` output.
 //
-// tab.create already returns the new tab's root pane id and leaves the tab
-// focused, so unlike the herdr original there is no workspace resolution or
-// pane discovery step — create, label, drive.
+// The tab is created named and already running the agent: tab.create's Title
+// and Command do in one round trip what used to take four (create, rename, type
+// the command into a shell, submit it), and skip a shell startup entirely. The
+// agent is the pane's own process, so quitting it closes the tab rather than
+// dropping back to a prompt — the same shape as a cats agent pane.
+//
+// tab.create returns the new tab's root pane id and leaves the tab focused, so
+// there is no workspace resolution or pane discovery step — create, then drive.
 func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) error {
 	command := firstNonEmpty(act.target.command, "claude")
 	label := command
@@ -85,15 +89,10 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) er
 		label = command + ": " + truncate(t, 18)
 	}
 
-	num, pane, err := client.tabCreate(act.cwd)
+	// Fields, not a shell: the command is an agent name (possibly with flags),
+	// and tab.create execs the argv directly.
+	_, pane, err := client.tabCreate(act.cwd, label, strings.Fields(command))
 	if err != nil {
-		return err
-	}
-	// Label the tab after the work it hosts. Best effort: an unlabeled tab must
-	// not abort a drop that can still deliver.
-	_ = client.tabRename(num, label)
-
-	if err := client.runCommand(pane, command); err != nil {
 		return err
 	}
 	client.waitForAgentReady(pane, command)

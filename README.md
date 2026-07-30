@@ -119,7 +119,8 @@ go build -o bin/cats-todo .
 
 The manager talks to the cats server over the local control socket
 (`CATS_CONTROL_SOCKET`) — the same §7 command table `catctl` drives:
-`pane.list` to find agent panes, `tab.create` to open a new session,
+`pane.list` to find agent panes, `tab.create` to open a new session already
+named and running the agent (no shell in between),
 `pane.wait_for_output` to pace launches, and `pane.send_input` to deliver the
 prompt. `internal/app` and `internal/ctlproto` are client-side copies of the
 cats wire vocabulary and control-socket client; the wire values are the
