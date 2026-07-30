@@ -464,3 +464,48 @@ func TestScopeNote(t *testing.T) {
 		}
 	})
 }
+
+// TestPaneTitleOpenCount pins the count cats reads off the terminal title to
+// decide whether a workspace is holding unfinished work: present only when the
+// named backlog has open todos, and blind to the global list when a project
+// backlog is what the pane is named after.
+func TestPaneTitleOpenCount(t *testing.T) {
+	open := Todo{ID: "a", Title: "open"}
+	done := Todo{ID: "b", Title: "done", Done: true}
+
+	tests := []struct {
+		name            string
+		project, global []Todo
+		globalOnly      bool
+		want            string
+	}{
+		{name: "empty backlog carries no count", want: "todo: project"},
+		{name: "only done todos carry no count", project: []Todo{done}, want: "todo: project"},
+		{name: "open todos are counted", project: []Todo{open, done, open}, want: "todo: project (2)"},
+		{
+			name:   "a project pane ignores the global backlog",
+			global: []Todo{open, open},
+			want:   "todo: project",
+		},
+		{
+			name:       "a global-only pane counts the global backlog",
+			global:     []Todo{open, open},
+			globalOnly: true,
+			want:       "todo: global (2)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestModel()
+			m.project.todos, m.global.todos = tt.project, tt.global
+			if tt.globalOnly {
+				// A global-only launch leaves the project store pathless, which
+				// is what makes it unavailable — same as launching outside a project.
+				m.ctx.Scope, m.project.path = launchGlobalOnly, ""
+			}
+			if got := m.paneTitle(); got != tt.want {
+				t.Errorf("paneTitle() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

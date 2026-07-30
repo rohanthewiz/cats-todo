@@ -1576,14 +1576,53 @@ func (m model) viewContent(td Todo) string {
 
 // --- View ---------------------------------------------------------------------
 
+// openCount is how many unfinished todos sit in the backlog this pane is named
+// after: the project's, or the global one when that is the only backlog the
+// launch opened (--global, or no project to scope to).
+//
+// A project pane deliberately does not count global todos, even though its list
+// shows them. The global backlog is the same list in every project, so counting
+// it would have every manager pane in the session report the same floor — and
+// the number is read as a statement about the project the title names.
+func (m model) openCount() int {
+	s := m.project
+	if !s.available() {
+		s = m.global
+	}
+	n := 0
+	for _, t := range s.todos {
+		if !t.Done {
+			n++
+		}
+	}
+	return n
+}
+
+// paneTitle is the terminal title for this frame: the backlog's name (see
+// RunContext.paneTitle) with the open-item count appended when there is work
+// left — "todo: cats (3)".
+//
+// Nothing is appended at zero, so an emptied backlog reads as "todo: cats"
+// rather than as "todo: cats (0)". That silence is load-bearing: cats's sidebar
+// marks a workspace as holding unfinished work by finding a count here, so a
+// backlog with nothing left in it has to look the same as one that never had
+// anything (see todoMark in catway's index.html).
+func (m model) paneTitle() string {
+	t := m.ctx.paneTitle()
+	if n := m.openCount(); n > 0 {
+		t = fmt.Sprintf("%s (%d)", t, n)
+	}
+	return t
+}
+
 // View renders the active stage. In bubbletea v2 the alt screen and the pane
 // title are properties of the view rather than startup options, so they are
-// declared on every frame — the title names the pane after the project this
-// backlog belongs to (see RunContext.paneTitle).
+// declared on every frame — which is also what keeps the title's open count
+// current, since every add, edit and toggle redraws.
 func (m model) View() tea.View {
 	v := tea.NewView(m.renderStage())
 	v.AltScreen = true
-	v.WindowTitle = m.ctx.paneTitle()
+	v.WindowTitle = m.paneTitle()
 	// The manager's ground, so the palette reads as a theme rather than as
 	// green text on whatever the pane happened to be. Like the window title
 	// this is a property of the terminal, not of this process — bubbletea
