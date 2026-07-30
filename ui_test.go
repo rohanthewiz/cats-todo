@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -399,9 +400,120 @@ func TestMouseReportingScopedToList(t *testing.T) {
 	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
 		t.Errorf("list stage MouseMode = %v, want cell motion so the bar is clickable", got)
 	}
+	m.stage = stageTarget
+	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
+		t.Errorf("target picker MouseMode = %v, want cell motion so the rows are clickable", got)
+	}
 	m.stage = stageView
 	if got := m.View().MouseMode; got != tea.MouseModeNone {
 		t.Errorf("prompt view MouseMode = %v, want none so selection still works", got)
+	}
+}
+
+// withTargets returns a model sitting in the drop picker over a todo, with n
+// fake agent targets to choose from — enough rows that a click has to land on
+// the right one rather than on the only one.
+func withTargets(n int) model {
+	m := withTodo("ship it")
+	m.width = 200
+	m.dropTodo = m.rows[0]
+	m.targets = make([]dropTarget, n)
+	items := make([]listItem, n)
+	for i := range m.targets {
+		m.targets[i] = dropTarget{
+			kind:  targetExistingPane,
+			pane:  uint32(i + 1),
+			agent: fmt.Sprintf("agent%d", i),
+		}
+		items[i] = listItem{name: m.targets[i].agent, desc: "/work", selectable: true, ref: i}
+	}
+	m.targetList = newFuzzyList("Filter targets…", items)
+	m.stage = stageTarget
+	return m
+}
+
+// TestTargetRowsAreClickable covers the pointer in the drop picker: a click on a
+// row picks that agent and drops into it, the same as enter on the row, and the
+// highlight moves there first so the keyboard resumes from what was clicked.
+func TestTargetRowsAreClickable(t *testing.T) {
+	click := func(m model, y int) model {
+		next, _ := m.Update(tea.MouseClickMsg{X: 6, Y: y, Button: tea.MouseLeft})
+		return next.(model)
+	}
+
+	t.Run("a row drops into its agent", func(t *testing.T) {
+		got := click(withTargets(3), targetRowsRow+2) // the third target
+		if got.targetList.cursor != 2 {
+			t.Fatalf("cursor = %d, want the clicked row highlighted", got.targetList.cursor)
+		}
+		if !got.dropping {
+			t.Fatal("clicking a target must start the drop, as enter does")
+		}
+		if !strings.Contains(got.status, "agent2") {
+			t.Fatalf("status = %q, want the clicked agent named", got.status)
+		}
+		if got.stage != stageList {
+			t.Fatalf("stage = %v, want the list back while the drop runs", got.stage)
+		}
+	})
+
+	t.Run("the whole row answers, not just its label", func(t *testing.T) {
+		got := click(withTargets(3), targetRowsRow) // far right of the first row
+		if !got.dropping || got.targetList.cursor != 0 {
+			t.Fatalf("dropping=%v cursor=%d, want the first row taken", got.dropping, got.targetList.cursor)
+		}
+	})
+
+	t.Run("a click off the rows does nothing", func(t *testing.T) {
+		for _, y := range []int{0, targetRowsRow - 1, targetRowsRow + 3} {
+			got := click(withTargets(3), y)
+			if got.stage != stageTarget || got.dropping {
+				t.Fatalf("click at y=%d gave stage=%v dropping=%v, want the picker untouched", y, got.stage, got.dropping)
+			}
+		}
+	})
+
+	t.Run("a filtered-away row can't be clicked into", func(t *testing.T) {
+		m := withTargets(3)
+		m.targetList.input.SetValue("agent2")
+		m.targetList.filter()
+		// One row is left, and it is the one the click lands on — the row's
+		// position on screen decides, not the target's index.
+		got := click(m, targetRowsRow)
+		if !strings.Contains(got.status, "agent2") {
+			t.Fatalf("status = %q, want the only matching agent", got.status)
+		}
+		if got = click(m, targetRowsRow+1); got.dropping {
+			t.Fatal("a click below the last visible row must not drop")
+		}
+	})
+}
+
+// TestTargetRowsMatchWhatIsDrawn pins rowAtLine's line arithmetic to the frame
+// the picker actually renders: it walks the same lines view writes, and a layout
+// change above or between the rows would silently aim every click one row off.
+func TestTargetRowsMatchWhatIsDrawn(t *testing.T) {
+	m := withTargets(3)
+	lines := strings.Split(m.viewTarget(), "\n")
+	for i, tg := range m.targets {
+		y := targetRowsRow + i
+		if y >= len(lines) {
+			t.Fatalf("row %d falls outside the %d-line frame:\n%s", i, len(lines), m.viewTarget())
+		}
+		if !strings.Contains(lines[y], tg.agent) {
+			t.Fatalf("line %d is %q, want the row for %s:\n%s", y, lines[y], tg.agent, m.viewTarget())
+		}
+		got, ok := m.targetList.rowAtLine(y - targetRowsRow)
+		if !ok || got != i {
+			t.Fatalf("rowAtLine(%d) = %d,%v, want row %d — the hit test and the view disagree", y-targetRowsRow, got, ok, i)
+		}
+	}
+	// Nothing matches: the empty message stands where the first row would, and
+	// a click on it must not pick the row it replaced.
+	m.targetList.input.SetValue("zzz")
+	m.targetList.filter()
+	if _, ok := m.targetList.rowAtLine(0); ok {
+		t.Fatal("the empty-list message must not hit-test as a row")
 	}
 }
 

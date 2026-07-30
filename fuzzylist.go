@@ -169,6 +169,55 @@ func (l *fuzzyList) selectRef(ref int) {
 	}
 }
 
+// focusRow parks the cursor on the filtered row at index i — the pointer's way
+// in, where the keyboard uses moveUp/moveDown. A row that isn't there or isn't
+// selectable leaves the cursor alone.
+func (l *fuzzyList) focusRow(i int) bool {
+	if i < 0 || i >= len(l.filtered) || !l.filtered[i].item.selectable {
+		return false
+	}
+	l.cursor = i
+	return true
+}
+
+// rowAtLine maps a line of the rendered rows block — 0 being the first line the
+// rows are drawn on, below the query box — to the filtered row drawn there, for
+// hit-testing a click. A line holding a heading, a spacer, or the "nothing
+// matched" message answers false: there is no row to pick there.
+//
+// It walks the same lines view writes, in the same order, so the two have to
+// stay in step; TestTargetRowClickHitsWhatIsDrawn pins them together against a
+// real rendered frame.
+func (l fuzzyList) rowAtLine(n int) (int, bool) {
+	if n < 0 {
+		return -1, false
+	}
+	line := 0
+	matched := 0
+	for _, s := range l.filtered {
+		if s.item.selectable {
+			matched++
+		}
+	}
+	if matched == 0 {
+		line++ // the empty-list message stands where the rows would
+	}
+	for i, s := range l.filtered {
+		if !s.item.selectable {
+			line++ // the blank spacer every separator opens with
+			if s.item.name != "" {
+				line++ // …and the group heading, when it has one
+			}
+			continue
+		}
+		if line == n {
+			return i, true
+		}
+		line++
+	}
+	return -1, false
+}
+
 // selectedIndex returns the ref of the highlighted selectable row, or -1 when
 // nothing is selectable (empty list, or all matches filtered away).
 func (l *fuzzyList) selectedIndex() int {

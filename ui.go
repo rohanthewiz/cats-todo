@@ -412,16 +412,30 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// updateMouse routes a click. The bar is the only thing on screen that claims
-// one: a button that looks like a button gets pressed, and until now nothing
-// happened when it was, because the program never asked for mouse reporting.
+// updateMouse routes a click to whatever the stage draws as clickable: the
+// action bar on the list, a target row in the drop picker. Everything else
+// ignores the pointer.
 //
-// A click on a chip also moves the keyboard focus onto it before running the
-// action, so the two ways in leave the manager in the same state — the pointer
-// puts the focus where the eye already is, rather than acting from one place
-// while tab resumes from another.
+// A click always moves the keyboard's place onto what was clicked before acting,
+// so the two ways in leave the manager in the same state — the pointer puts the
+// focus where the eye already is, rather than acting from one place while tab or
+// ↑/↓ resumes from another.
 func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if msg.Button != tea.MouseLeft || m.stage != stageList || msg.Y != actionBarRow {
+	if msg.Button != tea.MouseLeft {
+		return m, nil
+	}
+	switch m.stage {
+	case stageList:
+		return m.clickActionBar(msg)
+	case stageTarget:
+		return m.clickTarget(msg)
+	}
+	return m, nil
+}
+
+// clickActionBar presses the button under the pointer, if it is on one.
+func (m model) clickActionBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if msg.Y != actionBarRow {
 		return m, nil
 	}
 	for i, c := range m.actionChips() {
@@ -434,6 +448,24 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// to run — and the focus stays where it was rather than being cleared by a
 	// miss.
 	return m, nil
+}
+
+// clickTarget picks the agent whose row was clicked and drops into it, which is
+// what enter on that row does: the prompt is pasted into the agent's input and
+// left unsubmitted. Clicking a target is choosing it — the same bargain the
+// action bar makes, where a click presses the button rather than merely lighting
+// it. The whole row answers, not just the text on it: the row is the target, and
+// asking the user to land on the label would make the pointer worse than the
+// keyboard it is there to replace.
+//
+// Drop & run stays on the modifier chord. Nothing on this screen submits a
+// prompt to an agent on one click.
+func (m model) clickTarget(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	i, ok := m.targetList.rowAtLine(msg.Y - targetRowsRow)
+	if !ok || !m.targetList.focusRow(i) {
+		return m, nil
+	}
+	return m.chooseTarget(dropPaste)
 }
 
 // listAction is one button in the action bar under the filter. Every button
@@ -1633,9 +1665,10 @@ func (m model) View() tea.View {
 	// Mouse reporting is asked for only where there is something to click. It
 	// isn't free: while it is on, a drag belongs to this program rather than to
 	// the terminal, so the pane's own click-to-select stops working. The list
-	// stage pays that for the action bar; the prompt view — the one screen whose
-	// whole point is text worth copying out — keeps its selection.
-	if m.stage == stageList {
+	// stage pays that for the action bar and the picker for its target rows;
+	// the prompt view — the one screen whose whole point is text worth copying
+	// out — keeps its selection.
+	if m.stage == stageList || m.stage == stageTarget {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -1840,6 +1873,12 @@ const indentWidth = 2
 // of the view being re-measured. TestActionBarRow finds the bar in the rendered
 // frame and fails if the layout above it ever grows a line.
 const actionBarRow = 4
+
+// targetRowsRow is the first line the drop picker's target rows are drawn on,
+// counting from the top of that view: the heading (0), a blank (1), the filter
+// line (2), a blank (3), then the rows. The picker draws no action bar, so the
+// rows sit where the bar does on the list.
+const targetRowsRow = 4
 
 func (m model) viewForm() string {
 	var b strings.Builder
