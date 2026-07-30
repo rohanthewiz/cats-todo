@@ -17,8 +17,9 @@ const (
 	colFg     = "#d6ddd6" // ordinary text
 	colFgHi   = "#f0f5f0" // the selected row, a step brighter than fg
 	colAccent = "#4db380" // the green everything of consequence is drawn in
-	colPanel  = "#242a25" // the recessed surface an inert button sits on
-	colChrome = "#2b322c" // the raised surface a live button sits on
+	colTitle  = "#265940" // colAccent at half brightness — the title chip's field
+	colPanel  = "#2b322c" // the recessed surface an inert button sits on
+	colChrome = "#3b453d" // the raised surface a live button sits on
 	colMuted  = "#9db0a2" // secondary text — group headings
 	colDim    = "#7d8f83" // tertiary text — descriptions, counts
 	colFaint  = "#5f6f64" // quietest text — footers, completed prompts
@@ -30,10 +31,13 @@ const (
 // Palette — a small, cohesive set of styles for a clean dark-terminal look,
 // shared by the fuzzyList component and the manager views.
 var (
+	// The title chip is colAccent halved: the full-strength green was a lamp in
+	// a dark pane. Halving the field flips the chip's polarity — the text has to
+	// be the bright half now, and bold keeps it the heaviest thing on the row.
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color(colBg)).
-			Background(lipgloss.Color(colAccent)).
+			Foreground(lipgloss.Color(colFgHi)).
+			Background(lipgloss.Color(colTitle)).
 			Padding(0, 1)
 
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
@@ -63,7 +67,7 @@ var (
 	// chip would let the outer reset clobber the inner one (see the badge note
 	// in fuzzylist.view). btnOffStyle marks a button whose action needs a
 	// highlighted todo when there isn't one: still readable, plainly inert.
-	btnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colFg)).Background(lipgloss.Color(colChrome)).Padding(0, 1)
+	btnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Background(lipgloss.Color(colChrome)).Bold(true).Padding(0, 1)
 	btnFocusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colBg)).Background(lipgloss.Color(colAccent)).Bold(true).Padding(0, 1)
-	btnOffStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint)).Background(lipgloss.Color(colPanel)).Padding(0, 1)
+	btnOffStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim)).Background(lipgloss.Color(colPanel)).Padding(0, 1)
 )

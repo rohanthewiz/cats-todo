@@ -434,10 +434,10 @@ const (
 // only known once it answers the keyboard-enhancement request.
 func (m model) listActions() []listAction {
 	return []listAction{
-		{label: "+ Add", hint: "ctrl+a"},
-		{label: "✎ Edit", hint: "enter", needsSel: true},
-		{label: "➤ Send", hint: m.modEnter(), needsSel: true},
-		{label: "✕ Delete", hint: "ctrl+x", needsSel: true},
+		{label: "✚ Add", hint: "ctrl+a"},
+		{label: "✏ Edit", hint: "enter", needsSel: true},
+		{label: "➜ Send", hint: m.modEnter(), needsSel: true},
+		{label: "✖ Delete", hint: "ctrl+x", needsSel: true},
 	}
 }
 
