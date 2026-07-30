@@ -273,6 +273,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// distinct key here and the footers can name it.
 		m.kbEnhanced = true
 		return m, nil
+	case tea.MouseClickMsg:
+		return m.updateMouse(msg)
 	case tea.KeyPressMsg:
 		switch m.stage {
 		case stageList:
@@ -410,6 +412,30 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// updateMouse routes a click. The bar is the only thing on screen that claims
+// one: a button that looks like a button gets pressed, and until now nothing
+// happened when it was, because the program never asked for mouse reporting.
+//
+// A click on a chip also moves the keyboard focus onto it before running the
+// action, so the two ways in leave the manager in the same state — the pointer
+// puts the focus where the eye already is, rather than acting from one place
+// while tab resumes from another.
+func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if msg.Button != tea.MouseLeft || m.stage != stageList || msg.Y != actionBarRow {
+		return m, nil
+	}
+	for i, c := range m.actionChips() {
+		if msg.X >= c.start && msg.X < c.end {
+			m.actionFocus, m.actionIdx = true, i
+			return m.runAction(i)
+		}
+	}
+	// The gaps between chips and the rest of the row: not a button, so nothing
+	// to run — and the focus stays where it was rather than being cleared by a
+	// miss.
+	return m, nil
+}
+
 // listAction is one button in the action bar under the filter. Every button
 // mirrors a key binding rather than replacing it: hint is the chord it stands
 // for, printed on the chip so the bar teaches the keyboard path instead of
@@ -433,24 +459,20 @@ const (
 // modEnter because which spelling of the drop chord the terminal can send is
 // only known once it answers the keyboard-enhancement request.
 //
-// A terminal can't scale a glyph, so an icon is only as large as the character
-// chosen. These are the double-width emoji forms — twice the cells and twice
-// the drawing of the one-cell dingbats they replace. The trade is colour: an
-// emoji renders in its font's own palette and ignores the chip's foreground, so
-// they sit outside the green. Size won that argument. lipgloss.Width measures
-// the chips, so the wider cells cost the bar's layout nothing.
-//
-// Add is the exception, and it keeps its one-cell cross. Neither wide plus
-// works: the emoji (➕) is drawn near-black by most emoji fonts and vanishes
-// into the chip, and the fullwidth text plus (＋) is drawn past the two columns
-// the terminal advances, so its right arm gets clipped. A smaller plus that is
-// wholly visible beats a large one that is dark or cut in half.
+// Every icon is a one-cell text dingbat. The emoji forms (✏️ ➡️ ❌) were bigger
+// and were drawn clipped: lipgloss measures them as two columns, which is what
+// Unicode says, but the emoji font draws a glyph the terminal then cuts at a
+// cell edge — half an arrow, half a cross. There is no width the layout can
+// reserve to fix that, because the clipping happens in the terminal's own
+// rasteriser. Dingbats are drawn by the text font at the size the pane is set
+// to, whole every time, and they take the chip's foreground, so the bar stays
+// inside the green instead of dropping four emoji palettes into it.
 func (m model) listActions() []listAction {
 	return []listAction{
 		{label: "✚ Add", hint: "ctrl+a"},
-		{label: "✏️ Edit", hint: "enter", needsSel: true},
-		{label: "➡️ Send", hint: m.modEnter(), needsSel: true},
-		{label: "❌ Delete", hint: "ctrl+x", needsSel: true},
+		{label: "✎ Edit", hint: "enter", needsSel: true},
+		{label: "➜ Send", hint: m.modEnter(), needsSel: true},
+		{label: "✖ Delete", hint: "ctrl+x", needsSel: true},
 	}
 }
 
@@ -1554,6 +1576,14 @@ func (m model) View() tea.View {
 	// for an exit that skips the renderer.
 	v.BackgroundColor = lipgloss.Color(colBg)
 	v.ForegroundColor = lipgloss.Color(colFg)
+	// Mouse reporting is asked for only where there is something to click. It
+	// isn't free: while it is on, a drag belongs to this program rather than to
+	// the terminal, so the pane's own click-to-select stops working. The list
+	// stage pays that for the action bar; the prompt view — the one screen whose
+	// whole point is text worth copying out — keeps its selection.
+	if m.stage == stageList {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	return v
 }
 
@@ -1684,25 +1714,9 @@ func (m model) actionBar() string {
 	acts := m.listActions()
 	_, hasSel := m.selectedRef()
 
-	chip := func(a listAction, withHint bool) string {
-		if withHint {
-			return a.label + " " + a.hint
-		}
-		return a.label
-	}
-
-	withHints := true
-	if m.width > 0 {
-		w := indentWidth
-		for _, a := range acts {
-			w += lipgloss.Width(btnStyle.Render(chip(a, true))) + 1
-		}
-		withHints = w <= m.width
-	}
-
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", indentWidth))
-	for i, a := range acts {
+	for i, c := range m.actionChips() {
 		if i > 0 {
 			b.WriteString(" ")
 		}
@@ -1710,17 +1724,68 @@ func (m model) actionBar() string {
 		switch {
 		case m.actionFocus && i == m.actionIdx:
 			st = btnFocusStyle
-		case a.needsSel && !hasSel:
+		case acts[i].needsSel && !hasSel:
 			st = btnOffStyle
 		}
-		b.WriteString(st.Render(chip(a, withHints)))
+		b.WriteString(st.Render(c.text))
 	}
 	return b.String()
+}
+
+// actionChip is one rendered button: its text, and the half-open column span
+// [start, end) it occupies on the bar's row. The span is what turns a click at
+// (x, y) back into an action index, so it is computed here rather than in the
+// render loop — one description of the layout, used to draw it and to hit-test
+// it, so a click can't land on a button the eye doesn't see.
+type actionChip struct {
+	text       string
+	start, end int
+}
+
+// actionChips lays the bar out: the chip contents (label, plus the key hint
+// when the whole row fits with them) and where each one lands. The three button
+// styles share one padding, so widths don't depend on which is picked at render
+// time and btnStyle can measure for all of them.
+func (m model) actionChips() []actionChip {
+	acts := m.listActions()
+
+	withHints := true
+	if m.width > 0 {
+		w := indentWidth
+		for _, a := range acts {
+			w += lipgloss.Width(btnStyle.Render(a.label+" "+a.hint)) + 1
+		}
+		withHints = w <= m.width
+	}
+
+	chips := make([]actionChip, 0, len(acts))
+	x := indentWidth
+	for i, a := range acts {
+		if i > 0 {
+			x++ // the space between chips
+		}
+		text := a.label
+		if withHints {
+			text = a.label + " " + a.hint
+		}
+		w := lipgloss.Width(btnStyle.Render(text))
+		chips = append(chips, actionChip{text: text, start: x, end: x + w})
+		x += w
+	}
+	return chips
 }
 
 // indentWidth is the left margin the list's rows sit at (the two columns the
 // selection bar occupies), so the action bar lines up with them.
 const indentWidth = 2
+
+// actionBarRow is the row the bar is drawn on, counting from the top of the
+// list view: the header (0), a blank (1), the filter line (2), a blank (3), the
+// bar (4). Each of those is exactly one line — the title chip's padding is
+// horizontal only — so a click's Y can be compared against a constant instead
+// of the view being re-measured. TestActionBarRow finds the bar in the rendered
+// frame and fails if the layout above it ever grows a line.
+const actionBarRow = 4
 
 func (m model) viewForm() string {
 	var b strings.Builder

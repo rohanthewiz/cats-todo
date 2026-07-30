@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // newTestModel builds a manager model with empty project and global backlogs and
@@ -224,6 +225,117 @@ func TestListViewShowsActionBar(t *testing.T) {
 	}
 	if bar > row {
 		t.Fatalf("the action bar must sit above the rows, not below them:\n%s", out)
+	}
+}
+
+// TestActionBarRow guards the constant a click's Y is compared against. The
+// hit test can't re-measure the frame, so if anything above the bar ever grows
+// a line, this is what says so.
+func TestActionBarRow(t *testing.T) {
+	m := withTodo("ship it")
+	m.width = 200
+	lines := strings.Split(m.viewList(), "\n")
+	if actionBarRow >= len(lines) {
+		t.Fatalf("actionBarRow = %d, but the view has %d lines", actionBarRow, len(lines))
+	}
+	if !strings.Contains(lines[actionBarRow], "Add") {
+		t.Fatalf("row %d is %q, want the action bar:\n%s", actionBarRow, lines[actionBarRow], m.viewList())
+	}
+}
+
+// TestActionBarIconsAreOneCell pins the icons to single-column glyphs. The
+// double-width emoji forms were drawn clipped by the terminal — half an arrow,
+// half a cross — and no layout width fixes that, so the fix has to be the
+// glyph. It also keeps the chip spans honest for the click hit test.
+func TestActionBarIconsAreOneCell(t *testing.T) {
+	for _, a := range withTodo("ship it").listActions() {
+		icon := string([]rune(a.label)[0])
+		if w := lipgloss.Width(icon); w != 1 {
+			t.Errorf("%q icon %q is %d cells wide, want a one-cell dingbat", a.label, icon, w)
+		}
+	}
+}
+
+// TestActionBarClick drives the bar with the pointer: a click inside a chip
+// runs that chip's action and leaves the keyboard focus on it, and a click that
+// misses every chip does nothing at all.
+func TestActionBarClick(t *testing.T) {
+	build := func() model {
+		m := withTodo("ship it")
+		m.width = 200
+		return m
+	}
+
+	click := func(t *testing.T, m model, x, y int) model {
+		t.Helper()
+		next, _ := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+		return next.(model)
+	}
+
+	t.Run("a chip runs its action and takes the focus", func(t *testing.T) {
+		m := build()
+		chips := m.actionChips()
+		got := click(t, m, chips[actionEdit].start+1, actionBarRow)
+		if got.stage != stageForm || got.formMode != formEdit {
+			t.Fatalf("clicking Edit gave stage=%v mode=%v, want the edit form", got.stage, got.formMode)
+		}
+		if !got.actionFocus || got.actionIdx != actionEdit {
+			t.Fatalf("focus=%v idx=%d, want the focus parked on Edit", got.actionFocus, got.actionIdx)
+		}
+	})
+
+	t.Run("Add works with nothing highlighted", func(t *testing.T) {
+		m := newTestModel()
+		m.width = 200
+		got := click(t, m, m.actionChips()[actionAdd].start+1, actionBarRow)
+		if got.stage != stageForm || got.formMode != formAdd {
+			t.Fatalf("clicking Add gave stage=%v mode=%v, want the add form", got.stage, got.formMode)
+		}
+	})
+
+	t.Run("a miss changes nothing", func(t *testing.T) {
+		m := build()
+		chips := m.actionChips()
+		// The gap between two chips, the row above the bar, and the empty run
+		// past the last chip: all outside every button.
+		for _, at := range [][2]int{
+			{chips[0].end, actionBarRow},
+			{chips[0].start + 1, actionBarRow - 1},
+			{chips[len(chips)-1].end + 5, actionBarRow},
+			{0, actionBarRow},
+		} {
+			got := click(t, m, at[0], at[1])
+			if got.stage != stageList || got.actionFocus {
+				t.Fatalf("click at %v gave stage=%v focus=%v, want the list untouched", at, got.stage, got.actionFocus)
+			}
+		}
+	})
+
+	t.Run("a needsSel button with no selection only says so", func(t *testing.T) {
+		m := newTestModel()
+		m.width = 200
+		got := click(t, m, m.actionChips()[actionDelete].start+1, actionBarRow)
+		if got.stage != stageList {
+			t.Fatalf("stage = %v, want to stay on the list with nothing to delete", got.stage)
+		}
+		if got.status == "" {
+			t.Fatal("an inert button must explain itself in the status line")
+		}
+	})
+}
+
+// TestMouseReportingScopedToList pins where the pointer is claimed. The bar is
+// the only clickable thing, and mouse reporting costs the pane its own
+// click-to-select — so the prompt view, the screen whose text gets copied out,
+// must not turn it on.
+func TestMouseReportingScopedToList(t *testing.T) {
+	m := withTodo("ship it")
+	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
+		t.Errorf("list stage MouseMode = %v, want cell motion so the bar is clickable", got)
+	}
+	m.stage = stageView
+	if got := m.View().MouseMode; got != tea.MouseModeNone {
+		t.Errorf("prompt view MouseMode = %v, want none so selection still works", got)
 	}
 }
 
