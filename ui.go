@@ -1738,7 +1738,18 @@ func (m model) renderStage() string {
 // listTitle is the fixed heading of the manager's list view. Named so
 // scopeNote can budget the header's remaining width against it — the two share
 // one terminal line.
-const listTitle = "📝 Cats Todo — prompt backlog"
+const listTitle = "📝 Cats Todo"
+
+// listHeader renders the title chip with the binary's version trailing the
+// name, dimmed inside the same field so it reads as a footnote to the title
+// rather than a second thing on the line. The label drops its right padding so
+// the version sits one space after it and the chip keeps one padded edge.
+func listHeader() string {
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		titleStyle.PaddingRight(0).Render(listTitle),
+		titleVerStyle.Render(" v"+version),
+	)
+}
 
 // scopeNote names both scopes in the header: which project backlog is on
 // screen and which workspace the pane lives in — "cats + global · ws:pers".
@@ -1771,7 +1782,7 @@ func (m model) scopeNote() string {
 		// suffix separator. Rune count stands in for cell width on the
 		// user-authored strings; workspace labels are short and plain enough
 		// that the difference doesn't matter here.
-		room := m.width - lipgloss.Width(titleStyle.Render(listTitle)) - 2 -
+		room := m.width - lipgloss.Width(listHeader()) - 2 -
 			len([]rune(note)) - len([]rune(sep))
 		if room < 2 {
 			return note // no room for even one rune plus the ellipsis
@@ -1783,7 +1794,7 @@ func (m model) scopeNote() string {
 
 func (m model) viewList() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(listTitle))
+	b.WriteString(listHeader())
 	// "global only" is the ordinary no-project header — but a --project launch
 	// with no project has no global store either, and naming a backlog that is
 	// not on screen is exactly the confusion the only-modes exist to remove.

@@ -40,6 +40,15 @@ var (
 			Background(lipgloss.Color(colTitle)).
 			Padding(0, 1)
 
+	// The version rides inside the title chip, so it carries the chip's field and
+	// only the foreground changes: colDim against colTitle keeps it readable but
+	// clearly secondary to the name it trails. It owns the chip's right padding
+	// because the label gives that padding up to sit flush against it.
+	titleVerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colDim)).
+			Background(lipgloss.Color(colTitle)).
+			Padding(0, 1, 0, 0)
+
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
 	countStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
 
