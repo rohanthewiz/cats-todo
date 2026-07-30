@@ -41,6 +41,20 @@ row highlight the whole time, so you can pick a prompt and then press the button
 that acts on it. Typing anything hands the focus straight back to the filter. A
 button that needs a highlighted prompt is greyed out until there is one.
 
+The pointer works too, and the same way round: a click on a button presses it, a
+click on a prompt selects it (which is what makes the buttons useful with the
+mouse — they act on the highlight), and a **double-click** on a prompt opens the
+drop picker for it, where a click on a target hands the prompt over. So a prompt
+gets from the backlog into an agent without the keyboard. Nothing is *sent* by
+clicking: the picker still asks where, and pastes without running — submitting
+stays on `shift+enter`. Mouse reporting is only asked for on the two screens with
+something to click; the prompt view leaves the terminal's own text selection
+alone.
+
+Completed prompts collect below the open ones, newest first, so what you just
+finished is at the top of the pile rather than the bottom. `ctrl+d` folds them
+away and `ctrl+w` clears them out.
+
 ## Images
 
 In the editor, `ctrl+o` opens the attachment editor. Three ways to get an image
