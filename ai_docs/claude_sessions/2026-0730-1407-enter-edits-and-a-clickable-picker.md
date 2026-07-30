@@ -1,11 +1,12 @@
-# Session: enter edits what's in front of you, and the pointer reaches the picker
+# Session: enter edits what's in front of you, and the pointer reaches the rows
 
 Session ID: `c293369e-78b1-447b-9bc8-6605053580e8`
 Date: 2026-07-30
-Released as: `v0.4.1`
+Released as: `v0.4.1`, then `v0.4.2`
 
-Four asks in a row, each one small, each one a consequence of the clickable
-action bar the previous session added.
+Six asks in a row, each one small, each one a consequence of the clickable
+action bar the previous session added. Two releases: the first three fixes went
+out as v0.4.1, and the todo list's own rows followed as v0.4.2.
 
 ## Bug 1 — enter on a todo opened a blank one
 
@@ -124,6 +125,58 @@ Pushed with the manifest bumped to match in the release commit.
 **For next time: the manifest `version` in `cats-plugin.toml` is easy to forget
 at tag time — it had already drifted once.**
 
+## Ask 4 — the todo rows themselves
+
+> "the todo list rows should be clickable too"
+
+The picker's `rowAtLine` was already the reusable half, so the work was the
+*meaning* of a click, and here it differs from the picker for a concrete reason:
+
+**On the list, rows and buttons share a screen.** The bar acts on the highlight.
+A single click that opened or ran anything would make "click the prompt, then
+click Send" — the plainest thing a pointer is for — impossible to say. So a
+single click only selects, and it also clears `actionFocus`, which is the same
+"the focus follows the eye" rule that Bug 1 was about.
+
+The second click is the one that does something. Terminals report every click as
+a first one — `tea.MouseClickMsg` has X, Y, Button, Mod and no count — so the
+pairing is ours: same row, within 500ms, tracked as `lastClickRow` /
+`lastClickAt`. Tests drive it deterministically by pushing `lastClickAt` back a
+second to force the "slow" case.
+
+## Ask 5 — make the double-click send, not edit
+
+> "First click selects, we have that, but how about a double-click to send/drop
+> to an agent?"
+
+Framed as an addition, but one gesture can only mean one thing, so it was a swap.
+Offered double-click-drops / right-click-drops / shift+click-drops; **double-click
+drops** won.
+
+It's the better assignment anyway: editing keeps two ways in (`enter`, and the
+bar's ✎ Edit after a click), while dropping had none for the pointer. With the
+picker's rows already clickable, the whole path is now pointer-only —
+
+```
+click a row  →  select
+double-click →  the picker
+click a target → pasted into that agent
+```
+
+— and still nothing is *sent* by clicking: the picker asks where, and its enter
+pastes without running. The footer had to say it (`alt+enter / dbl-click drop`);
+a double-click opening a picker is not guessable.
+
+The no-socket case is worth remembering for tests: `beginDrop` → `startDrop`
+needs `m.client != nil`, and the test model has none. `&catsClient{socket:
+"/nonexistent/cats.sock"}` is enough — `buildTargets` swallows the `paneList`
+error and degrades to the new-session target.
+
+## Ask 6 — README
+
+Two things had shipped without the README noticing: the pointer, and the
+newest-first done pile. Both now have a paragraph.
+
 ## Commits
 
 ```
@@ -132,9 +185,27 @@ at tag time — it had already drifted once.**
 47bdf8f feat(todo): the pane title counts what is left in the backlog   (user's)
 23b422d feat(ui): click a drop target, not just arrow down to it
 09be21c chore(release): v0.4.1
+3a08497 docs: session notes
+42e295a feat(ui): click a todo to select it, double-click to send it
+019dba5 chore(release): v0.4.2
+84b717e docs: the README says what the pointer does
 ```
 
-Tag `v0.4.1` at `09be21c`.
+Tags `v0.4.1` at `09be21c`, `v0.4.2` at `019dba5` — patch bumps both, matching
+the call made on v0.4.1 rather than reading the features as minor bumps.
+
+## The pointer, as it now stands
+
+| screen | click | double-click |
+|---|---|---|
+| list — a button | presses it | — |
+| list — a prompt | selects it | opens the drop picker |
+| picker — a target | drops into it (paste, unsubmitted) | — |
+| prompt view | nothing; mouse reporting stays off so the text is selectable | — |
+
+Two layout constants carry it, both held to the rendered frame by a test:
+`actionBarRow = 4` and `listRowsRow = actionBarRow + 2` on the list,
+`targetRowsRow = 4` in the picker.
 
 ## What the tests pin now
 
@@ -146,4 +217,15 @@ Tag `v0.4.1` at `09be21c`.
 - `TestTargetRowsAreClickable` — a row drops into its agent, the whole row width
   answers, clicks off the rows do nothing, filtering re-aims the hit test by
   screen position
-- `TestTargetRowsMatchWhatIsDrawn` — `rowAtLine` vs. the real frame
+- `TestListRowsAreClickable` — one click selects and only selects, it takes the
+  focus off the bar, the second opens the picker on the right todo without
+  dropping, a slow second click is just another selection, a second click
+  elsewhere is a first click there, headings and gaps are not rows
+- `TestTargetRowsMatchWhatIsDrawn` / `TestListRowsMatchWhatIsDrawn` — `rowAtLine`
+  vs. the real frame, headings included
+
+## The one piece of debt
+
+`fuzzyList.rowAtLine` re-derives the line arithmetic `fuzzyList.view` writes. The
+two tests above are what keep them honest; if `view` ever grows a line between
+the rows, fix `rowAtLine` in the same change or every click lands one row off.
