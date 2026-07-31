@@ -11,6 +11,7 @@
 //	cats-todo -p | --project      open it on this project's backlog only
 //	cats-todo -g | --global       open it on the global backlog only
 //	cats-todo add [-g] [-t] [-i] ...  quick-capture a prompt (-i attaches an image)
+//	cats-todo init [-f]           create this project's backlog (committed with the repo)
 //	cats-todo version
 //
 // The manager talks to the cats server over the local control socket
@@ -37,6 +38,9 @@ func main() {
 		case "add":
 			addFromCLI(os.Args[2:])
 			return
+		case "init":
+			initFromCLI(os.Args[2:])
+			return
 		// The manager's -g mirrors add's -g: same letter, same meaning ("the
 		// global backlog, not this project's"), just applied to the TUI. -p is
 		// its mirror image; with neither, the manager shows both merged.
@@ -50,11 +54,12 @@ func main() {
 			fmt.Println("cats-todo", version)
 			return
 		case "help", "--help", "-h":
-			fmt.Println("usage: cats-todo [-p|-g] [add [-g] [-t title] [-i image]... [prompt...] | version]")
+			fmt.Println("usage: cats-todo [-p|-g] [add [-g] [-t title] [-i image]... [prompt...] | init [-f] | version]")
 			fmt.Println("  with no arguments, opens the manager TUI on both backlogs (project + global)")
 			fmt.Println("  -p / --project opens it on this project's backlog only")
 			fmt.Println("  -g / --global opens it on the global backlog only")
 			fmt.Println("  add -i / --image attaches an image (repeatable); it rides along when dropped")
+			fmt.Println("  init creates this project's backlog (.cats-todo/, committed with the repo)")
 			return
 		default:
 			errExit(fmt.Sprintf("unknown subcommand %q — run `cats-todo help`", os.Args[1]))

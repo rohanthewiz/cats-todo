@@ -23,6 +23,20 @@ platforms = ["linux", "macos"]
 [[build]]
 command = ["sh", "-c", "mkdir -p bin && go build -o bin/cats-todo ."]
 
+# Offer, once, to give the project you installed from its own backlog — a
+# project backlog is a committed file, so it is created on request rather than
+# by surprise. The offer is self-limiting: it records that it ran (in the global
+# config dir) and stays silent on every later upgrade, and it never replaces an
+# existing backlog without showing what is in it first.
+#
+# `|| true` because an optional convenience must never fail an install. Note
+# the host currently runs build steps with no stdin and with the working
+# directory set to this plugin root, so in practice this prints how to run
+# `cats-todo init` rather than prompting; it becomes a real prompt by itself if
+# the host ever passes a terminal and CATS_TODO_INSTALL_CWD through.
+[[build]]
+command = ["sh", "-c", "./bin/cats-todo init --post-install || true"]
+
 # The manager TUI, pinned to one backlog per action so each picker entry
 # means exactly what it says: "this project" shows only the project backlog
 # (--project — global todos would read as leakage under that label) and

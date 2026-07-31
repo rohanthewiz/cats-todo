@@ -14,6 +14,7 @@ cats-todo -g                           # open it on the global backlog only
 cats-todo add fix the flaky reconnect  # quick-capture to the project backlog
 git log -p | cats-todo add -g -t huh   # capture piped stdin to the global backlog
 cats-todo add -i ~/Desktop/shot.png this layout is wrong   # attach an image
+cats-todo init                         # give this project a backlog of its own
 ```
 
 Both the manager and `add` scope the project backlog to the same place: the
@@ -112,6 +113,45 @@ ramp is interpolated down from `fg` toward `line` instead. The manager sets the
 terminal's background and foreground while it runs and hands both back on the
 way out.
 
+## The project backlog is a committed file
+
+`.cats-todo/` is meant to be checked in — the `todos.json` manifest and the
+attachments beside it. A backlog of "what this project needs next" is worth
+what the repo's other notes are worth, and committing it means a teammate who
+clones the repo gets the prompts too, screenshots and all, and can drop one
+straight into an agent.
+
+Because it is a file in someone's version control, it is created on request
+rather than as a side effect:
+
+```bash
+cats-todo init          # create .cats-todo/todos.json for this project
+git add .cats-todo      # …then commit it like anything else
+```
+
+`init` runs from any subdirectory — it resolves the same project root the
+manager and `add` do. It is also the one command here that can destroy todos, so
+it never writes over a backlog silently. Point it at a project that already has
+one (your own, or one that arrived with a clone) and it shows you what is there
+before asking:
+
+```
+cats-todo already has a backlog: 12 todos
+  · fix the flaky reconnect
+  · port the drop picker to v2
+  · document the control socket
+  …and 9 more
+Replace it with an empty backlog? This deletes those 12 todos. [y/N]
+```
+
+A bare enter keeps it. With no terminal to answer at — a script, a pipe — the
+answer is never assumed: init refuses and leaves the backlog alone. `-f`
+replaces without asking, for when you mean it.
+
+(This repo is the exception that proves it: cats-todo's own `.cats-todo/` is
+gitignored, because a backlog whose prompts are "test the thing I am building"
+is scratch, not a record worth keeping.)
+
 ## Installing
 
 cats-todo is a cats plugin — `cats-plugin.toml` here is the reference manifest
@@ -122,6 +162,12 @@ catctl plugin install rohanthewiz/cats-todo   # clone from GitHub + build
 catctl plugin run rohanthewiz.cats-todo       # launch in a new tab
 catctl plugin link .                          # dev mode: symlink this checkout
 ```
+
+A first install offers to run `init` for the project you installed from; later
+upgrades stay quiet, since they would only be re-asking a question you have
+already answered. The offer needs the plugin host to hand a build step a
+terminal and the invoking directory (`CATS_PLUGIN_INSTALL_CWD`) — where it
+cannot, it prints how to run `cats-todo init` instead of guessing.
 
 Or build it directly — it is a plain Go module:
 
