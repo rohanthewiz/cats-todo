@@ -29,7 +29,7 @@ import (
 // version is the binary's version. It shows in the manager's title chip and in
 // `cats-todo version`, so it has to track cats-plugin.toml's version — a stale
 // const here is a wrong number on screen, not just a wrong flag output.
-const version = "0.4.3"
+const version = "0.4.4"
 
 func main() {
 	if len(os.Args) > 1 {
