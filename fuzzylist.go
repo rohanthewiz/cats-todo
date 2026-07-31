@@ -47,11 +47,19 @@ type fuzzyList struct {
 	cursor   int
 }
 
+// searchFieldWidth is how many columns the query box holds. Wide enough for the
+// placeholders both lists use, narrow enough to leave the match count beside it
+// in a cats pane.
+const searchFieldWidth = 34
+
 // newFuzzyList builds a list over items with a focused, empty query box.
 func newFuzzyList(placeholder string, items []listItem) fuzzyList {
 	ti := textinput.New()
 	ti.Placeholder = placeholder
 	ti.Prompt = ""
+	// A fixed width keeps the field's rails still: without it the box would hug
+	// the text and breathe in and out on every keystroke.
+	ti.SetWidth(searchFieldWidth)
 	ti.Focus()
 
 	l := fuzzyList{input: ti, items: items}
@@ -258,9 +266,8 @@ func (l fuzzyList) view(emptyMsg, bar string) string {
 		}
 	}
 
-	b.WriteString(promptStyle.Render("❯ "))
-	b.WriteString(l.input.View())
-	b.WriteString("   ")
+	b.WriteString(searchFieldStyle.Render(promptStyle.Render("🔍 ") + l.input.View()))
+	b.WriteString("  ")
 	b.WriteString(countStyle.Render(fmt.Sprintf("%d/%d", matched, total)))
 	b.WriteString("\n")
 	if bar != "" {

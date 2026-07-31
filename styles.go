@@ -52,6 +52,15 @@ var (
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
 	countStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
 
+	// The query line's chrome: side rails only, so the field reads as a box you
+	// type into without costing the layout the two lines a full border would —
+	// every row below it is hit-tested against a constant (see actionBarRow), and
+	// a taller header would silently move the rows out from under the mouse.
+	searchFieldStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder(), false, true).
+				BorderForeground(lipgloss.Color(colChrome)).
+				Padding(0, 1)
+
 	nameStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colFg))
 	nameSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Bold(true)
 	descStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
