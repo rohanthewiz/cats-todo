@@ -27,6 +27,31 @@ dialog uses exactly these two as its manifest actions — "run" offers "this
 project" and "global only" — while the bare merged view stays the shell
 launch.
 
+## Getting started
+
+cats-todo is a [cats](https://github.com/rohanthewiz/cats) plugin, so the
+shortest path is the plugin host — install, then launch it in a fresh tab:
+
+```bash
+catctl plugin install rohanthewiz/cats-todo   # clone from GitHub + build
+catctl plugin run rohanthewiz.cats-todo       # launch in a new tab
+```
+
+That leaves the binary in the plugin directory, which is all the manager needs.
+Put one on your PATH too — quick capture is only quick if it runs from whichever
+project you are standing in:
+
+```bash
+go install github.com/rohanthewiz/cats-todo@latest
+cd ~/dev/some-project && cats-todo init  # give that project a backlog
+cats-todo add fix the flaky reconnect    # capture without opening the manager
+```
+
+[Installing](#installing) has the rest: building from a checkout, dev-mode
+linking, and the first-install `init` offer.
+
+## Using the manager
+
 In the manager, `enter` opens what is in front of you — the highlighted prompt
 into the editor, or a brand-new entry when the list is empty — and `shift+enter`
 drops the prompt into an agent. That opens the target picker, where `enter`
