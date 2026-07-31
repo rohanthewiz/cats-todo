@@ -41,6 +41,12 @@ func main() {
 		case "init":
 			initFromCLI(os.Args[2:])
 			return
+		// Hidden: cats's shell completion execs this (see complete.go). It has to
+		// come before the flag-shaped cases below, and stays out of `help` — it is
+		// a protocol, not something to type.
+		case "__complete":
+			completeFromCLI(os.Args[2:])
+			return
 		// The manager's -g mirrors add's -g: same letter, same meaning ("the
 		// global backlog, not this project's"), just applied to the TUI. -p is
 		// its mirror image; with neither, the manager shows both merged.

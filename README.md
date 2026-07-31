@@ -214,6 +214,23 @@ go install .                  # …or one on your PATH, as `cats-todo`
 `go install` is the one that matters for `add`: quick capture is only quick if
 `cats-todo` runs from whichever project you happen to be standing in.
 
+## Shell completion
+
+Install cats's completion and `cats-todo` completes itself — subcommands,
+flags, and image files after `-i`:
+
+```bash
+eval "$(catctl completion zsh)"    # ~/.zshrc, after compinit; also bash / fish
+```
+
+`cats-plugin.toml` declares this in a `[[completions]]` block naming the
+command and a `__complete` argv. `catctl completion <shell>` reads it when it
+generates the script, so the registration lands in the same file as catctl's
+own — which also means a shell started before the plugin was installed will not
+have it until the next one. See `complete.go` for the protocol; a plugin with no
+completion code of its own can list `subcommands` and `flags` in the manifest
+instead and let catctl serve them.
+
 ## How it talks to cats
 
 The manager talks to the cats server over the local control socket

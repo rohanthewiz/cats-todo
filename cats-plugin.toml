@@ -54,3 +54,16 @@ command = ["./bin/cats-todo", "--project"]
 id = "todo-global"
 title = "Cats Todo — global only"
 command = ["./bin/cats-todo", "--global"]
+
+# Shell completion for the cats-todo command itself. `catctl completion <shell>`
+# reads this and registers cats-todo alongside catctl, so `cats-todo add -<TAB>`
+# works in any shell where cats completion is installed.
+#
+# The dynamic form: catctl execs this argv with the words typed so far appended
+# and passes the reply straight through to the shell. complete.go implements it,
+# which is what lets -i offer image files while -t offers nothing. A plugin with
+# no completion code of its own can instead list `subcommands` and `flags` here
+# and let catctl serve them.
+[[completions]]
+binary = "cats-todo"
+command = ["./bin/cats-todo", "__complete"]
