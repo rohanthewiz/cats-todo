@@ -12,7 +12,7 @@ cats-todo                              # open the manager: project + global merg
 cats-todo -p                           # open it on this project's backlog only
 cats-todo -g                           # open it on the global backlog only
 cats-todo add fix the flaky reconnect  # quick-capture to the project backlog
-git log -p | cats-todo add -g -t huh   # capture piped stdin to the global backlog
+git log -p | cats-todo add -g -t "review this diff"   # capture piped stdin, global backlog
 cats-todo add -i ~/Desktop/shot.png this layout is wrong   # attach an image
 cats-todo init                         # give this project a backlog of its own
 ```
@@ -55,6 +55,41 @@ alone.
 Completed prompts collect below the open ones, newest first, so what you just
 finished is at the top of the pile rather than the bottom. `ctrl+d` folds them
 away and `ctrl+w` clears them out.
+
+## Quick capture from a shell
+
+`add` puts a prompt in the backlog without opening the manager — for the moment
+you notice the thing rather than the moment you sit down to work on it. It is
+the same backlog either way; nothing about the entry marks where it came from.
+
+```bash
+cats-todo add fix the flaky reconnect       # → this project's backlog
+cats-todo add -g clean up the dotfiles      # → the global one
+cats-todo add -t "flaky test" fix the …     # → an explicit title
+git log -p | cats-todo add -t "review this diff"   # → the prompt from piped stdin
+```
+
+The prompt is the remaining arguments joined by spaces; with none, it is read
+from stdin when stdin is a pipe or a file. An interactive stdin is never read —
+a bare `cats-todo add` prints usage rather than sitting there waiting for you to
+type — so `add` is safe to bind to a key or drop in a script.
+
+`-t` names the entry in the list. Left off, the title is the prompt's first line
+(trimmed to 60 characters), which is usually the right thing; it is worth
+setting when the prompt starts mid-thought, or when it arrives on stdin and its
+first line is a diff header.
+
+Without `-g`, `add` writes to the project backlog rooted the way everything else
+here roots it — nearest `.cats-todo/`, else the repo root, else the current
+directory. Run it somewhere no project owns, and rather than inventing a backlog
+in the current directory it stops and says so, pointing at `-g`:
+
+```
+cats-todo: no project backlog here — run from a project directory, or use -g for the global backlog
+```
+
+A prompt captured on the way past is worth little if it lands where you will
+never look for it.
 
 ## Images
 
@@ -172,8 +207,12 @@ cannot, it prints how to run `cats-todo init` instead of guessing.
 Or build it directly — it is a plain Go module:
 
 ```bash
-go build -o bin/cats-todo .
+go build -o bin/cats-todo .   # a binary in this checkout
+go install .                  # …or one on your PATH, as `cats-todo`
 ```
+
+`go install` is the one that matters for `add`: quick capture is only quick if
+`cats-todo` runs from whichever project you happen to be standing in.
 
 ## How it talks to cats
 
