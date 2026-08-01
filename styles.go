@@ -37,8 +37,12 @@ const (
 	// it off colWarn — amber is spoken for by matchStyle, which paints fuzzy
 	// hits in the rows directly under this bar, and a second amber a line above
 	// them would cost that highlight the thing it exists to do.
+	//
+	// In HSL it is 45° 52% 86%: warmed five degrees toward red from where it
+	// started, which leaves it a hair off colWarn's 43° so the two stay separable
+	// by hue and not only by paleness.
 	colInfo  = "#6ea9d8"
-	colStraw = "#e0d49a"
+	colStraw = "#eee5c9"
 	// The row cursor, and the only place magenta appears. It sits outside the
 	// palette on purpose: the mark saying "here" has to be findable at a glance
 	// in a pane full of green, and a green mark on green rows is the one thing
