@@ -326,8 +326,7 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// quit only when there's nothing left to back out of. Esc is the "undo
 		// the state I'm in" key, and quitting the manager is the last resort.
 		if m.actionFocus {
-			m.actionFocus = false
-			return m, nil
+			return m, m.setActionFocus(false)
 		}
 		if strings.TrimSpace(m.list.input.Value()) != "" {
 			m.list.input.SetValue("")
@@ -337,11 +336,9 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "tab":
-		m.moveActionFocus(1)
-		return m, nil
+		return m, m.moveActionFocus(1)
 	case "shift+tab":
-		m.moveActionFocus(-1)
-		return m, nil
+		return m, m.moveActionFocus(-1)
 	case "left", "right":
 		// Only while a button holds the focus; otherwise these belong to the
 		// query box's cursor, which is where they fall through to.
@@ -411,9 +408,12 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Anything else is text for the filter — so the focus goes back with it.
 	// Leaving a button lit while the characters land in the query box would
 	// show the focus in one place and put it in another.
-	m.actionFocus = false
-	cmd := m.list.editQuery(msg)
-	return m, cmd
+	//
+	// The focus goes back first: a blurred input drops the keys it is given, so
+	// the character that brought the focus home would be the one character
+	// swallowed.
+	blink := m.setActionFocus(false)
+	return m, tea.Batch(blink, m.list.editQuery(msg))
 }
 
 // updateMouse routes a click to whatever the stage draws as clickable: the
@@ -463,13 +463,13 @@ func (m model) clickRow(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if !ok || !m.list.focusRow(i) {
 		return m, nil
 	}
-	m.actionFocus = false
+	blink := m.setActionFocus(false)
 	if i == m.lastClickRow && time.Since(m.lastClickAt) < doubleClickWindow {
 		m.lastClickAt = time.Time{} // a third click starts over, not another open
 		return m.beginEdit()
 	}
 	m.lastClickRow, m.lastClickAt = i, time.Now()
-	return m, nil
+	return m, blink
 }
 
 // doubleClickWindow is how close together two clicks on one row have to be to
@@ -481,7 +481,8 @@ const doubleClickWindow = 500 * time.Millisecond
 func (m model) clickActionBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for i, c := range m.actionChips() {
 		if msg.X >= c.start && msg.X < c.end {
-			m.actionFocus, m.actionIdx = true, i
+			m.actionIdx = i
+			m.setActionFocus(true) // blurs the box; nothing to restart
 			return m.runAction(i)
 		}
 	}
@@ -561,9 +562,30 @@ func (m model) listActions() []listAction {
 	}
 }
 
+// setActionFocus moves the focus between the query box and the buttons, and
+// takes the query box's cursor with it.
+//
+// The cursor has to move, not just the flag. The box was focused once at
+// construction and never blurred, so it blinked a cursor the whole time a
+// button was lit — the box looked like it held the keys when it didn't, which
+// is what made handing the focus back invisible: nothing about the box changed,
+// because it had never stopped claiming to be focused.
+//
+// The returned command restarts the blink. Dropping it costs only the blink —
+// a focused box still draws a steady cursor — so callers with nothing to return
+// it through can ignore it.
+func (m *model) setActionFocus(on bool) tea.Cmd {
+	m.actionFocus = on
+	if on {
+		m.list.input.Blur()
+		return nil
+	}
+	return m.list.input.Focus()
+}
+
 // moveActionFocus walks the focus one stop around the ring of query box and
 // buttons: tab out of the filter, across the buttons, and back into the filter.
-func (m *model) moveActionFocus(delta int) {
+func (m *model) moveActionFocus(delta int) tea.Cmd {
 	n := len(m.listActions())
 	i := m.actionIdx
 	if !m.actionFocus {
@@ -575,10 +597,10 @@ func (m *model) moveActionFocus(delta int) {
 	case i >= n:
 		i = -1
 	}
-	m.actionFocus = i >= 0
-	if m.actionFocus {
+	if i >= 0 {
 		m.actionIdx = i
 	}
+	return m.setActionFocus(i >= 0)
 }
 
 // backToList returns to the list stage and hands the action bar's focus back to
@@ -591,9 +613,13 @@ func (m *model) moveActionFocus(delta int) {
 // highlighted prompt opened a blank new todo instead of editing the one in
 // front of the user. The query box is where the list's keys belong once nothing
 // is mid-action.
+//
+// The blink command is dropped here rather than threaded back through ten
+// callers: a stage change redraws the whole screen, which is signal enough on
+// its own, and the box still shows a steady cursor.
 func (m *model) backToList() {
 	m.stage = stageList
-	m.actionFocus = false
+	_ = m.setActionFocus(false)
 }
 
 // runAction presses button i. A button whose action needs a highlighted prompt

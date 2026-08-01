@@ -93,10 +93,16 @@ var (
 	// type into without costing the layout the two lines a full border would —
 	// every row below it is hit-tested against a constant (see actionBarRow), and
 	// a taller header would silently move the rows out from under the mouse.
+	//
+	// The rails light when the box holds the keys and go quiet when a button
+	// does. A lit chip already says where the focus went; without this the query
+	// box never said where it came back to, and the box is what the focus
+	// returns to by default.
 	searchFieldStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder(), false, true).
 				BorderForeground(lipgloss.Color(colChrome)).
 				Padding(0, 1)
+	searchFieldOnStyle = searchFieldStyle.BorderForeground(lipgloss.Color(colAccent))
 
 	nameStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colFg))
 	nameSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Bold(true)

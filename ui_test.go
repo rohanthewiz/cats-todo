@@ -388,6 +388,77 @@ func TestActionFocusReleasedOnReturn(t *testing.T) {
 	}
 }
 
+// TestQueryBoxShowsItsFocus covers the signal the query box gives about holding
+// the keys. It was focused once at construction and never blurred, so it blinked
+// a cursor the whole time a button was lit — the box claimed the focus it didn't
+// have, which left handing the focus back with nothing to show for itself.
+//
+// The input's own Focused() is what the rails are drawn from (see
+// fuzzyList.view), so asserting on it covers both.
+func TestQueryBoxShowsItsFocus(t *testing.T) {
+	build := func() model {
+		m := withTodo("ship it")
+		m.width = 200
+		return m
+	}
+
+	t.Run("a lit chip takes the box's cursor", func(t *testing.T) {
+		m := build()
+		if !m.list.input.Focused() {
+			t.Fatal("the box must start focused — it is where typing goes")
+		}
+		if m = pressList(t, m, "tab"); m.list.input.Focused() {
+			t.Fatal("a lit chip must blur the box, or it claims a focus it hasn't got")
+		}
+	})
+
+	t.Run("every way back refocuses it", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			back func(model) model
+		}{
+			{"esc", func(m model) model { return pressList(t, m, "esc") }},
+			{"tab around the ring", func(m model) model {
+				for range m.listActions() {
+					m = pressList(t, m, "tab")
+				}
+				return m
+			}},
+			{"shift+tab", func(m model) model { return pressList(t, m, "shift+tab") }},
+			{"clicking a row", func(m model) model {
+				next, _ := m.Update(tea.MouseClickMsg{X: 8, Y: listRowsRow, Button: tea.MouseLeft})
+				return next.(model)
+			}},
+			{"closing a form", func(m model) model {
+				return stepForm(t, pressList(t, m, "enter"), "esc")
+			}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				m := tc.back(pressList(t, build(), "tab"))
+				if m.actionFocus {
+					t.Fatalf("the bar kept the focus on button %d", m.actionIdx)
+				}
+				if !m.list.input.Focused() {
+					t.Fatal("the focus came back to a box that still looks blurred")
+				}
+			})
+		}
+	})
+
+	t.Run("the key that brings the focus home is not swallowed", func(t *testing.T) {
+		// A blurred input drops the keys it is given, so typing from a lit chip
+		// has to refocus the box before the character is handed over — not after.
+		m := pressList(t, build(), "tab")
+		m = pressList(t, m, "x")
+		if got := m.list.input.Value(); got != "x" {
+			t.Fatalf("query = %q, want the keystroke that returned the focus to have landed", got)
+		}
+		if !m.list.input.Focused() || m.actionFocus {
+			t.Fatal("typing must leave the focus in the box the characters went to")
+		}
+	})
+}
+
 // clickChip presses action bar button i with the pointer.
 func clickChip(t *testing.T, m model, i int) model {
 	t.Helper()

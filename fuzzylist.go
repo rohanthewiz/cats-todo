@@ -266,7 +266,14 @@ func (l fuzzyList) view(emptyMsg, bar string) string {
 		}
 	}
 
-	b.WriteString(searchFieldStyle.Render(promptStyle.Render("🔍 ") + l.input.View()))
+	// The input's own focus is the truth, so a caller that blurs the box gets
+	// the quiet rails for free and can't leave the two disagreeing. The picker
+	// never blurs its box, so its rails are simply always lit.
+	field := searchFieldStyle
+	if l.input.Focused() {
+		field = searchFieldOnStyle
+	}
+	b.WriteString(field.Render(promptStyle.Render("🔍 ") + l.input.View()))
 	b.WriteString("  ")
 	b.WriteString(countStyle.Render(fmt.Sprintf("%d/%d", matched, total)))
 	b.WriteString("\n")
