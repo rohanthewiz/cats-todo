@@ -26,11 +26,40 @@ const (
 	colOk     = "#6ac47a"
 	colWarn   = "#e0b64e"
 	colErr    = "#e57373"
-	// The one cool hue in a warm-green palette, mixed to sit at the same
-	// brightness as colOk and colErr so the action bar's tints read as one set
-	// rather than three unrelated colors that happen to be adjacent.
-	colInfo = "#6ea9d8"
+	// The action bar's two extra hues. colInfo is the one cool color in a warm
+	// green palette, mixed to sit at colOk and colErr's brightness so the bar's
+	// tints read as one set rather than four unrelated colors that happen to be
+	// adjacent.
+	//
+	// colStraw is the set's one exception, and deliberately: it is pale rather
+	// than level with the others, because a yellow taken down to their
+	// brightness stops being yellow and turns olive. Paleness is also what keeps
+	// it off colWarn — amber is spoken for by matchStyle, which paints fuzzy
+	// hits in the rows directly under this bar, and a second amber a line above
+	// them would cost that highlight the thing it exists to do.
+	colInfo  = "#6ea9d8"
+	colStraw = "#e0d49a"
+	// The row cursor, and the only place magenta appears. It sits outside the
+	// palette on purpose: the mark saying "here" has to be findable at a glance
+	// in a pane full of green, and a green mark on green rows is the one thing
+	// that can't be. Muted rather than full magenta because it is a pointer, not
+	// an alarm — it should be the first thing found, not the loudest.
+	colCursor = "#b47fae"
 )
+
+// cursorGlyph marks the highlighted row, trailing space included: it occupies
+// the two columns of indentWidth that every other row leaves blank, so the
+// names below it stay in one column whether the mark is there or not.
+//
+// It is the shell's own prompt arrow. A list of prompts waiting to be handed to
+// an agent is closer to a shell than to a menu, and the arrow says "this one is
+// next" where the block it replaced only said "this one". Both call sites use
+// this constant so the two lists can't drift apart — one is the backlog, the
+// other the attachment editor, and they are the same gesture.
+//
+// One terminal column wide (checked with lipgloss.Width, since a glyph the font
+// draws double would push every row a column right of the action bar).
+const cursorGlyph = "❯ "
 
 // Palette — a small, cohesive set of styles for a clean dark-terminal look,
 // shared by the fuzzyList component and the manager views.
@@ -71,8 +100,11 @@ var (
 	// matchStyle stays amber. It is the one thing on screen that must not read
 	// as part of the green ramp — a fuzzy hit inside a name has to jump out of
 	// the letters around it, and warm-against-green is what does that.
-	matchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colWarn)).Bold(true)
-	barStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
+	matchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colWarn)).Bold(true)
+	// cursorStyle draws the mark on the highlighted row (see cursorGlyph). Bold
+	// is what makes an arrow thick — the glyph is already the heavy form, and
+	// weight is the only other lever a terminal gives.
+	cursorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colCursor)).Bold(true)
 	footerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint))
 	headingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colMuted)).Bold(true)
 
@@ -98,7 +130,8 @@ var (
 	// doing the work of separating live from inert; hue on top of them would be
 	// a second signal for something already said. A chip fills with its own hue
 	// only when the focus is on it — one field lit at a time, which is what
-	// "pressed" has to look like to be worth the ink.
+	// "pressed" has to look like to be worth the ink. btnFocusStyle's own
+	// background is a fallback that nothing on the bar uses.
 	//
 	// None of the three is bold: the chips already separate themselves from the
 	// pane by their fields, and weight on top of that made the bar shout over the

@@ -293,7 +293,7 @@ func (l fuzzyList) view(emptyMsg, bar string) string {
 		}
 		selected := i == l.cursor
 		if selected {
-			b.WriteString(barStyle.Render("▌ "))
+			b.WriteString(cursorStyle.Render(cursorGlyph))
 		} else {
 			b.WriteString("  ")
 		}

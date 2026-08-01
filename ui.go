@@ -515,16 +515,14 @@ func (m model) clickTarget(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // competing with it. needsSel marks the actions that have nothing to act on
 // until a prompt is highlighted.
 //
-// tint is the color the chip's letters take, and fill the field it lights up
-// with under the focus. They are the same color for every button that has a
-// hue; Add is the exception, because a chip filled with its near-white tint
-// would be a lamp in a dark pane — it lights up in the palette's own green
-// instead, which is where the focus lives everywhere else in the program.
+// tint is the chip's own color: its letters ordinarily, and the whole field it
+// lights up with under the focus. One color serving both is what keeps a
+// focused button recognizably the same button — the chip doesn't change hue
+// when pressed, it just trades which half of itself is carrying it.
 type listAction struct {
 	label    string
 	hint     string
 	tint     string
-	fill     string
 	needsSel bool
 }
 
@@ -549,15 +547,17 @@ const (
 // to, whole every time, and they take the chip's foreground, so the bar stays
 // inside the green instead of dropping four emoji palettes into it.
 func (m model) listActions() []listAction {
-	// Green is spent on Send rather than Add: it is the palette's color of
-	// consequence, and handing a prompt to a live agent is the one thing on this
-	// screen that reaches out of the program. Delete's red is the only warning
-	// the bar gives before the confirm asks.
+	// The row runs cool to hot, left to right, in the order a prompt's life
+	// actually goes: make it, change it, send it, throw it away. Green is spent
+	// on Send rather than Add because it is the palette's color of consequence,
+	// and handing a prompt to a live agent is the one thing on this screen that
+	// reaches out of the program; Delete's red is the only warning the bar gives
+	// before the confirm asks.
 	return []listAction{
-		{label: "✚ Add", hint: "ctrl+a", tint: colFgHi, fill: colAccent},
-		{label: "✎ Edit", hint: "enter", tint: colInfo, fill: colInfo, needsSel: true},
-		{label: "➜ Send", hint: m.modEnter(), tint: colAccent, fill: colAccent, needsSel: true},
-		{label: "✖ Delete", hint: "ctrl+x", tint: colErr, fill: colErr, needsSel: true},
+		{label: "✚ Add", hint: "ctrl+a", tint: colInfo},
+		{label: "✎ Edit", hint: "enter", tint: colStraw, needsSel: true},
+		{label: "➜ Send", hint: m.modEnter(), tint: colAccent, needsSel: true},
+		{label: "✖ Delete", hint: "ctrl+x", tint: colErr, needsSel: true},
 	}
 }
 
@@ -1878,7 +1878,7 @@ func (m model) actionBar() string {
 		st := btnStyle.Foreground(lipgloss.Color(acts[i].tint))
 		switch {
 		case m.actionFocus && i == m.actionIdx:
-			st = btnFocusStyle.Background(lipgloss.Color(acts[i].fill))
+			st = btnFocusStyle.Background(lipgloss.Color(acts[i].tint))
 		case acts[i].needsSel && !hasSel:
 			st = btnOffStyle
 		}
@@ -1930,8 +1930,8 @@ func (m model) actionChips() []actionChip {
 	return chips
 }
 
-// indentWidth is the left margin the list's rows sit at (the two columns the
-// selection bar occupies), so the action bar lines up with them.
+// indentWidth is the left margin the list's rows sit at (the two columns
+// cursorGlyph occupies), so the action bar lines up with them.
 const indentWidth = 2
 
 // actionBarRow is the row the bar is drawn on, counting from the top of the
@@ -2018,7 +2018,7 @@ func (m model) viewImages() string {
 	}
 	for i, img := range m.formImages {
 		if i == m.imgCursor {
-			b.WriteString(barStyle.Render("▌ "))
+			b.WriteString(cursorStyle.Render(cursorGlyph))
 			b.WriteString(nameSelStyle.Render(img.name))
 		} else {
 			b.WriteString("  ")
