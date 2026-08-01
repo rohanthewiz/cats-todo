@@ -8,7 +8,7 @@ Repo: `cats-todo`
 
 ## The ask
 
-Four asks, in order:
+Seven asks, in order:
 
 1. "Could this click handling work? A single click selects and goes into edit
    mode for the todo, while dbl clicking sends the todo to the agent?"
@@ -18,10 +18,22 @@ Four asks, in order:
    think?"
 4. "Change the selected row indicator from the vertical green bar to a thick
    muted magenta prompt arrow."
+5. "Lighten the yellow for Edit by 12% and take the hue a tad towards red."
+6. "Refocussing the search doesn't give me any indication it is back in focus."
+7. "Can we do some kind of a subtle whole row highlight on selected, even for a
+   completed todo?"
 
-The first was a design question, answered before anything was changed. The rest
-were color work, where the interesting parts were *where* the color goes and
-which colors were already spoken for.
+The first was a design question, answered before anything was changed. The
+middle ones were color work, where the interesting parts were *where* the color
+goes and which colors were already spoken for. The last two started as polish
+and turned out to be bugs — both of the same shape, which is the thing worth
+carrying out of this session:
+
+> **A widget that never changes state cannot signal a state change.** The query
+> box was focused once at construction and never blurred. A completed row let
+> `strike` win over `selected` unconditionally. In both cases the request read
+> as "add an indicator", and in both cases the indicator could not have worked,
+> because the thing it would indicate was never being tracked.
 
 ## The click proposal, and why it was turned down
 
@@ -172,33 +184,137 @@ Three details:
 - **`barStyle` was renamed `cursorStyle`.** It no longer draws a bar, and a style
   named for a shape it stopped having is how the next reader gets misled.
 
+## Lightening the straw
+
+`colStraw` went from HSL 50° 53% 74% to **45° 52% 86%** — twelve points of
+lightness, five degrees of hue.
+
+"Lighten by 12%" was read the way colour tooling means it (SCSS/Less `lighten`):
+twelve *percentage points* of HSL lightness, not a 12% relative bump. The
+relative reading would have been `#ebdfbd` at L=83%, and it is the fallback if
+the chosen value proves too pale.
+
+The five degrees deliberately stop short of "as red as it goes". `colWarn` sits
+at 42.7°, and landing on it would leave Edit and the fuzzy-match highlight
+sharing a hue, separated by paleness alone — which is most of what the earlier
+straw/amber decision was buying.
+
+Flagged at the time, and still worth an eye in a real pane: at L=86% the lit Edit
+chip is close enough to `colFgHi` (95%) to be the near-white glare that made Add
+need a separate `fill` in the first place. Focused Send fills at L=50%; focused
+Edit now fills at 86%, so the two "pressed" states no longer look like the same
+kind of event.
+
+## The query box never said it had the focus
+
+Reported as "refocussing the search doesn't give me any indication it is back in
+focus". The cause was worse than a missing highlight.
+
+`ti.Focus()` was called once in `newFuzzyList` and **never blurred**. The box
+rendered a blinking cursor the whole time an action-bar chip was lit — it
+claimed a focus it did not have. So there was nothing for *regaining* the focus
+to reverse: the box looked identical before, during, and after.
+
+Both halves move now:
+
+- **The cursor.** All five focus flips route through one `setActionFocus`, which
+  blurs the input when a chip lights and refocuses it when the focus comes home.
+- **The rails.** `searchFieldOnStyle` draws them in `colAccent` when focused,
+  falling back to the existing `colChrome` otherwise — so the unfocused state
+  looks exactly as it always did and only the focused state gained a signal.
+
+`fuzzyList.view` reads `l.input.Focused()` rather than taking a second flag, so
+the rails and the cursor cannot disagree, and the drop picker (which never
+blurs) simply stays lit for free.
+
+**The hazard this introduced.** A blurred `textinput` silently drops the keys it
+is handed. Typing from a lit chip is supposed to bring the focus home *and* land
+the character, so `setActionFocus(false)` has to run **before** `editQuery` — or
+the one keystroke that returned the focus is the one keystroke swallowed. That
+ordering is now the subject of its own test.
+
+`backToList` drops the returned blink command rather than threading it through
+ten callers. A focused box still draws a steady cursor, and a stage change
+redraws the screen anyway; the comment says so, so it does not read as an
+oversight.
+
+## The whole-row highlight
+
+Asked for as "some kind of a subtle whole row highlight on selected, even for a
+completed todo". The "even for a completed todo" half was the tell.
+
+**The bug.** `highlightName` ran `if strike { base = doneStyle }` *after* the
+selected branch, so done won outright. A completed row under the cursor rendered
+**identically** to a completed row anywhere else — the highlight did not exist
+for half the list. They are independent now: the strike says what the todo is,
+the field says which row the keys are on. A selected done row also comes up one
+tier of grey (`colFaint` → `colDim`, the new `doneSelStyle`), because receding is
+right for a row nobody asked about and wrong for the row being looked at — and
+it recedes further still against the lifted field.
+
+**The mechanism.** A terminal background only covers the cells a style actually
+writes, so wrapping a finished row in one background style cannot work: the
+segments end in resets, and the first of them drops the field for the rest of
+the line. Every segment therefore goes through one `onRow` helper — cursor,
+badge, each letter of the name, the description, and the padding out to the
+right edge.
+
+That forced a small refactor: badges arrived at the list **pre-rendered**, which
+is exactly the text you cannot put a background behind. `listItem` now carries
+the glyph and its style separately (`badge` + `badgeStyle`) and the renderer owns
+the whole row. The old comment explaining why badges were written verbatim was
+describing the constraint that made this necessary.
+
+`colPanel` is reused rather than a new tone invented — it is already the
+palette's one step up from the page. The open question, raised and left: it is
+also what an inert chip sits on, so one tone now means both "row you are on" and
+"button you cannot press". Different enough in context; a dedicated tone is one
+line if it ever reads as ambiguous.
+
+**Width is a parameter to `view()`, not a field on the list.** `applySizes`
+returns early below 20 columns and only touches the active stage, so a stored
+copy would go stale silently — and it would go stale as a highlight that stops
+short of the edge, which is the one failure mode hardest to attribute.
+
 ## Verification
 
-Every color was checked by rendering, not by reading hex. Throwaway probe tests
-(deleted after each look) printed `actionBar()` in all six states — no selection,
-with a selection, and the focus on each of the four chips — and then the whole
-`View()` with a row highlighted, straight to stdout as truecolor escapes.
-Confirmed the tints land, each focused chip flips to its own field with dark
-text, the inert row is uniformly grey, and the magenta arrow sits in the two
-columns the action bar's chips start after.
+Nothing here was judged by reading hex. Throwaway probe tests (deleted after
+each look) printed the real output to stdout as truecolor escapes: `actionBar()`
+in all six states — no selection, with a selection, and the focus on each of the
+four chips — then the whole `View()` with a row highlighted, then the query line
+across focused / chip-lit / refocused, then rows with an open and a completed
+todo selected.
 
-The probe is the reason the straw/amber distinction and the glyph width were
-settled rather than assumed. It is cheap: a `zz_*_test.go` in the package, one
-`go test -run`, then `rm`.
+The probes are why the straw/amber distinction, the glyph width, the swallowed
+keystroke, and the full-width field were settled rather than assumed. They are
+cheap: a `zz_*_test.go` in the package, one `go test -run`, then `rm`.
 
-Note for next time: lipgloss v2 has no `SetColorProfile`/`TrueColor` — styles
-emit ANSI unconditionally and downsampling happens at the writer, so a probe
-needs no profile setup at all. `m.View()` returns a `tea.View`, not a string.
+**The tests were checked against the old behaviour, not just run.** Reverting
+`highlightName`'s switch to the previous strike-wins logic fails two subtests
+with the right messages, which is the difference between a regression test and a
+decoration.
+
+Notes for next time:
+
+- lipgloss v2 has no `SetColorProfile`/`TrueColor` — styles emit ANSI
+  unconditionally and downsampling happens at the writer, so a probe needs no
+  profile setup at all.
+- `m.View()` returns a `tea.View`, not a string.
+- `lipgloss.Width` on a rendered line is the cleanest non-brittle assertion
+  available for "the field runs the whole row" — far better than matching escape
+  sequences.
 
 `gofmt -l` empty, `go vet ./...` clean, full suite passes.
 
 ## Files
 
-    README.md    | 15 +++++++-------
-    fuzzylist.go |  2 +-
-    styles.go    | 55 +++++++++++++++++++++++++++++++++++++++++--------
-    ui.go        | 61 +++++++++++++++++++++++++++++++++-----------------------
-    ui_test.go   | 53 +++++++++++++++++++++++++++-------------------
+Across the session, against `c5dc28d`:
+
+    README.md    |  15 ++---
+    fuzzylist.go |  80 ++++++++++++++++------
+    styles.go    |  96 ++++++++++++++++++++++++---
+    ui.go        | 135 ++++++++++++++++++++++++++--------------
+    ui_test.go   | 197 ++++++++++++++++++++++++++++++++++++++++++++++++++-------
 
 ## Notes
 
@@ -207,13 +323,23 @@ needs no profile setup at all. `m.View()` returns a `tea.View`, not a string.
   stall on every single click, not the implementation.
 - `m.lastClickRow` / `m.lastClickAt` and `doubleClickWindow` are unchanged; only
   what the second click *runs* moved.
-- The chip colors and the click swap shipped in one commit before the palette
-  was revised; the revision (blue to Add, straw Edit, magenta cursor) is a
-  second commit on top rather than an amend, since the first was already pushed.
+- The work shipped as five commits rather than one, each pushed as it was
+  finished: the click swap + first chip colors, the palette revision, the straw
+  lightening, the focus fix, the row highlight. `styles.go` carried two
+  unrelated changes at one point and was split by hunk rather than lumped
+  together.
+- Session notes are kept in their own `docs:` commit here, per the repo's
+  history. Twice in this session `git add -A` swept the doc into the code commit
+  and it had to be split back out before pushing — worth staging deliberately
+  next time.
 - Not yet run in a real cats pane — worth a `go run .` before trusting any of
-  this against the actual terminal background. Two things to watch: the lit Edit
-  chip is the brightest field on the bar, because yellow is inherently
-  high-luminance, so a focused Edit flashes harder than a focused Send (dropping
-  `colStraw` toward `#d3c489` fixes it without going near amber); and `❯` is a
-  glyph some terminal fonts render from a fallback, which is the one way it
-  could still come out looking thin.
+  this against the actual terminal background. Three things to watch:
+  - the lit Edit chip is the brightest field on the bar and got brighter with
+    the lightening (fills at L=86% against Send's 50%); dropping `colStraw`
+    toward `#d3c489`, or giving Edit its own `fill`, fixes it without going near
+    amber;
+  - `❯` is a glyph some terminal fonts render from a fallback, which is the one
+    way it could still come out looking thin;
+  - `colPanel` now means both "the row you are on" and "a button you cannot
+    press". Context separates them, but a dedicated tone is one line if it does
+    not.
