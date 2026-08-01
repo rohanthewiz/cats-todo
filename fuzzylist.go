@@ -12,6 +12,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/sahilm/fuzzy"
 )
 
@@ -19,14 +20,20 @@ import (
 // highlighted) plus an optional dimmer description, and carries ref — the
 // caller's identifier for the row. A row with selectable=false is a
 // non-selectable separator: with a name it renders as a dim group heading,
-// without one as a blank spacer. badge, when set, is written pre-styled before
-// the name (used to mark done todos). strike renders the name struck-through
-// (done).
+// without one as a blank spacer. badge, when set, is drawn before the name
+// (used to mark done todos) in badgeStyle. strike renders the name
+// struck-through (done).
+//
+// The badge arrives as a glyph and a style rather than pre-rendered text: the
+// highlighted row puts a field behind every one of its segments, and text that
+// is already styled cannot be given a background without nesting a second style
+// inside the first — which is how the outer reset ends up clobbering the inner.
 type listItem struct {
 	name       string
 	desc       string
 	search     string // when set, replaces desc in the fuzzy-match haystack
 	badge      string
+	badgeStyle lipgloss.Style
 	strike     bool
 	selectable bool
 	ref        int
@@ -251,7 +258,13 @@ func (l *fuzzyList) editQuery(msg tea.Msg) tea.Cmd {
 // non-empty, is written on its own line between the query and the rows — the
 // manager's action bar. It is passed in pre-rendered rather than built here
 // because the buttons act on the caller's model, not on the list.
-func (l fuzzyList) view(emptyMsg, bar string) string {
+//
+// width is how far the highlighted row's field runs. It is a parameter rather
+// than a field on the list because the caller already holds the window size and
+// re-renders on every resize; keeping a copy here would be one more thing that
+// can go stale, and it goes stale silently — as a highlight that stops short of
+// the edge.
+func (l fuzzyList) view(emptyMsg, bar string, width int) string {
 	var b strings.Builder
 
 	matched, total := 0, 0
@@ -299,22 +312,30 @@ func (l fuzzyList) view(emptyMsg, bar string) string {
 			continue
 		}
 		selected := i == l.cursor
+
+		// The row is built apart from the page so it can be measured, then
+		// padded out to the right edge. A field that stops where the text does
+		// reads as a box drawn around the words; one that runs the width of the
+		// pane reads as the row itself being lit, which is the whole point of
+		// highlighting a row rather than its name.
+		var r strings.Builder
 		if selected {
-			b.WriteString(cursorStyle.Render(cursorGlyph))
+			r.WriteString(onRow(cursorStyle, true).Render(cursorGlyph))
 		} else {
-			b.WriteString("  ")
+			r.WriteString("  ")
 		}
 		if it.badge != "" {
-			// Written verbatim: the badge is already styled by whoever built the
-			// item. Re-wrapping it here would nest ANSI sequences and let the outer
-			// style's reset clobber the inner one.
-			b.WriteString(it.badge)
-			b.WriteString(" ")
+			r.WriteString(onRow(it.badgeStyle, selected).Render(it.badge + " "))
 		}
-		b.WriteString(highlightName(it.name, s.matched, selected, it.strike))
+		r.WriteString(highlightName(it.name, s.matched, selected, it.strike))
 		if it.desc != "" {
-			b.WriteString("  ")
-			b.WriteString(descStyle.Render(it.desc))
+			r.WriteString(onRow(descStyle, selected).Render("  " + it.desc))
+		}
+		row := r.String()
+
+		b.WriteString(row)
+		if pad := width - lipgloss.Width(row); selected && pad > 0 {
+			b.WriteString(onRow(lipgloss.NewStyle(), true).Render(strings.Repeat(" ", pad)))
 		}
 		b.WriteString("\n")
 	}
@@ -324,14 +345,26 @@ func (l fuzzyList) view(emptyMsg, bar string) string {
 // highlightName renders a row's name with the fuzzy-matched characters
 // emphasized. When strike is set (a done todo) the base text is dimmed and
 // struck through.
+//
+// Done and selected used to be exclusive, done winning: a completed row under
+// the cursor drew exactly like a completed row anywhere else, so the highlight
+// simply did not exist for half the list. They are independent now — the strike
+// says what the todo is, the field says which one the keys are on — and a done
+// row that is being looked at comes up one tier of grey, since receding into
+// the background is right for a row nobody asked about and wrong for the row
+// under the cursor.
 func highlightName(name string, matched []int, selected, strike bool) string {
 	base := nameStyle
-	if selected {
+	switch {
+	case strike && selected:
+		base = doneSelStyle
+	case strike:
+		base = doneStyle
+	case selected:
 		base = nameSelStyle
 	}
-	if strike {
-		base = doneStyle
-	}
+	base = onRow(base, selected)
+	hit := onRow(matchStyle, selected)
 	if len(matched) == 0 {
 		return base.Render(name)
 	}
@@ -344,7 +377,7 @@ func highlightName(name string, matched []int, selected, strike bool) string {
 	var b strings.Builder
 	for i, r := range name {
 		if set[i] {
-			b.WriteString(matchStyle.Render(string(r)))
+			b.WriteString(hit.Render(string(r)))
 		} else {
 			b.WriteString(base.Render(string(r)))
 		}

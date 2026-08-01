@@ -715,12 +715,13 @@ func (m *model) rebuildList() {
 	add := func(s *store) {
 		appendTodo := func(t Todo) {
 			ref := todoRef{scope: s.scope, id: t.ID}
-			// Both badges arrive at the list pre-styled — the renderer writes them
-			// verbatim — so the open marker has to opt into its own dimming rather
-			// than inheriting it.
-			badge := descStyle.Render("○")
+			// Glyph and style travel separately: the renderer has to be able to
+			// put the highlighted row's field behind the badge, which it cannot
+			// do to text that is already rendered. The open marker names its own
+			// dimming rather than inheriting any.
+			badge, badgeStyle := "○", descStyle
 			if t.Done {
-				badge = checkStyle.Render("✓")
+				badge, badgeStyle = "✓", checkStyle
 			}
 			name := t.Title
 			if name == "" {
@@ -742,6 +743,7 @@ func (m *model) rebuildList() {
 				// text buried deep in a multi-line prompt.
 				search:     strings.Join(strings.Fields(t.Title+" "+t.Prompt), " "),
 				badge:      badge,
+				badgeStyle: badgeStyle,
 				strike:     t.Done,
 				selectable: true,
 				ref:        len(rows),
@@ -1860,7 +1862,7 @@ func (m model) viewList() string {
 	if !m.project.available() && !m.global.available() {
 		empty = "No backlog here — this pane is not in a project. Relaunch from a project directory, or with --global."
 	}
-	b.WriteString(m.list.view(empty, m.actionBar()))
+	b.WriteString(m.list.view(empty, m.actionBar(), m.width))
 
 	if m.status != "" {
 		b.WriteString("\n")
@@ -2151,7 +2153,7 @@ func (m model) viewTarget() string {
 	b.WriteString("  ")
 	b.WriteString(descStyle.Render(truncate(title, 60)))
 	b.WriteString("\n\n")
-	b.WriteString(m.targetList.view("no agent sessions detected — pick New Claude Code session", ""))
+	b.WriteString(m.targetList.view("no agent sessions detected — pick New Claude Code session", "", m.width))
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("enter paste (don't submit) · " + m.modEnter() + " drop & run · esc back"))
 	return b.String()

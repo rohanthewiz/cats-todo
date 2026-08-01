@@ -51,6 +51,24 @@ const (
 	colCursor = "#b47fae"
 )
 
+// onRow puts st on the highlighted row's field, and returns it untouched
+// otherwise. Every segment of a row goes through this — the cursor, the badge,
+// each letter of the name, the description, the padding out to the right edge —
+// because a terminal background only covers the cells a style actually writes.
+// Wrapping the finished row in one background style cannot work: the segments
+// end in resets, and the first of them drops the field for the rest of the line.
+//
+// colPanel is reused rather than a new tone invented. It is already the
+// palette's one step up from the page, and a highlight the eye has to hunt for
+// is the wrong kind of subtle — but so is a second surface color that means
+// something different by a shade.
+func onRow(st lipgloss.Style, selected bool) lipgloss.Style {
+	if !selected {
+		return st
+	}
+	return st.Background(lipgloss.Color(colPanel))
+}
+
 // cursorGlyph marks the highlighted row, trailing space included: it occupies
 // the two columns of indentWidth that every other row leaves blank, so the
 // names below it stay in one column whether the mark is there or not.
@@ -121,10 +139,15 @@ var (
 	// Todo-specific accents. checkStyle is deliberately unbolded: a completed
 	// todo should recede, so the green tick reads as a quiet marker rather than
 	// competing with the open rows above it for attention.
-	doneStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint)).Strikethrough(true)
-	checkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
-	errStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
-	okStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
+	doneStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint)).Strikethrough(true)
+	// The same row under the cursor, one tier of grey brighter. colFaint is
+	// chosen to recede, which is right until the row is the one being looked
+	// at — and it recedes further still against the highlight's lifted field,
+	// so holding it there would make selecting a done todo cost legibility.
+	doneSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim)).Strikethrough(true)
+	checkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
+	errStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
+	okStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
 
 	// Action-bar buttons. Each chip is rendered by exactly one of these styles —
 	// label and key hint together — because nesting a second style inside a

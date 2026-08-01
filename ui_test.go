@@ -586,6 +586,79 @@ func withBothScopes() model {
 	return m
 }
 
+// TestSelectedRowIsHighlighted covers the field drawn behind the highlighted
+// row. The width assertion is the load-bearing one: a background only covers the
+// cells a style writes, so a row whose highlight stops at its text is the exact
+// failure this is guarding, and it renders as a box around the words instead of
+// a lit row.
+//
+// The done cases are here because they were the bug. strike used to win over
+// selected outright, so a completed row under the cursor drew identically to
+// one anywhere else — the highlight did not exist for half the list.
+func TestSelectedRowIsHighlighted(t *testing.T) {
+	const width = 64
+
+	build := func() model {
+		m := newTestModel()
+		m.project.todos = []Todo{
+			{ID: "p1", Title: "still open", Prompt: "a"},
+			{ID: "p2", Title: "already done", Prompt: "b", Done: true},
+		}
+		m.width = width
+		m.rebuildList()
+		return m
+	}
+	// fullWidth counts the rendered lines that run the whole pane — the lit row
+	// and nothing else, since every other line stops at its text.
+	fullWidth := func(m model) int {
+		n := 0
+		for _, ln := range strings.Split(m.list.view("none", "", width), "\n") {
+			if lipgloss.Width(ln) == width {
+				n++
+			}
+		}
+		return n
+	}
+
+	for _, tc := range []struct {
+		name string
+		row  int
+	}{
+		{"an open row", 0},
+		{"a completed row", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := build()
+			m.list.cursor = tc.row
+			if got := fullWidth(m); got != 1 {
+				t.Fatalf("%d full-width lines, want exactly the highlighted row", got)
+			}
+		})
+	}
+
+	t.Run("a completed row answers the cursor", func(t *testing.T) {
+		// Same name, same strike, different selection: the two must not render
+		// alike, or the cursor is invisible on everything already finished.
+		on := highlightName("already done", nil, true, true)
+		off := highlightName("already done", nil, false, true)
+		if on == off {
+			t.Fatal("a selected done row renders exactly like an unselected one")
+		}
+	})
+
+	t.Run("done and selected both survive", func(t *testing.T) {
+		// Neither wins outright: the strike says what the todo is, the field
+		// says which row the keys are on.
+		got := highlightName("already done", nil, true, true)
+		if !strings.Contains(got, "\x1b[9m") && !strings.Contains(got, ";9m") {
+			t.Fatalf("no strikethrough in %q — selection swallowed the done marking", got)
+		}
+		if !strings.Contains(got, "48;2;") {
+			t.Fatalf("no field in %q — done marking swallowed the selection", got)
+		}
+	})
+}
+
 // TestListRowsAreClickable covers the pointer on the todo list: one click
 // selects a row, a second opens it for editing. The split matters — the bar
 // acts on the highlight, so a single click that opened the edit form would make
