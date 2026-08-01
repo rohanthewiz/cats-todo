@@ -1,4 +1,6 @@
-# Session: the double-click swaps to edit, and the chips get their colors
+# Session: the double-click swaps to edit, and the list gets its colors
+
+(The chips, then the row cursor. The filename predates the cursor work.)
 
 Session ID: `0a9f006d-57cf-44c0-84c1-054eb6d37838`
 Date: 2026-07-31
@@ -6,16 +8,20 @@ Repo: `cats-todo`
 
 ## The ask
 
-Two questions, one after the other:
+Four asks, in order:
 
 1. "Could this click handling work? A single click selects and goes into edit
    mode for the todo, while dbl clicking sends the todo to the agent?"
 2. "Is it possible to use some color on the chips. Like blue for edit, green for
    send, red for delete?"
+3. "Let's give the blue color to Add and make edit a light yellow. What do you
+   think?"
+4. "Change the selected row indicator from the vertical green bar to a thick
+   muted magenta prompt arrow."
 
-The first was a design question, answered before anything was changed. The
-second was a straightforward yes, with the interesting part being *where* the
-color goes.
+The first was a design question, answered before anything was changed. The rest
+were color work, where the interesting parts were *where* the color goes and
+which colors were already spoken for.
 
 ## The click proposal, and why it was turned down
 
@@ -88,61 +94,111 @@ them would be a second signal for something the surface already says. A chip
 fills with its own hue **only when the focus is on it**, so exactly one field is
 lit at a time, which is what "pressed" has to look like to be worth the ink.
 
-`listAction` grew two fields, `tint` (the letters) and `fill` (the field under
-focus):
+`listAction` grew a `tint` field: the letters' color ordinarily, and the whole
+field the chip lights up with under the focus.
 
-| chip | tint | fill | why |
-| --- | --- | --- | --- |
-| ✚ Add | `colFgHi` | `colAccent` | neutral — see below |
-| ✎ Edit | `colInfo` | `colInfo` | the new blue |
-| ➜ Send | `colAccent` | `colAccent` | the palette's own green |
-| ✖ Delete | `colErr` | `colErr` | the only warning before the confirm asks |
+| chip | tint | why |
+| --- | --- | --- |
+| ✚ Add | `colInfo` blue | the calm end of the row, and the one always-live button |
+| ✎ Edit | `colStraw` pale yellow | not amber — see below |
+| ➜ Send | `colAccent` green | the palette's own color of consequence |
+| ✖ Delete | `colErr` red | the only warning before the confirm asks |
 
-Three decisions inside that table:
+The first pass put blue on Edit and left Add neutral white. The user asked to
+move blue to Add and make Edit a light yellow, which is better for a reason
+beyond the hues: **Add is the only chip that is never greyed** — it needs nothing
+selected. Under the first assignment the always-live button was also the only
+colorless one, which read backwards. Now, with nothing highlighted, the bar is
+one blue chip and three grey ones, and that picture *is* the state.
+
+It also puts the row in the order a prompt's life actually goes — make it,
+change it, send it, throw it away — running cool to hot, left to right.
+
+Decisions worth keeping:
 
 - **Send takes `colAccent`, not `colOk`.** `colAccent` is the palette's declared
   "green everything of consequence is drawn in", and sending is the one action
   on this screen that reaches out of the program. Using `colOk` would also have
   put two near-identical greens on one row.
-- **Add stays neutral.** It is the only action that needs nothing selected, and
-  a third hue would have made the row read as four warnings. It still *fills*
-  with `colAccent` under focus, because a chip filled with near-white would be a
-  lamp in a dark pane — the same failure the title chip's comment already
-  records. That asymmetry is the entire reason `fill` exists as a separate field.
+- **The yellow is straw `#e0d49a`, not `colWarn`'s amber `#e0b64e`.** `styles.go`
+  reserves amber hard: it is the one warm thing on screen so a fuzzy hit jumps
+  out of the letters around it — and `matchStyle` paints those hits in the rows
+  *directly under* the bar. An amber Edit chip one line above them would cost
+  that highlight the only job it has. Paleness has a second reason: a yellow
+  taken down to `colOk`/`colErr`'s brightness stops being yellow and turns
+  olive, so straw is the set's one deliberate exception to the level-brightness
+  rule, and the comment says so rather than leaving it looking like an oversight.
 - **Inert chips drop the tint.** `btnOffStyle` is untouched, so a button with
   nothing to act on goes grey *and* colorless. Grey is what "nothing to act on"
   says; a tinted inert chip would be saying two things.
 
-New constant, `colInfo = "#6ea9d8"` — the one cool hue in a warm-green palette,
-mixed to sit at the same brightness as `colOk` and `colErr` so the three read as
-one set rather than three unrelated colors that happen to be adjacent.
+Giving every chip a hue also **collapsed the code**. The first pass needed two
+fields, `tint` and `fill`, purely because Add's near-white would have glared as
+a lit field — the same failure the title chip's comment already records. With
+all four carrying a color, `tint` does both jobs and the second field is gone.
 
 Styles are derived, never nested: `btnStyle.Foreground(...)` returns a copy, so
 each chip is still rendered by exactly one style. That constraint is load-bearing
 — the note in `styles.go` about an outer reset clobbering an inner one still
 holds, and was extended rather than worked around.
 
+## The row cursor
+
+The highlighted row was marked by a bold green `▌` block. It is now a bold
+muted-magenta `❯`.
+
+Magenta is the only color in the program from outside the palette, and that is
+the point: the mark saying *here* has to be findable at a glance in a pane full
+of green, and a green mark on green rows is the one thing that can't be. Muted
+(`#b47fae`) rather than full magenta because it is a pointer, not an alarm — it
+should be the first thing found, not the loudest.
+
+The arrow is the shell's own prompt glyph. A list of prompts waiting to be handed
+to an agent is closer to a shell than to a menu, and `❯` says "this one is next"
+where the block only said "this one". Thickness comes from `Bold` — `❯` is
+already the heavy form of the chevron, and weight is the only other lever a
+terminal gives.
+
+Three details:
+
+- **One column wide**, checked with `lipgloss.Width` before committing to it
+  (against `▌ ❯ ➤ ▶ ❱ ⯈ ‣`, all of which measure 1). A glyph the font drew double
+  would push every row one column right of the action bar, which is hit-tested
+  against a constant.
+- **Both call sites changed**, and now share a `cursorGlyph` constant. The
+  backlog list and the attachment editor had the same literal in two places;
+  leaving one green would have read as a bug, and the constant stops them
+  drifting.
+- **`barStyle` was renamed `cursorStyle`.** It no longer draws a bar, and a style
+  named for a shape it stopped having is how the next reader gets misled.
+
 ## Verification
 
-Colors were checked by rendering, not by reading hex. A throwaway
-`zz_colorprobe_test.go` printed `actionBar()` in six states — no selection, with
-a selection, and the focus on each of the four chips — straight to stdout as
-truecolor escapes. Confirmed the tints land, the focused chip flips to its own
-field with dark text, and the inert row is uniformly grey. The probe was deleted
-afterward.
+Every color was checked by rendering, not by reading hex. Throwaway probe tests
+(deleted after each look) printed `actionBar()` in all six states — no selection,
+with a selection, and the focus on each of the four chips — and then the whole
+`View()` with a row highlighted, straight to stdout as truecolor escapes.
+Confirmed the tints land, each focused chip flips to its own field with dark
+text, the inert row is uniformly grey, and the magenta arrow sits in the two
+columns the action bar's chips start after.
+
+The probe is the reason the straw/amber distinction and the glyph width were
+settled rather than assumed. It is cheap: a `zz_*_test.go` in the package, one
+`go test -run`, then `rm`.
 
 Note for next time: lipgloss v2 has no `SetColorProfile`/`TrueColor` — styles
 emit ANSI unconditionally and downsampling happens at the writer, so a probe
-needs no profile setup at all.
+needs no profile setup at all. `m.View()` returns a `tea.View`, not a string.
 
-`go vet ./...` clean, full suite passes.
+`gofmt -l` empty, `go vet ./...` clean, full suite passes.
 
 ## Files
 
-    README.md   | 15 +++++++-------
-    styles.go   | 18 ++++++++++++--
-    ui.go       | 55 ++++++++++++++++++++++++++---------------
-    ui_test.go  | 53 +++++++++++++++++++++++++++-------------
+    README.md    | 15 +++++++-------
+    fuzzylist.go |  2 +-
+    styles.go    | 55 +++++++++++++++++++++++++++++++++++++++++--------
+    ui.go        | 61 +++++++++++++++++++++++++++++++++-----------------------
+    ui_test.go   | 53 +++++++++++++++++++++++++++-------------------
 
 ## Notes
 
@@ -151,5 +207,13 @@ needs no profile setup at all.
   stall on every single click, not the implementation.
 - `m.lastClickRow` / `m.lastClickAt` and `doubleClickWindow` are unchanged; only
   what the second click *runs* moved.
-- Not yet run in a real cats pane — worth a `go run .` before trusting the
-  colors against the actual terminal background.
+- The chip colors and the click swap shipped in one commit before the palette
+  was revised; the revision (blue to Add, straw Edit, magenta cursor) is a
+  second commit on top rather than an amend, since the first was already pushed.
+- Not yet run in a real cats pane — worth a `go run .` before trusting any of
+  this against the actual terminal background. Two things to watch: the lit Edit
+  chip is the brightest field on the bar, because yellow is inherently
+  high-luminance, so a focused Edit flashes harder than a focused Send (dropping
+  `colStraw` toward `#d3c489` fixes it without going near amber); and `❯` is a
+  glyph some terminal fonts render from a fallback, which is the one way it
+  could still come out looking thin.
