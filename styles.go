@@ -26,6 +26,10 @@ const (
 	colOk     = "#6ac47a"
 	colWarn   = "#e0b64e"
 	colErr    = "#e57373"
+	// The one cool hue in a warm-green palette, mixed to sit at the same
+	// brightness as colOk and colErr so the action bar's tints read as one set
+	// rather than three unrelated colors that happen to be adjacent.
+	colInfo = "#6ea9d8"
 )
 
 // Palette — a small, cohesive set of styles for a clean dark-terminal look,
@@ -83,8 +87,18 @@ var (
 	// Action-bar buttons. Each chip is rendered by exactly one of these styles —
 	// label and key hint together — because nesting a second style inside a
 	// chip would let the outer reset clobber the inner one (see the badge note
-	// in fuzzylist.view). btnOffStyle marks a button whose action needs a
-	// highlighted todo when there isn't one: still readable, plainly inert.
+	// in fuzzylist.view). A chip's own hue is dropped in per action (see
+	// listAction.tint), which is why btnStyle names no foreground worth relying
+	// on. btnOffStyle marks a button whose action needs a highlighted todo when
+	// there isn't one: still readable, plainly inert, and colorless — grey is
+	// what "nothing to act on" says, so the tint has to drop out with it.
+	//
+	// The color goes on the letters, not the fields. Four saturated surfaces in
+	// a row would out-shout the list the bar acts on, and the fields are already
+	// doing the work of separating live from inert; hue on top of them would be
+	// a second signal for something already said. A chip fills with its own hue
+	// only when the focus is on it — one field lit at a time, which is what
+	// "pressed" has to look like to be worth the ink.
 	//
 	// None of the three is bold: the chips already separate themselves from the
 	// pane by their fields, and weight on top of that made the bar shout over the

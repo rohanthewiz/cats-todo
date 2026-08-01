@@ -313,6 +313,16 @@ func TestActionBarClick(t *testing.T) {
 		}
 	})
 
+	t.Run("Send with no socket says so and stays put", func(t *testing.T) {
+		// Send is the pointer's only way out to an agent now that a double-click
+		// edits, so the launched-outside-cats path has to answer on the chip.
+		m := build() // no client, as when launched outside cats
+		got := click(t, m, m.actionChips()[actionSend].start+1, actionBarRow)
+		if got.stage != stageList || got.status == "" {
+			t.Fatalf("stage=%v status=%q, want the list with an explanation", got.stage, got.status)
+		}
+	})
+
 	t.Run("a needsSel button with no selection only says so", func(t *testing.T) {
 		m := newTestModel()
 		m.width = 200
@@ -506,9 +516,9 @@ func withBothScopes() model {
 }
 
 // TestListRowsAreClickable covers the pointer on the todo list: one click
-// selects a row, a second opens it. The split matters — the bar acts on the
-// highlight, so a single click that opened the edit form would make "click the
-// prompt, then click Send" impossible to say with the pointer.
+// selects a row, a second opens it for editing. The split matters — the bar
+// acts on the highlight, so a single click that opened the edit form would make
+// "click the prompt, then click Send" impossible to say with the pointer.
 func TestListRowsAreClickable(t *testing.T) {
 	click := func(m model, y int) model {
 		next, _ := m.Update(tea.MouseClickMsg{X: 8, Y: y, Button: tea.MouseLeft})
@@ -556,32 +566,33 @@ func TestListRowsAreClickable(t *testing.T) {
 		}
 	})
 
-	t.Run("a second click hands the prompt to an agent", func(t *testing.T) {
+	t.Run("a second click opens the prompt for editing", func(t *testing.T) {
 		m := withBothScopes()
-		// A drop needs a control socket; this one answers nothing, which is
-		// enough — buildTargets degrades to the new-session target.
-		m.client = &catsClient{socket: "/nonexistent/cats.sock"}
 		y := rowLine(m, 1)
 		got := click(click(m, y), y)
-		if got.stage != stageTarget {
-			t.Fatalf("stage = %v, want the drop picker (status: %q)", got.stage, got.status)
+		if got.stage != stageForm || got.formMode != formEdit {
+			t.Fatalf("stage=%v mode=%v, want the edit form (status: %q)", got.stage, got.formMode, got.status)
 		}
-		if got.dropTodo.id != "p2" {
-			t.Fatalf("dropping %q, want the double-clicked prompt", got.dropTodo.id)
-		}
-		// Choosing an agent is still a separate act — the double-click asks
-		// where, it doesn't send anywhere on its own.
-		if got.dropping {
-			t.Fatal("a double-click must not drop before a target is picked")
+		if got.editID != "p2" {
+			t.Fatalf("editing %q, want the double-clicked prompt", got.editID)
 		}
 	})
 
-	t.Run("a double-click with no socket says so and stays put", func(t *testing.T) {
-		m := withBothScopes() // no client, as when launched outside cats
+	t.Run("no gesture on this screen reaches an agent", func(t *testing.T) {
+		// The one action that leaves the program is not on the pointer's
+		// escalation path: two clicks open a form, and getting to the picker
+		// takes a deliberate press of Send.
+		m := withBothScopes()
+		m.client = &catsClient{socket: "/nonexistent/cats.sock"}
 		y := rowLine(m, 1)
-		got := click(click(m, y), y)
-		if got.stage != stageList || got.status == "" {
-			t.Fatalf("stage=%v status=%q, want the list with an explanation", got.stage, got.status)
+		for _, n := range []int{2, 3, 4} {
+			got := m
+			for i := 0; i < n; i++ {
+				got = click(got, y)
+			}
+			if got.stage == stageTarget || got.dropping {
+				t.Fatalf("%d clicks gave stage=%v dropping=%v, want no drop", n, got.stage, got.dropping)
+			}
 		}
 	})
 

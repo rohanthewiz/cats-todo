@@ -69,13 +69,14 @@ button that needs a highlighted prompt is greyed out until there is one.
 
 The pointer works too, and the same way round: a click on a button presses it, a
 click on a prompt selects it (which is what makes the buttons useful with the
-mouse — they act on the highlight), and a **double-click** on a prompt opens the
-drop picker for it, where a click on a target hands the prompt over. So a prompt
-gets from the backlog into an agent without the keyboard. Nothing is *sent* by
-clicking: the picker still asks where, and pastes without running — submitting
-stays on `shift+enter`. Mouse reporting is only asked for on the two screens with
-something to click; the prompt view leaves the terminal's own text selection
-alone.
+mouse — they act on the highlight), and a **double-click** on a prompt opens it
+for editing. To send one, click the prompt and then the **Send** button, which
+opens the drop picker, where a click on a target hands the prompt over. So a
+prompt gets from the backlog into an agent without the keyboard — but never on
+one stray gesture, and nothing is *sent* by clicking either: the picker still
+asks where, and pastes without running. Submitting stays on `shift+enter`. Mouse
+reporting is only asked for on the two screens with something to click; the
+prompt view leaves the terminal's own text selection alone.
 
 Completed prompts collect below the open ones, newest first, so what you just
 finished is at the top of the pile rather than the bottom. `ctrl+d` folds them

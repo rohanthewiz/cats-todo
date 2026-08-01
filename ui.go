@@ -440,20 +440,21 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// clickRow moves the highlight to the todo row under the pointer, and hands the
-// prompt to an agent on the second click.
+// clickRow moves the highlight to the todo row under the pointer, and opens the
+// prompt for editing on the second click.
 //
 // A single click deliberately only selects. The list's rows and its buttons
 // share a screen: the bar acts on whatever is highlighted, so a click that ran
-// anything outright would make "click the prompt, then click Edit" — the
+// anything outright would make "click the prompt, then click Send" — the
 // plainest thing the pointer is for — impossible to express.
 //
-// The second click opens the drop picker, because handing a prompt to an agent
-// is what the backlog is for, and the picker's rows are clickable too: a prompt
-// gets from the list into a session without the keyboard. Editing keeps both of
-// its ways in — enter, and the bar's ✎ Edit — so nothing was displaced to make
-// room. Nothing is submitted to an agent by clicking: the picker still asks
-// where, and its own enter pastes without running.
+// The second click opens the edit form, which is what a double-click means
+// everywhere else a pointer is used: open the thing under it. It is also the
+// gesture's safest reading. Opening a form is undone by esc, and the one action
+// that reaches out of this program — handing a prompt to a live agent — stays
+// off a gesture the hand can make by accident, on the bar's ➜ Send chip and
+// shift+enter. Sending with the pointer is two clicks in two places, and that
+// deliberateness is the point.
 //
 // Selecting also hands the bar's focus back to the list, so the pointer and the
 // keyboard agree on what the next enter acts on.
@@ -464,8 +465,8 @@ func (m model) clickRow(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	m.actionFocus = false
 	if i == m.lastClickRow && time.Since(m.lastClickAt) < doubleClickWindow {
-		m.lastClickAt = time.Time{} // a third click starts over, not another drop
-		return m.beginDrop()
+		m.lastClickAt = time.Time{} // a third click starts over, not another open
+		return m.beginEdit()
 	}
 	m.lastClickRow, m.lastClickAt = i, time.Now()
 	return m, nil
@@ -513,9 +514,17 @@ func (m model) clickTarget(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // for, printed on the chip so the bar teaches the keyboard path instead of
 // competing with it. needsSel marks the actions that have nothing to act on
 // until a prompt is highlighted.
+//
+// tint is the color the chip's letters take, and fill the field it lights up
+// with under the focus. They are the same color for every button that has a
+// hue; Add is the exception, because a chip filled with its near-white tint
+// would be a lamp in a dark pane — it lights up in the palette's own green
+// instead, which is where the focus lives everywhere else in the program.
 type listAction struct {
 	label    string
 	hint     string
+	tint     string
+	fill     string
 	needsSel bool
 }
 
@@ -540,11 +549,15 @@ const (
 // to, whole every time, and they take the chip's foreground, so the bar stays
 // inside the green instead of dropping four emoji palettes into it.
 func (m model) listActions() []listAction {
+	// Green is spent on Send rather than Add: it is the palette's color of
+	// consequence, and handing a prompt to a live agent is the one thing on this
+	// screen that reaches out of the program. Delete's red is the only warning
+	// the bar gives before the confirm asks.
 	return []listAction{
-		{label: "✚ Add", hint: "ctrl+a"},
-		{label: "✎ Edit", hint: "enter", needsSel: true},
-		{label: "➜ Send", hint: m.modEnter(), needsSel: true},
-		{label: "✖ Delete", hint: "ctrl+x", needsSel: true},
+		{label: "✚ Add", hint: "ctrl+a", tint: colFgHi, fill: colAccent},
+		{label: "✎ Edit", hint: "enter", tint: colInfo, fill: colInfo, needsSel: true},
+		{label: "➜ Send", hint: m.modEnter(), tint: colAccent, fill: colAccent, needsSel: true},
+		{label: "✖ Delete", hint: "ctrl+x", tint: colErr, fill: colErr, needsSel: true},
 	}
 }
 
@@ -1834,9 +1847,9 @@ func (m model) viewList() string {
 	}
 
 	b.WriteString("\n")
-	// The pointer's two gestures ride along with the chords they stand for —
-	// a double-click opening the picker is not something anyone guesses.
-	b.WriteString(footerStyle.Render("enter edit · " + m.modEnter() + " / dbl-click drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+x delete"))
+	// The pointer's gesture rides along with the chord it stands for — a
+	// double-click is a guess worth confirming, not one worth making blind.
+	b.WriteString(footerStyle.Render("enter / dbl-click edit · " + m.modEnter() + " drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+x delete"))
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("tab buttons · ctrl+↑/↓ move · ctrl+d hide/show done · ctrl+w clear done · esc quit"))
 	return b.String()
@@ -1860,10 +1873,12 @@ func (m model) actionBar() string {
 		if i > 0 {
 			b.WriteString(" ")
 		}
-		st := btnStyle
+		// Derived, never nested: each chip is still one style, the hue dropped
+		// into it rather than wrapped around it.
+		st := btnStyle.Foreground(lipgloss.Color(acts[i].tint))
 		switch {
 		case m.actionFocus && i == m.actionIdx:
-			st = btnFocusStyle
+			st = btnFocusStyle.Background(lipgloss.Color(acts[i].fill))
 		case acts[i].needsSel && !hasSel:
 			st = btnOffStyle
 		}
