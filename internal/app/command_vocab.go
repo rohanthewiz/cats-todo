@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -11,11 +12,19 @@ import (
 // This file is the protocol-neutral §7 command vocabulary: the command names,
 // their parameter/result structs, and the small string→enum mappings the
 // dispatcher needs. It is a client-side copy of cats' internal/app
-// command_vocab.go (github.com/rohanthewiz/cats), minus the server-only
-// SplitDirection/NavDirection mappers that would drag in cats' layout engine —
-// cats-todo only speaks the wire vocabulary, it never applies layout. Keep this
-// file in lockstep with the cats original when the protocol grows; the wire
-// values themselves are the compatibility contract.
+// command_vocab.go (github.com/rohanthewiz/cats), which cannot be imported
+// across the module boundary because it lives under internal/.
+//
+// The copy is VERBATIM but for this comment and three deletions —
+// SplitDirection, NavDirection and optPaneID, the only declarations here that
+// reach into cats' layout engine. cats-todo speaks the wire vocabulary; it
+// never applies layout. Keeping the rest byte-identical is deliberate: it makes
+// re-syncing a diff rather than a reading, which is the only way a copy stays
+// current. The wire values themselves are the compatibility contract between
+// the two repos.
+//
+// To re-sync: copy cats' file over this one, then re-apply this header and the
+// three deletions.
 
 // Command names (§7): the control-API vocabulary. The dispatcher implements one
 // command table serving both this protocol and the CLI/API.
@@ -46,9 +55,16 @@ const (
 	CmdWorkspaceFocus     = "workspace.focus"
 	CmdWorkspaceRename    = "workspace.rename"
 	CmdWorkspaceMove      = "workspace.move"
+	CmdWorkspaceLock      = "workspace.lock"
 	CmdAgentFocus         = "agent.focus"
 	CmdServerReloadConfig = "server.reload_config"
 	CmdServerStop         = "server.stop"
+
+	// CmdUsageRefresh re-reads the account's rate-limit windows now instead of
+	// at the poller's next tick. The reading is pushed as a `usage` message
+	// rather than returned, so every client sees the fresh numbers, not just
+	// the one that asked.
+	CmdUsageRefresh = "usage.refresh"
 
 	// Git-worktree commands (WS8 dialogs): list/create/open/remove checkouts
 	// anchored on a pane's repo. The git work runs off-loop (Backend Start*).
@@ -62,6 +78,14 @@ const (
 	CmdConfigGet = "config.get"
 	CmdConfigSet = "config.set"
 
+	// Theme commands (settings modal + catctl + theme plugins): enumerate the
+	// available themes and manage the user's custom theme files. Switching the
+	// active theme is config.set (it's a config choice); these manage the
+	// theme *library*.
+	CmdThemeList   = "theme.list"
+	CmdThemeSave   = "theme.save"
+	CmdThemeDelete = "theme.delete"
+
 	// Plugin commands (plugins dialog): enumerate and remove installed plugins.
 	// Deliberately only the instant verbs — install/update shell out to git and
 	// a build, whose output a caller wants to *watch*, so the dialog launches
@@ -69,6 +93,12 @@ const (
 	// than hiding minutes of subprocess work behind a single cmd_result.
 	CmdPluginList      = "plugin.list"
 	CmdPluginUninstall = "plugin.uninstall"
+
+	// Path listing (the start-path picker in the new-workspace dialog): one
+	// directory's subdirectories plus the user's frecency-ranked recent
+	// directories, so a front-end can complete a start path against the
+	// server's filesystem instead of asking the user to type it blind.
+	CmdPathList = "path.list"
 
 	// Read-only query commands (§7): they return a snapshot of session state
 	// and mutate nothing, so the dispatcher answers them straight from the
@@ -80,25 +110,154 @@ const (
 	CmdPaneGet       = "pane.get"
 )
 
+// CommandSpec describes one §7 command as data: its name, the zero value of its
+// params and result structs, and the two dispatch properties a caller cannot
+// infer from the name.
+//
+// It exists because the name ↔ params ↔ result mapping otherwise lives only in
+// the Dispatch switch and the doc comments below — readable, but not walkable by
+// a program. As data it can generate a client: cmd/catgen-dart emits the mobile
+// app's typed call sites from this table, so a command added here arrives on the
+// phone as a typed method rather than a hand-written string and a map literal.
+//
+// Params and Result hold a ZERO VALUE of the struct (SplitParams{}), not a
+// reflect.Type — the table stays readable at the call site and a generator takes
+// reflect.TypeOf itself. nil is meaningful in both: "takes no params" and
+// "returns no data" are distinct from "takes an empty struct", because a
+// generator emits different signatures for them.
+type CommandSpec struct {
+	Name   string
+	Params any // zero value of the params struct; nil when parameterless
+	Result any // zero value of the CmdResult.Data struct; nil when nothing is returned
+
+	// ReplyRequired marks the commands Dispatch SILENTLY DROPS when the caller
+	// cannot receive a result — a browser `cmd` sent with no `id`, whose
+	// Responder reports WantsReply false. They exist only to produce data, so
+	// an answer with nowhere to go is no answer, and for the async ones
+	// (read/capture/wait) registering a pending round-trip that can never
+	// resolve would simply leak it.
+	//
+	// This is the rule most likely to bite a client author, because the failure
+	// is silence rather than an error: it makes "I sent capture and nothing
+	// happened" a stated property of the call instead of a bug hunt.
+	ReplyRequired bool
+
+	// ParamsRequired marks the commands that fail with "bad params" when the
+	// caller supplies none. The rest decode optionally — absent params mean the
+	// zero value, which is a meaningful call (pane.close closes the focused
+	// pane; tab.create opens a default-shell tab).
+	//
+	// It is a property of the COMMAND, not of the params type: WorkspaceParams
+	// is required by workspace.focus, which cannot guess an id, and optional for
+	// workspace.close, where an empty id means the active workspace.
+	ParamsRequired bool
+}
+
+// commandSpecs is the §7 command table: the single list both CommandSpecs and
+// CommandNames derive from, in the order `catctl commands` prints. Grouped like
+// the constants above.
+//
+// Adding a command means three edits that must agree — the constant, this entry,
+// and the Dispatch case. TestCommandSpecsRouted checks all three against the
+// dispatcher's own source, in both directions, so a command routed but not
+// listed (invisible to `catctl commands`, and missing from every generated
+// client) fails the build the same way a listed-but-unrouted one does.
+var commandSpecs = []CommandSpec{
+	// Panes. Only read/capture/wait return data — the rest are effects, whose
+	// outcome a client sees in the layout/frame stream rather than in a reply.
+	{Name: CmdPaneSplit, Params: SplitParams{}, ParamsRequired: true},
+	{Name: CmdPaneClose, Params: OptPaneParams{}},
+	{Name: CmdPaneFocus, Params: PaneParams{}, ParamsRequired: true},
+	{Name: CmdPaneFocusDirection, Params: DirParams{}, ParamsRequired: true},
+	{Name: CmdPaneCycle, Params: CycleParams{}, ParamsRequired: true},
+	{Name: CmdPaneLast},
+	{Name: CmdPaneSwap, Params: DirParams{}, ParamsRequired: true},
+	{Name: CmdPaneSwapWith, Params: SwapWithParams{}, ParamsRequired: true},
+	{Name: CmdPaneZoom, Params: OptPaneParams{}},
+	{Name: CmdPaneRename, Params: RenamePaneParams{}, ParamsRequired: true},
+	{Name: CmdPaneResizeBorder, Params: ResizeBorderParams{}, ParamsRequired: true},
+	{Name: CmdScroll, Params: ScrollParams{}, ParamsRequired: true},
+	{Name: CmdRead, Params: ReadParams{}, Result: ReadResult{}, ReplyRequired: true, ParamsRequired: true},
+	{Name: CmdCapture, Params: CaptureParams{}, Result: CaptureResult{}, ReplyRequired: true, ParamsRequired: true},
+	{Name: CmdWaitForOutput, Params: WaitForOutputParams{}, Result: WaitForOutputResult{}, ReplyRequired: true, ParamsRequired: true},
+	{Name: CmdPaneSendInput, Params: SendInputParams{}, ParamsRequired: true},
+
+	// Tabs. tab.create returns its new tab/pane so an automation client can
+	// drive the fresh pane without diffing pane.list.
+	{Name: CmdTabCreate, Params: TabCreateParams{}, Result: TabCreateResult{}},
+	{Name: CmdTabClose, Params: OptTabParams{}},
+	{Name: CmdTabFocus, Params: TabParams{}, ParamsRequired: true},
+	{Name: CmdTabRename, Params: RenameTabParams{}, ParamsRequired: true},
+	{Name: CmdTabMove, Params: MoveTabParams{}, ParamsRequired: true},
+
+	// Workspaces.
+	{Name: CmdWorkspaceCreate, Params: WorkspaceCreateParams{}, Result: WorkspaceCreateResult{}},
+	{Name: CmdWorkspaceClose, Params: WorkspaceParams{}},
+	{Name: CmdWorkspaceFocus, Params: WorkspaceParams{}, ParamsRequired: true},
+	{Name: CmdWorkspaceRename, Params: RenameWorkspaceParams{}, ParamsRequired: true},
+	{Name: CmdWorkspaceMove, Params: MoveWorkspaceParams{}, ParamsRequired: true},
+	{Name: CmdWorkspaceLock, Params: LockWorkspaceParams{}, ParamsRequired: true},
+
+	// Global focus + server lifecycle.
+	{Name: CmdAgentFocus, Params: PaneParams{}, ParamsRequired: true},
+	{Name: CmdServerReloadConfig},
+	{Name: CmdServerStop},
+
+	// Usage. Not reply-gated: the refresh is worth performing for a caller that
+	// never listens, because its product is the broadcast, not the reply.
+	{Name: CmdUsageRefresh},
+
+	// Git worktrees. Only the listing is reply-gated: the other three have
+	// effects worth performing even when the caller stops listening.
+	{Name: CmdWorktreeList, Params: WorktreeListParams{}, Result: WorktreeListResult{}, ReplyRequired: true},
+	{Name: CmdWorktreeCreate, Params: WorktreeCreateParams{}, Result: WorktreeCreateResult{}},
+	{Name: CmdWorktreeOpen, Params: WorktreeOpenParams{}, Result: WorktreeOpenResult{}},
+	{Name: CmdWorktreeRemove, Params: WorktreeRemoveParams{}},
+
+	// Config + themes. Every writer echoes the same ConfigGetResult snapshot a
+	// read would return, so a client refreshes from the reply it already has.
+	{Name: CmdConfigGet, Result: ConfigGetResult{}, ReplyRequired: true},
+	{Name: CmdConfigSet, Params: ConfigSetParams{}, Result: ConfigGetResult{}},
+	{Name: CmdThemeList, Result: ThemeListResult{}, ReplyRequired: true},
+	{Name: CmdThemeSave, Params: ThemeSaveParams{}, Result: ConfigGetResult{}, ParamsRequired: true},
+	{Name: CmdThemeDelete, Params: ThemeDeleteParams{}, Result: ConfigGetResult{}, ParamsRequired: true},
+
+	// Plugins.
+	{Name: CmdPluginList, Result: PluginListResult{}, ReplyRequired: true},
+	{Name: CmdPluginUninstall, Params: PluginUninstallParams{}, Result: PluginUninstallResult{}, ParamsRequired: true},
+
+	// Path listing.
+	{Name: CmdPathList, Params: PathListParams{}, Result: PathListResult{}, ReplyRequired: true},
+
+	// Read-only queries. They answer straight from the Session, so they are not
+	// reply-gated — a query with no reply channel is a cheap no-op rather than a
+	// leaked round-trip.
+	{Name: CmdSessionGet, Result: SessionInfoResult{}},
+	{Name: CmdWorkspaceList, Result: WorkspaceListResult{}},
+	{Name: CmdTabList, Params: TabListParams{}, Result: TabListResult{}},
+	{Name: CmdPaneList, Result: PaneListResult{}},
+	{Name: CmdPaneGet, Params: OptPaneParams{}, Result: PaneInfo{}},
+}
+
+// CommandSpecs returns the §7 command table, in a stable order. The returned
+// slice is a copy — a caller that sorts or filters it in place would otherwise
+// be rewriting the vocabulary for everyone else in the process. A shallow clone
+// suffices: each spec's Params/Result is a struct value, so the only way to
+// reach it is a type assertion, which hands back another copy.
+func CommandSpecs() []CommandSpec {
+	return slices.Clone(commandSpecs)
+}
+
 // CommandNames returns every §7 command name Dispatcher.Dispatch accepts, in a
 // stable order. Front-ends enumerate/validate the vocabulary against it — a CLI's
-// help text, a control-API client — without re-listing the commands. Keep it in
-// sync with the Dispatch switch; TestCommandNamesAllRouted guards against drift.
+// help text, a control-API client — without re-listing the commands. Derived
+// from commandSpecs, so the names and their shapes cannot disagree.
 func CommandNames() []string {
-	return []string{
-		CmdPaneSplit, CmdPaneClose, CmdPaneFocus, CmdPaneFocusDirection,
-		CmdPaneCycle, CmdPaneLast, CmdPaneSwap, CmdPaneSwapWith, CmdPaneZoom, CmdPaneRename,
-		CmdPaneResizeBorder, CmdScroll, CmdRead, CmdCapture, CmdWaitForOutput,
-		CmdPaneSendInput,
-		CmdTabCreate, CmdTabClose, CmdTabFocus, CmdTabRename, CmdTabMove,
-		CmdWorkspaceCreate, CmdWorkspaceClose, CmdWorkspaceFocus, CmdWorkspaceRename,
-		CmdWorkspaceMove,
-		CmdAgentFocus, CmdServerReloadConfig, CmdServerStop,
-		CmdWorktreeList, CmdWorktreeCreate, CmdWorktreeOpen, CmdWorktreeRemove,
-		CmdConfigGet, CmdConfigSet,
-		CmdPluginList, CmdPluginUninstall,
-		CmdSessionGet, CmdWorkspaceList, CmdTabList, CmdPaneList, CmdPaneGet,
+	names := make([]string, len(commandSpecs))
+	for i, spec := range commandSpecs {
+		names[i] = spec.Name
 	}
+	return names
 }
 
 // Split direction wire values (pane.split).
@@ -107,6 +266,8 @@ const (
 	SplitV = "v" // top/bottom (layout.Vertical)
 )
 
+// (SplitDirection lives in cats only — see the file header.)
+
 // Cardinal direction wire values (pane.focus_direction, pane.swap).
 const (
 	DirLeft  = "left"
@@ -114,6 +275,8 @@ const (
 	DirUp    = "up"
 	DirDown  = "down"
 )
+
+// (NavDirection lives in cats only — see the file header.)
 
 // BorderPath decodes a border id ("r" + one '0'/'1' per split step, e.g. "r01",
 // produced by browserproto.BorderID) back into a split path for
@@ -137,7 +300,8 @@ func BorderPath(id string) ([]bool, bool) {
 	return path, true
 }
 
-// SplitParams: pane.split. Pane nil = the focused pane.
+// SplitParams: pane.split. Pane nil = the focused pane. The new pane spawns in
+// the split pane's live working directory (Dispatcher.inheritedSplitCwd).
 type SplitParams struct {
 	Pane      *uint32 `json:"pane,omitempty"`
 	Direction string  `json:"direction"` // SplitH | SplitV
@@ -379,8 +543,17 @@ type WorkspaceParams struct {
 // sends. Name pins the new workspace's label (what workspace.rename would set);
 // leaving it empty keeps auto-naming, where the label follows the workspace's
 // identity cwd.
+//
+// Path is the directory the workspace's first pane starts in, and it is a
+// pointer because its three states differ: absent (nil) inherits the session's
+// default directory — the historical behaviour, and what `catctl new-ws` sends;
+// present but empty starts at the user's home directory — an explicit "not
+// here" from the new-workspace dialog; and a non-empty value is that directory,
+// with "~"/"$VAR"/relative forms expanded and its existence verified (a bad
+// path fails the command rather than silently landing somewhere else).
 type WorkspaceCreateParams struct {
-	Name string `json:"name,omitempty"`
+	Name string  `json:"name,omitempty"`
+	Path *string `json:"path,omitempty"`
 }
 
 // WorkspaceCreateResult is CmdResult.Data for workspace.create: the new
@@ -396,6 +569,21 @@ type WorkspaceCreateResult struct {
 type RenameWorkspaceParams struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// LockWorkspaceParams: workspace.lock — set (or clear, with Locked false) a
+// workspace's automation lock. ID "" means the active workspace, the same
+// default workspace.close takes, so a key binding or `catctl lock-ws` can send
+// no id at all.
+//
+// A locked workspace refuses tab.create with a command and pane.send_input
+// (see Session.SetWorkspaceLock). The lock is a guardrail, not a permission
+// boundary: workspace.lock is an ordinary command, so anything holding the
+// control API can lift it — what it stops is a plugin action or an agent launch
+// landing somewhere by accident.
+type LockWorkspaceParams struct {
+	ID     string `json:"id,omitempty"`
+	Locked bool   `json:"locked"`
 }
 
 // --- Query params & results (§7 read-only commands) --------------------------
@@ -421,7 +609,8 @@ type WorkspaceInfo struct {
 	ID     string `json:"id"`   // stable public handle, e.g. "w1"
 	Name   string `json:"name"` // display name (custom or auto)
 	Active bool   `json:"active"`
-	Tabs   int    `json:"tabs"` // tab count
+	Tabs   int    `json:"tabs"`             // tab count
+	Locked bool   `json:"locked,omitempty"` // closed to automation (workspace.lock)
 }
 
 // WorkspaceListResult is CmdResult.Data for workspace.list.
@@ -479,14 +668,16 @@ type PaneMeta struct {
 }
 
 // TabCreateParams is the optional params block for tab.create. The zero value
-// (or no params at all — the historical wire shape) keeps the old behavior: a
-// default-shell tab in the workspace's identity cwd. The optional fields let an
-// automation client (catctl plugin run, scripts) open a fully-formed tab in one
-// round trip instead of tab.create → tab.rename → typing a command into the
-// shell:
+// (or no params at all — the historical wire shape) is a default-shell tab that
+// inherits its left-hand neighbor tab's live cwd (the dispatcher's
+// inheritedTabCwd), falling back to the workspace's identity cwd. The optional
+// fields let an automation client (catctl plugin run, scripts) open a
+// fully-formed tab in one round trip instead of tab.create → tab.rename →
+// typing a command into the shell:
 //
 //   - Title pins the tab's display name (what tab.rename would set).
-//   - Cwd overrides the spawn directory for the tab's root pane.
+//   - Cwd overrides the spawn directory for the tab's root pane, beating the
+//     inherited one.
 //   - Command is an argv to exec as the pane's process instead of a shell —
 //     the pane runs the program directly, so its exit closes the pane and no
 //     shell history/prompt noise precedes it (same mechanism as agent resume).
@@ -614,10 +805,30 @@ type WorktreeRemoveParams struct {
 
 // --- Config params & results (§7, settings modal) -----------------------------
 
-// ConfigTheme is the theme section on the wire (config.get/config.set).
+// ConfigTheme is the theme section on the wire. In config.get's result it is
+// the EFFECTIVE appearance: Name is the active theme, Colors the fully
+// resolved palette, Font the font actually in use (the user's per-key
+// overrides ride separately in ConfigGetResult.ThemeOverrides). In config.set
+// it is the user's new choices — see ConfigSetParams for the merge/replace
+// semantics.
 type ConfigTheme struct {
+	Name   string            `json:"name,omitempty"`
 	Colors map[string]string `json:"colors,omitempty"`
 	Font   string            `json:"font,omitempty"`
+}
+
+// ThemeInfo is one available theme (config.get / theme.list). Colors is the
+// NORMALIZED palette — every canonical key present — so a front-end can
+// live-preview a theme switch without a round trip, and Font is resolved to a
+// concrete stack the same way. Source is "builtin", "user", or "plugin:<id>";
+// only "user" themes are deletable.
+type ThemeInfo struct {
+	Name   string            `json:"name"`
+	Label  string            `json:"label"`
+	Dark   bool              `json:"dark"`
+	Source string            `json:"source"`
+	Colors map[string]string `json:"colors"`
+	Font   string            `json:"font"`
 }
 
 // ConfigServerInfo is the read-only server section of config.get: informational
@@ -632,21 +843,59 @@ type ConfigServerInfo struct {
 	SessionTTL    string `json:"session_ttl"`
 }
 
-// ConfigGetResult is CmdResult.Data for config.get (and config.set, which
-// echoes the saved state). CopyMode's keys are the full known action set — the
-// settings modal derives its rows (and validation) from them.
+// ConfigGetResult is CmdResult.Data for config.get (and config.set /
+// theme.save / theme.delete, which echo the saved state). CopyMode's keys are
+// the full known action set — the settings modal derives its rows (and
+// validation) from them. Theme is the effective appearance; ThemeOverrides are
+// the user's raw per-key color overrides from the config file (what sits on
+// top of the named theme); Themes is the full available-theme registry.
 type ConfigGetResult struct {
-	Path     string              `json:"path"`
-	Theme    ConfigTheme         `json:"theme"`
-	CopyMode map[string][]string `json:"copy_mode"`
-	Server   ConfigServerInfo    `json:"server"`
+	Path           string              `json:"path"`
+	Theme          ConfigTheme         `json:"theme"`
+	ThemeOverrides map[string]string   `json:"theme_overrides,omitempty"`
+	Themes         []ThemeInfo         `json:"themes,omitempty"`
+	CopyMode       map[string][]string `json:"copy_mode"`
+	Server         ConfigServerInfo    `json:"server"`
 }
 
 // ConfigSetParams: config.set — only the live-appliable sections. Absent fields
-// keep their current values; colors and copy-mode actions merge key-wise.
+// keep their current values; copy-mode actions merge key-wise. The theme
+// section has two modes, keyed on Name: with Name set ("switch to this theme"),
+// Colors and Font REPLACE the stored overrides wholesale — an empty Colors
+// means "the theme, clean" — because stale overrides from the previous theme
+// are exactly what a switch must shed. With Name absent, Colors merge key-wise
+// and a non-empty Font replaces, preserving the pre-themes contract for
+// callers that just poke individual colors.
 type ConfigSetParams struct {
 	Theme    *ConfigTheme        `json:"theme,omitempty"`
 	CopyMode map[string][]string `json:"copy_mode,omitempty"`
+}
+
+// ThemeListResult is CmdResult.Data for theme.list.
+type ThemeListResult struct {
+	Active string      `json:"active"` // effective theme name
+	Themes []ThemeInfo `json:"themes"`
+}
+
+// ThemeSaveParams: theme.save — write (or overwrite) a user theme file. Colors
+// may be sparse; only the eight core keys are required (the rest derive — see
+// internal/theme). Dark is optional and auto-detected from the bg color when
+// absent. Activate additionally switches the config to the saved theme,
+// clearing any color overrides (they are presumed baked into what was saved).
+type ThemeSaveParams struct {
+	Name     string            `json:"name"`
+	Label    string            `json:"label,omitempty"`
+	Dark     *bool             `json:"dark,omitempty"`
+	Colors   map[string]string `json:"colors"`
+	Font     string            `json:"font,omitempty"`
+	Activate bool              `json:"activate,omitempty"`
+}
+
+// ThemeDeleteParams: theme.delete — remove a user theme file. Built-in and
+// plugin themes are not deletable through this command. Deleting the active
+// theme falls the config back to the default theme.
+type ThemeDeleteParams struct {
+	Name string `json:"name"`
 }
 
 // --- Plugin params & results (§7, plugins dialog) ------------------------------
@@ -701,3 +950,43 @@ type PluginUninstallParams struct {
 type PluginUninstallResult struct {
 	Message string `json:"message"`
 }
+
+// --- Path listing params & results (§7, start-path picker) --------------------
+
+// PathListParams: path.list. Dir is what the user has typed so far — a "~/",
+// "$VAR/", relative or absolute path — and is resolved leniently (nothing is
+// stat'ed to decide the answer). "" means the anchor directory itself: the
+// addressed pane's live cwd, or the focused pane's when Pane is nil, which is
+// the same neighbour inheritance new tabs and splits use.
+//
+// Recents asks for the frecency list too. A picker wants it once when it opens,
+// not on every keystroke of directory navigation, so it is opt-in per request.
+type PathListParams struct {
+	Dir     string  `json:"dir,omitempty"`
+	Pane    *uint32 `json:"pane,omitempty"`
+	Recents bool    `json:"recents,omitempty"`
+}
+
+// PathListResult is CmdResult.Data for path.list.
+//
+// The listing is deliberately unfiltered and unranked: Dirs is every
+// subdirectory of Dir, and the caller matches it against what the user is
+// typing. That keeps completion inside a directory a local, per-keystroke
+// operation for a browser that may be a long way from the server, and it costs
+// one round trip per directory the user walks into.
+//
+// Exists false (with Error explaining why) is the normal state of a path
+// mid-typing, not a command failure: Dirs is empty and the picker shows nothing
+// until the path resolves again.
+type PathListResult struct {
+	Dir       string   `json:"dir"`  // the resolved absolute directory Dirs is a listing of
+	Cwd       string   `json:"cwd"`  // the anchor a relative Dir was resolved against
+	Home      string   `json:"home"` // so a front-end can shorten/expand "~" the same way
+	Exists    bool     `json:"exists"`
+	Error     string   `json:"error,omitempty"`
+	Dirs      []string `json:"dirs,omitempty"` // subdirectory names, sorted, hidden included
+	Truncated bool     `json:"truncated,omitempty"`
+	Recents   []string `json:"recents,omitempty"` // absolute directories, best-first
+}
+
+// (optPaneID lives in cats only — see the file header.)
