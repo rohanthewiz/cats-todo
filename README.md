@@ -59,8 +59,10 @@ pastes the prompt staged for review and `shift+enter` submits it to run (and
 marks the todo done). Inside the editor `enter` saves and `shift+enter` inserts
 a newline. Outside cats it still manages backlogs; only drops need the socket.
 
-Under the filter box sits a row of action buttons — **Add**, **Edit**, **Send**,
-**Delete** — each labelled with the chord it stands for. `tab` walks the focus
+The filter rides on the header line — the 🔍 box next to the title, lit while
+it holds the keys — and typing from anywhere lands in it. Under the header sits
+a row of action buttons — **Add**, **Edit**, **Send**, **Delete** — each
+labelled with the chord it stands for. `tab` walks the focus
 out of the filter and across them (`shift+tab` walks back, `←`/`→` move along
 the row, `enter` presses, `esc` returns to the filter); `↑`/`↓` keep moving the
 row highlight the whole time, so you can pick a prompt and then press the button
@@ -81,6 +83,17 @@ prompt view leaves the terminal's own text selection alone.
 Completed prompts collect below the open ones, newest first, so what you just
 finished is at the top of the pile rather than the bottom. `ctrl+d` folds them
 away and `ctrl+w` clears them out.
+
+A prompt can also be dropped on a timer: `ctrl+s` asks when (`15:30`, `in 2h`,
+`tomorrow 9:00`), then opens the same target picker, and the row carries the
+fire time — `◷` and `⏰ 15:30` — until the moment comes. The fire is always
+"drop & run" (nobody is standing by to press enter), and it marks the todo done
+exactly as a manual drop would. The manager has to be open at the time: firing
+is the tick loop of the running TUI, not a daemon. A schedule whose moment
+passed while the manager was closed — or whose pane has since disappeared — is
+marked **missed** on the row instead of firing late into a conversation that
+has moved on; send it by hand from there. `ctrl+s` on a scheduled prompt shows
+the time again, where enter on an emptied box clears it.
 
 ## Quick capture from a shell
 

@@ -1,5 +1,8 @@
-// fuzzylist.go — a reusable fuzzy-filtered, keyboard-navigable list with a query
-// box, used by both the todo list and the drop-target picker.
+// fuzzylist.go — a reusable fuzzy-filtered, keyboard-navigable list, used by
+// both the todo list and the drop-target picker. The list owns the query input
+// and the filtering; the caller decides where the query line is drawn — view
+// renders it boxed above the rows (the picker), rowsView leaves it to the
+// caller entirely (the manager's header line).
 //
 // Adapted from herdr-plus (https://github.com/cloudmanic/herdr-plus),
 // Copyright (c) 2026 Cloudmanic Labs, LLC, MIT License. See NOTICE.
@@ -254,20 +257,10 @@ func (l *fuzzyList) editQuery(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// view renders the query line, the match count, and the result rows. bar, when
-// non-empty, is written on its own line between the query and the rows — the
-// manager's action bar. It is passed in pre-rendered rather than built here
-// because the buttons act on the caller's model, not on the list.
-//
-// width is how far the highlighted row's field runs. It is a parameter rather
-// than a field on the list because the caller already holds the window size and
-// re-renders on every resize; keeping a copy here would be one more thing that
-// can go stale, and it goes stale silently — as a highlight that stops short of
-// the edge.
-func (l fuzzyList) view(emptyMsg, bar string, width int) string {
-	var b strings.Builder
-
-	matched, total := 0, 0
+// counts reports how many selectable rows survive the current query (matched)
+// out of how many the list holds (total). Separators are neither: a heading
+// that always renders would make every "3/3" read as a lie.
+func (l fuzzyList) counts() (matched, total int) {
 	for _, it := range l.items {
 		if it.selectable {
 			total++
@@ -278,6 +271,27 @@ func (l fuzzyList) view(emptyMsg, bar string, width int) string {
 			matched++
 		}
 	}
+	return matched, total
+}
+
+// view renders the query line, the match count, and the result rows. bar, when
+// non-empty, is written on its own line between the query and the rows — the
+// manager's action bar. It is passed in pre-rendered rather than built here
+// because the buttons act on the caller's model, not on the list.
+//
+// The manager's list stage no longer calls this — it draws the query segment on
+// its own header line and asks for rowsView directly. The drop-target picker
+// still renders through here, boxed search field and all.
+//
+// width is how far the highlighted row's field runs. It is a parameter rather
+// than a field on the list because the caller already holds the window size and
+// re-renders on every resize; keeping a copy here would be one more thing that
+// can go stale, and it goes stale silently — as a highlight that stops short of
+// the edge.
+func (l fuzzyList) view(emptyMsg, bar string, width int) string {
+	var b strings.Builder
+
+	matched, total := l.counts()
 
 	// The input's own focus is the truth, so a caller that blurs the box gets
 	// the quiet rails for free and can't leave the two disagreeing. The picker
@@ -297,6 +311,17 @@ func (l fuzzyList) view(emptyMsg, bar string, width int) string {
 	}
 	b.WriteString("\n")
 
+	b.WriteString(l.rowsView(emptyMsg, width))
+	return b.String()
+}
+
+// rowsView renders just the result rows (or the empty message) — the block
+// rowAtLine hit-tests against, with no query line above it. Callers that
+// compose their own chrome around the list start from here.
+func (l fuzzyList) rowsView(emptyMsg string, width int) string {
+	var b strings.Builder
+
+	matched, _ := l.counts()
 	if matched == 0 {
 		b.WriteString(descStyle.Render("  " + emptyMsg))
 		b.WriteString("\n")

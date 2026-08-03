@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -609,10 +610,11 @@ func TestSelectedRowIsHighlighted(t *testing.T) {
 		return m
 	}
 	// fullWidth counts the rendered lines that run the whole pane — the lit row
-	// and nothing else, since every other line stops at its text.
+	// and nothing else, since every other line stops at its text. rowsView is
+	// what the list stage actually draws (the query line lives on the header).
 	fullWidth := func(m model) int {
 		n := 0
-		for _, ln := range strings.Split(m.list.view("none", "", width), "\n") {
+		for ln := range strings.SplitSeq(m.list.rowsView("none", width), "\n") {
 			if lipgloss.Width(ln) == width {
 				n++
 			}
@@ -842,64 +844,245 @@ func TestTargetRowsMatchWhatIsDrawn(t *testing.T) {
 	}
 }
 
-// TestScopeNote pins the header's scope line: the project basename must always
-// lead (the workspace label used to replace it, which hid launches that landed
-// in the wrong directory), the workspace label rides along when it adds
-// information, and under width pressure the label — never the project — is
-// what compacts and then disappears.
+// TestScopeNote pins the header's scope note against its room budget: the
+// project basename must always lead (the workspace label used to replace it,
+// which hid launches that landed in the wrong directory), the workspace label
+// rides along when it adds information, and under pressure the label compacts
+// and disappears first — the project name is cut only as the last resort, and
+// keeps its "+ global"/"only" suffix when it is.
 func TestScopeNote(t *testing.T) {
-	// Wide enough that the title + note + label all fit uncompacted.
-	const roomy = 120
+	// Room enough that the note + label fit uncompacted.
+	const roomy = 60
 
-	build := func(wsLabel string, width int) model {
+	build := func(wsLabel string) model {
 		m := newTestModel()
 		m.ctx.WorkspaceLabel = wsLabel
-		m.width = width
 		return m
 	}
 
 	t.Run("project and workspace both shown", func(t *testing.T) {
-		got := build("pers", roomy).scopeNote()
+		got := build("pers").scopeNote(roomy)
 		if got != "project + global · ws:pers" {
 			t.Fatalf("scopeNote = %q, want project first with ws suffix", got)
 		}
 	})
 
 	t.Run("no workspace label", func(t *testing.T) {
-		if got := build("", roomy).scopeNote(); got != "project + global" {
+		if got := build("").scopeNote(roomy); got != "project + global" {
 			t.Fatalf("scopeNote = %q, want bare project note", got)
 		}
 	})
 
 	t.Run("label matching the project is dropped as redundant", func(t *testing.T) {
 		// newTestModel's WorkDir basename is "project".
-		if got := build("project", roomy).scopeNote(); got != "project + global" {
+		if got := build("project").scopeNote(roomy); got != "project + global" {
 			t.Fatalf("scopeNote = %q, want suffix deduped", got)
 		}
 	})
 
-	t.Run("tight width compacts the label, not the project", func(t *testing.T) {
-		got := build("a-rather-long-workspace-name", 60).scopeNote()
+	t.Run("tight room compacts the label, not the project", func(t *testing.T) {
+		got := build("a-rather-long-workspace-name").scopeNote(30)
 		if !strings.HasPrefix(got, "project + global · ws:") {
 			t.Fatalf("scopeNote = %q, project note must survive compaction intact", got)
 		}
 		if !strings.HasSuffix(got, "…") {
 			t.Fatalf("scopeNote = %q, want a truncated (…) workspace label", got)
 		}
+		if n := len([]rune(got)); n > 30 {
+			t.Fatalf("scopeNote is %d runes, wider than its %d-rune room: %q", n, 30, got)
+		}
 	})
 
 	t.Run("no room at all drops the label entirely", func(t *testing.T) {
-		if got := build("pers", 40).scopeNote(); got != "project + global" {
+		if got := build("pers").scopeNote(20); got != "project + global" {
 			t.Fatalf("scopeNote = %q, want label dropped, project kept", got)
 		}
 	})
 
-	t.Run("zero width (before the first resize) shows everything", func(t *testing.T) {
-		got := build("a-rather-long-workspace-name", 0).scopeNote()
+	t.Run("a long project name truncates instead of overflowing", func(t *testing.T) {
+		// The bug this pins: the old header never bounded the project part, so
+		// a long directory name overflowed the line — and in a wrapping
+		// renderer pushed every click target down a row.
+		m := build("")
+		m.ctx.WorkDir = "/tmp/an-extremely-long-project-directory-name"
+		got := m.scopeNote(25)
+		if n := len([]rune(got)); n > 25 {
+			t.Fatalf("scopeNote is %d runes, wider than its %d-rune room: %q", n, 25, got)
+		}
+		if !strings.Contains(got, "…") {
+			t.Fatalf("scopeNote = %q, want a truncated (…) project name", got)
+		}
+		if !strings.HasSuffix(got, " + global") {
+			t.Fatalf("scopeNote = %q, the scope suffix must survive the cut", got)
+		}
+	})
+
+	t.Run("negative room (before the first resize) shows everything", func(t *testing.T) {
+		got := build("a-rather-long-workspace-name").scopeNote(-1)
 		if got != "project + global · ws:a-rather-long-workspace-name" {
 			t.Fatalf("scopeNote = %q, want full label when width is unknown", got)
 		}
 	})
+}
+
+// TestHeaderLineFits pins the header budget: the line must never exceed the
+// pane's width, whatever is competing for it. The bug this guards against —
+// the query input used to be sized to width-4, blowing the line to ~width+8 —
+// pushed the match count off-screen, and in a wrapping renderer would have
+// moved every click target down a row.
+func TestHeaderLineFits(t *testing.T) {
+	scenarios := []struct {
+		name string
+		prep func(*model)
+	}{
+		{"plain", func(m *model) {}},
+		{"long project basename", func(m *model) {
+			m.ctx.WorkDir = "/tmp/an-extremely-long-project-directory-name-that-overflows"
+		}},
+		{"long workspace label", func(m *model) {
+			m.ctx.WorkspaceLabel = "a-rather-long-workspace-name"
+		}},
+		{"done-hidden tag showing", func(m *model) {
+			m.project.todos = append(m.project.todos, Todo{ID: "d1", Title: "done", Done: true})
+			m.hideDone = true
+			m.rebuildList()
+		}},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			for _, width := range []int{20, 30, 40, 60, 80, 200} {
+				m := withTodo("ship it")
+				sc.prep(&m)
+				m.width = width
+				m.applySizes()
+				line := m.headerLine()
+				if got := lipgloss.Width(line); got > width {
+					t.Fatalf("width %d: header line renders %d cells:\n%q", width, got, line)
+				}
+				// The count is the last thing the ladder may give up; no real
+				// pane is narrow enough to cost it.
+				if !strings.Contains(line, "/") {
+					t.Fatalf("width %d: match count missing from header %q", width, line)
+				}
+			}
+		})
+	}
+
+	t.Run("comfortable width carries the search box and count", func(t *testing.T) {
+		m := withTodo("ship it")
+		m.width = 80
+		m.applySizes()
+		line := m.headerLine()
+		if !strings.Contains(line, searchGlyph) {
+			t.Fatalf("header at 80 cols dropped the query box: %q", line)
+		}
+		if !strings.Contains(line, "1/1") {
+			t.Fatalf("header at 80 cols lost the match count: %q", line)
+		}
+	})
+
+	t.Run("the input is sized to the same budget the line renders", func(t *testing.T) {
+		// The rendered line and the input's own SetWidth come from one layout;
+		// if they ever diverge the line silently over- or under-runs.
+		m := withTodo("ship it")
+		m.width = 120
+		m.applySizes()
+		if got, want := m.list.input.Width(), m.searchWidth(); got != want {
+			t.Fatalf("input width %d, headerLayout budget %d", got, want)
+		}
+	})
+}
+
+// TestHeaderSearchShowsFocus pins the inline affordance that replaced the
+// boxed field's rails: the header must render differently when the query box
+// holds the keys than when a button does, or handing the focus back has
+// nothing to show for itself.
+func TestHeaderSearchShowsFocus(t *testing.T) {
+	m := withTodo("ship it")
+	m.width = 120
+	m.applySizes()
+
+	focused := m.headerLine()
+	m.setActionFocus(true)
+	blurred := m.headerLine()
+	if focused == blurred {
+		t.Fatal("the header reads the same with and without the keys in the box")
+	}
+}
+
+// TestStatusRowStable pins the footer to its line: a status message appearing
+// or clearing must not change the view's height, or the help line jumps two
+// rows every time a drop lands.
+func TestStatusRowStable(t *testing.T) {
+	m := withTodo("ship it")
+	m.width = 120
+	m.applySizes()
+
+	quiet := strings.Split(m.viewList(), "\n")
+	m.setStatus("dropped → somewhere", false)
+	loud := strings.Split(m.viewList(), "\n")
+	if len(quiet) != len(loud) {
+		t.Fatalf("view is %d lines quiet and %d with a status — the footer moved", len(quiet), len(loud))
+	}
+}
+
+// TestFooterDeduped pins the footer's split with the action bar: while the
+// chips carry their own key hints the footer names only the chords the bar
+// doesn't, and in a pane too narrow for hints the footer names everything.
+func TestFooterDeduped(t *testing.T) {
+	t.Run("wide pane trims the chords the chips teach", func(t *testing.T) {
+		m := withTodo("ship it")
+		m.width = 200
+		if !m.barShowsHints() {
+			t.Fatal("a 200-column bar should carry its hints")
+		}
+		footer := m.listFooter()
+		for _, taught := range []string{"ctrl+a", "ctrl+x"} {
+			if strings.Contains(footer, taught) {
+				t.Fatalf("footer repeats %s, which the bar already teaches:\n%s", taught, footer)
+			}
+		}
+		if !strings.Contains(footer, "ctrl+v") {
+			t.Fatalf("footer lost a chord the bar does not teach:\n%s", footer)
+		}
+	})
+
+	t.Run("narrow pane names everything", func(t *testing.T) {
+		m := withTodo("ship it")
+		m.width = 40
+		if m.barShowsHints() {
+			t.Fatal("a 40-column bar should have dropped its hints")
+		}
+		footer := m.listFooter()
+		for _, chord := range []string{"ctrl+a add", "ctrl+x delete", "ctrl+v view"} {
+			if !strings.Contains(footer, chord) {
+				t.Fatalf("narrow footer must teach %s — nothing else on screen does:\n%s", chord, footer)
+			}
+		}
+	})
+}
+
+// TestHeaderClickFocusesSearch: the query box is a tab stop and shows its own
+// focus, so a click on the header line it lives on has to hand the keys back
+// to it — a first-class stop the pointer can't reach would be the old
+// inconsistency in a new place.
+func TestHeaderClickFocusesSearch(t *testing.T) {
+	m := withTodo("ship it")
+	m.width = 120
+	m.applySizes()
+	m = pressList(t, m, "tab")
+	if !m.actionFocus {
+		t.Fatal("tab should have lit a chip")
+	}
+
+	next, _ := m.Update(tea.MouseClickMsg{X: 5, Y: headerRow, Button: tea.MouseLeft})
+	m = next.(model)
+	if m.actionFocus {
+		t.Fatal("a header click must take the focus off the bar")
+	}
+	if !m.list.input.Focused() {
+		t.Fatal("a header click must hand the keys back to the query box")
+	}
 }
 
 // TestPaneTitleOpenCount pins the count cats reads off the terminal title to
@@ -944,5 +1127,303 @@ func TestPaneTitleOpenCount(t *testing.T) {
 				t.Errorf("paneTitle() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// schedModel builds a manager whose project backlog is a real file under
+// t.TempDir(), holding one open prompt. The schedule paths all reload from
+// disk before mutating (setSchedule, claimSchedule), so the in-memory-only
+// store withTodo uses would be wiped by the first of them.
+func schedModel(t *testing.T, client *catsClient) model {
+	t.Helper()
+	project := &store{scope: scopeProject, path: filepath.Join(t.TempDir(), "todos.json")}
+	if err := project.add(Todo{ID: "t1", Title: "ship it", Prompt: "do the thing"}); err != nil {
+		t.Fatal(err)
+	}
+	global := &store{scope: scopeGlobal, path: filepath.Join(t.TempDir(), "todos.json")}
+	m := newModel(RunContext{WorkDir: "/tmp/cats-todo-test/project"}, project, global, client)
+	m.width = 120
+	m.applySizes()
+	return m
+}
+
+// TestScheduleGuards pins the refusals: no socket means no promise to fire,
+// and a done prompt has nothing to fire.
+func TestScheduleGuards(t *testing.T) {
+	t.Run("nil client refuses on the list", func(t *testing.T) {
+		m := schedModel(t, nil)
+		m = pressList(t, m, "ctrl+s")
+		if m.stage != stageList {
+			t.Fatalf("stage = %v, want to stay on the list", m.stage)
+		}
+		if !m.statusErr || !strings.Contains(m.status, "socket") {
+			t.Fatalf("status = %q, want the socket refusal", m.status)
+		}
+	})
+
+	t.Run("done prompt is redirected to reopen", func(t *testing.T) {
+		m := schedModel(t, &catsClient{})
+		if err := m.project.setDone("t1", true); err != nil {
+			t.Fatal(err)
+		}
+		m.rebuildList()
+		m = pressList(t, m, "ctrl+s")
+		if m.stage != stageList || !strings.Contains(m.status, "reopen") {
+			t.Fatalf("stage %v status %q, want a stay-put hint about reopening", m.stage, m.status)
+		}
+	})
+}
+
+// TestScheduleFlow drives the happy path end to end: ctrl+s, a time, the
+// picker in schedule flavor, and the schedule persisted — with nothing fired
+// and nothing in flight.
+func TestScheduleFlow(t *testing.T) {
+	m := schedModel(t, &catsClient{})
+	m = pressList(t, m, "ctrl+s")
+	if m.stage != stageSchedule {
+		t.Fatalf("stage = %v, want stageSchedule", m.stage)
+	}
+
+	m.schedInput.SetValue("in 2h")
+	next, _ := m.updateSchedule(pressKey("enter"))
+	m = next.(model)
+	if m.stage != stageTarget || !m.pickForSchedule {
+		t.Fatalf("stage %v pickForSchedule %v, want the schedule-flavored picker", m.stage, m.pickForSchedule)
+	}
+
+	// The picker's first target is always the built-in new Claude session
+	// (buildTargets degrades to just that when pane.list is unreachable).
+	next, _ = m.updateTarget(pressKey("enter"))
+	m = next.(model)
+	if m.stage != stageList || m.pickForSchedule || m.dropping {
+		t.Fatalf("stage %v pickForSchedule %v dropping %v — want back on the list with nothing in flight",
+			m.stage, m.pickForSchedule, m.dropping)
+	}
+	if !strings.Contains(m.status, "scheduled for") {
+		t.Fatalf("status = %q, want the scheduled confirmation", m.status)
+	}
+
+	td, _ := m.project.find("t1")
+	if td.Schedule == nil || td.Schedule.Kind != scheduleKindNew || td.Schedule.Command != "claude" {
+		t.Fatalf("persisted schedule = %+v, want a new-claude-session fire", td.Schedule)
+	}
+	if until := time.Until(td.Schedule.At); until < 110*time.Minute || until > 130*time.Minute {
+		t.Fatalf("fire time is %v away, want about two hours", until)
+	}
+
+	t.Run("a bad time stays in the editor with the reason", func(t *testing.T) {
+		m := schedModel(t, &catsClient{})
+		m = pressList(t, m, "ctrl+s")
+		m.schedInput.SetValue("soonish")
+		next, _ := m.updateSchedule(pressKey("enter"))
+		m = next.(model)
+		if m.stage != stageSchedule || m.schedErr == "" {
+			t.Fatalf("stage %v err %q, want to stay in the editor with the parse error", m.stage, m.schedErr)
+		}
+	})
+
+	t.Run("esc out of the picker leaks no schedule flavor", func(t *testing.T) {
+		m := schedModel(t, &catsClient{})
+		m = pressList(t, m, "ctrl+s")
+		m.schedInput.SetValue("in 2h")
+		next, _ := m.updateSchedule(pressKey("enter"))
+		m = next.(model)
+		next, _ = m.updateTarget(pressKey("esc"))
+		m = next.(model)
+		if m.pickForSchedule {
+			t.Fatal("esc left the picker flagged — the next manual drop would schedule instead of firing")
+		}
+		if td, _ := m.project.find("t1"); td.Schedule != nil {
+			t.Fatal("nothing was committed, so nothing may be persisted")
+		}
+	})
+
+	t.Run("enter on an emptied input clears an existing schedule", func(t *testing.T) {
+		m := schedModel(t, &catsClient{})
+		at := time.Now().Add(time.Hour)
+		if err := m.project.setSchedule("t1", &Schedule{At: at, Kind: scheduleKindNew, Command: "claude"}); err != nil {
+			t.Fatal(err)
+		}
+		m.rebuildList()
+		m = pressList(t, m, "ctrl+s")
+		if m.schedInput.Value() == "" {
+			t.Fatal("an existing schedule must prefill the editor")
+		}
+		m.schedInput.SetValue("")
+		next, _ := m.updateSchedule(pressKey("enter"))
+		m = next.(model)
+		if m.stage != stageList || !strings.Contains(m.status, "cleared") {
+			t.Fatalf("stage %v status %q, want back on the list with the cleared note", m.stage, m.status)
+		}
+		if td, _ := m.project.find("t1"); td.Schedule != nil {
+			t.Fatal("the schedule should be gone")
+		}
+	})
+}
+
+// TestScheduleTick pins the fire loop's judgment calls, driven by synthetic
+// scheduleTickMsg and dropResultMsg — no goroutines, no sockets.
+func TestScheduleTick(t *testing.T) {
+	arm := func(t *testing.T, m model, at time.Time) model {
+		t.Helper()
+		if err := m.project.setSchedule("t1", &Schedule{At: at, Kind: scheduleKindNew, Command: "claude", Cwd: "/tmp"}); err != nil {
+			t.Fatal(err)
+		}
+		m.rebuildList()
+		return m
+	}
+	sched := func(t *testing.T, m model) *Schedule {
+		t.Helper()
+		td, ok := m.project.find("t1")
+		if !ok {
+			t.Fatal("the todo vanished")
+		}
+		return td.Schedule
+	}
+
+	t.Run("not yet due: nothing happens", func(t *testing.T) {
+		now := time.Now()
+		m := arm(t, schedModel(t, &catsClient{}), now.Add(time.Hour))
+		next, _ := m.Update(scheduleTickMsg(now))
+		m = next.(model)
+		if m.dropping || sched(t, m) == nil || sched(t, m).Missed {
+			t.Fatal("a future schedule must ride through the tick untouched")
+		}
+	})
+
+	t.Run("due within grace: claimed and fired", func(t *testing.T) {
+		now := time.Now()
+		m := arm(t, schedModel(t, &catsClient{}), now.Add(-30*time.Second))
+		next, cmd := m.Update(scheduleTickMsg(now))
+		m = next.(model)
+		if !m.dropping {
+			t.Fatal("a due schedule must put a drop in flight")
+		}
+		if cmd == nil {
+			t.Fatal("the fire command went missing")
+		}
+		if sched(t, m) != nil {
+			t.Fatal("the claim must clear the schedule before the drop runs — that is the no-double-fire guard")
+		}
+	})
+
+	t.Run("due beyond grace: missed, not fired", func(t *testing.T) {
+		now := time.Now()
+		m := arm(t, schedModel(t, &catsClient{}), now.Add(-scheduleGrace-time.Minute))
+		next, _ := m.Update(scheduleTickMsg(now))
+		m = next.(model)
+		if m.dropping {
+			t.Fatal("a stale schedule fired — the grace window exists to stop exactly this")
+		}
+		sc := sched(t, m)
+		if sc == nil || !sc.Missed {
+			t.Fatalf("schedule = %+v, want it kept and marked Missed", sc)
+		}
+		if !m.statusErr || !strings.Contains(m.status, "missed") {
+			t.Fatalf("status = %q, want the missed report", m.status)
+		}
+	})
+
+	t.Run("due with no socket: missed, not fired", func(t *testing.T) {
+		now := time.Now()
+		m := arm(t, schedModel(t, nil), now.Add(-30*time.Second))
+		next, _ := m.Update(scheduleTickMsg(now))
+		m = next.(model)
+		if sc := sched(t, m); sc == nil || !sc.Missed {
+			t.Fatalf("schedule = %+v, want Missed — there is nothing to fire through", sc)
+		}
+	})
+
+	t.Run("a missed schedule never re-fires", func(t *testing.T) {
+		now := time.Now()
+		m := arm(t, schedModel(t, &catsClient{}), now.Add(-scheduleGrace-time.Minute))
+		next, _ := m.Update(scheduleTickMsg(now))
+		m = next.(model)
+		next, cmd := m.Update(scheduleTickMsg(now.Add(time.Second)))
+		m = next.(model)
+		if m.dropping {
+			t.Fatal("the second tick fired a schedule already marked Missed")
+		}
+		_ = cmd // the re-armed tick; the fire cmd inside the batch is what dropping guards
+	})
+
+	t.Run("a drop in flight defers the fire", func(t *testing.T) {
+		now := time.Now()
+		m := arm(t, schedModel(t, &catsClient{}), now.Add(-30*time.Second))
+		m.dropping = true
+		next, _ := m.Update(scheduleTickMsg(now))
+		m = next.(model)
+		if sc := sched(t, m); sc == nil || sc.Missed {
+			t.Fatalf("schedule = %+v, want it left armed for the next tick", sc)
+		}
+	})
+
+	t.Run("a failed fire is written back as Missed", func(t *testing.T) {
+		m := schedModel(t, &catsClient{})
+		sc := Schedule{At: time.Now().Add(-10 * time.Second), Kind: scheduleKindPane, Pane: 42, Agent: "claude"}
+		m.dropping = true
+		next, _ := m.Update(dropResultMsg{
+			desc:  "claude",
+			ref:   todoRef{scope: scopeProject, id: "t1"},
+			err:   fmt.Errorf("the scheduled pane is gone"),
+			sched: &sc,
+		})
+		m = next.(model)
+		if m.dropping {
+			t.Fatal("the result must clear the in-flight flag")
+		}
+		td, _ := m.project.find("t1")
+		if td.Schedule == nil || !td.Schedule.Missed || td.Schedule.Pane != 42 {
+			t.Fatalf("schedule = %+v, want the original written back as Missed", td.Schedule)
+		}
+		if !strings.Contains(m.status, "scheduled drop failed") {
+			t.Fatalf("status = %q, want the scheduled-failure report", m.status)
+		}
+	})
+
+	t.Run("a successful fire completes the todo", func(t *testing.T) {
+		m := schedModel(t, &catsClient{})
+		sc := Schedule{At: time.Now().Add(-10 * time.Second), Kind: scheduleKindNew, Command: "claude"}
+		m.dropping = true
+		next, _ := m.Update(dropResultMsg{
+			desc:  "new Claude Code session",
+			ref:   todoRef{scope: scopeProject, id: "t1"},
+			sched: &sc,
+		})
+		m = next.(model)
+		td, _ := m.project.find("t1")
+		if !td.Done {
+			t.Fatal("a delivered prompt is done — same contract as a manual drop")
+		}
+		if td.Schedule != nil {
+			t.Fatal("nothing may be left armed on a completed todo")
+		}
+	})
+}
+
+// TestScheduledRowShowsItself pins the row's schedule marks: the ◷ badge and
+// the ⏰ time leading the description, with "missed" spelled out when it is.
+func TestScheduledRowShowsItself(t *testing.T) {
+	m := schedModel(t, &catsClient{})
+	at := time.Now().Add(30 * time.Minute)
+	if err := m.project.setSchedule("t1", &Schedule{At: at, Kind: scheduleKindNew, Command: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	m.rebuildList()
+
+	view := m.viewList()
+	if !strings.Contains(view, "◷") || !strings.Contains(view, "⏰ "+formatScheduleTime(at, time.Now())) {
+		t.Fatalf("a scheduled row must carry the badge and its fire time:\n%s", view)
+	}
+
+	sc, _ := m.project.find("t1")
+	missed := *sc.Schedule
+	missed.Missed = true
+	if err := m.project.setSchedule("t1", &missed); err != nil {
+		t.Fatal(err)
+	}
+	m.rebuildList()
+	if !strings.Contains(m.viewList(), "⏰ missed") {
+		t.Fatal("a missed schedule must say so on the row")
 	}
 }

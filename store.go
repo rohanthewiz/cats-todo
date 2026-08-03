@@ -26,7 +26,45 @@ type Todo struct {
 	Images  []string  `json:"images,omitempty"`
 	Done    bool      `json:"done"`
 	Created time.Time `json:"created"`
+	// Schedule is the todo's pending one-shot auto-drop, nil when none. Same
+	// compat contract as Images: omitted from the JSON when absent, so an
+	// unscheduled backlog reads exactly as it did before the field existed and
+	// an older binary ignores it. (An older binary that saves the backlog
+	// drops the key — the same accepted limitation attachments carry.)
+	Schedule *Schedule `json:"schedule,omitempty"`
 }
+
+// Schedule is a one-shot auto-drop waiting to fire: at time At, the todo's
+// prompt is delivered to the recorded target as if the user had pressed "drop
+// and run". Kind is a string rather than the UI's dropTargetKind int so the
+// JSON stays self-describing and survives any reordering of that enum.
+type Schedule struct {
+	At   time.Time `json:"at"`
+	Kind string    `json:"kind"` // scheduleKindPane | scheduleKindNew
+	// Pane and Agent describe an existing-pane target: the cats pane ID the
+	// prompt lands in, and its agent label for status lines. Panes are
+	// ephemeral, so the ID is re-verified at fire time (see
+	// performScheduledDrop).
+	Pane  uint32 `json:"pane,omitempty"`
+	Agent string `json:"agent,omitempty"`
+	// Command and Cwd describe a new-session target: the agent command to
+	// launch ("claude", …) and the directory to launch it in, captured at
+	// schedule time because the fire happens with no form on screen to ask.
+	Command string `json:"command,omitempty"`
+	Cwd     string `json:"cwd,omitempty"`
+	// Missed marks a schedule that came due when it couldn't fire — the
+	// manager was closed past the grace window, the pane was gone, the drop
+	// failed. The tick skips it, the row shows it, and sending by hand (which
+	// completes the todo) is what clears it.
+	Missed bool `json:"missed,omitempty"`
+}
+
+// Schedule target kinds. Stored in backlog files — the names are wire format,
+// not just code.
+const (
+	scheduleKindPane = "pane"
+	scheduleKindNew  = "new"
+)
 
 // scope marks where a todo lives: with the project (committed in the repo) or in
 // the user's global backlog.
@@ -242,7 +280,10 @@ func (s *store) delete(id string) error {
 	return errTodoNotFound
 }
 
-// toggle flips the done flag of the todo with id and persists.
+// toggle flips the done flag of the todo with id and persists. Completing a
+// todo clears its schedule: "schedule implies open" is the invariant the tick
+// scans by, and a done todo auto-dropping later would be work resurrected from
+// the grave.
 func (s *store) toggle(id string) error {
 	if err := s.reload(); err != nil {
 		return err
@@ -251,6 +292,7 @@ func (s *store) toggle(id string) error {
 		if s.todos[i].ID == id {
 			s.todos[i].Done = !s.todos[i].Done
 			if s.todos[i].Done {
+				s.todos[i].Schedule = nil
 				s.fileAsLatestDone(i)
 			}
 			return s.save()
@@ -304,12 +346,59 @@ func (s *store) setDone(id string, done bool) error {
 			}
 			s.todos[i].Done = done
 			if done {
+				// Same invariant as toggle: a completed todo holds no schedule.
+				s.todos[i].Schedule = nil
 				s.fileAsLatestDone(i)
 			}
 			return s.save()
 		}
 	}
 	return errTodoNotFound
+}
+
+// setSchedule replaces the schedule of the todo with id and persists; nil
+// clears it. Passing a Schedule with Missed set is also how a failed fire is
+// recorded — one write path for every schedule state the row can show.
+func (s *store) setSchedule(id string, sc *Schedule) error {
+	if err := s.reload(); err != nil {
+		return err
+	}
+	for i := range s.todos {
+		if s.todos[i].ID == id {
+			s.todos[i].Schedule = sc
+			return s.save()
+		}
+	}
+	return errTodoNotFound
+}
+
+// claimSchedule atomically takes the schedule of the todo with id off the
+// backlog, returning whether this caller won it. The claim is the double-fire
+// guard: the schedule is cleared on disk before any drop is attempted, so a
+// second manager pane sharing this backlog reloads, finds the schedule gone
+// (or changed — a claim is only good for the exact At it read), and stands
+// down. A fire that later fails is written back as Missed rather than
+// re-armed, which keeps "claimed" meaning "will never fire on its own again".
+func (s *store) claimSchedule(id string, at time.Time) (bool, error) {
+	if err := s.reload(); err != nil {
+		return false, err
+	}
+	for i := range s.todos {
+		if s.todos[i].ID != id {
+			continue
+		}
+		sc := s.todos[i].Schedule
+		if sc == nil || !sc.At.Equal(at) {
+			return false, nil
+		}
+		s.todos[i].Schedule = nil
+		if err := s.save(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	// The todo itself is gone — deleted from another pane. Nothing to fire.
+	return false, nil
 }
 
 // move shifts the todo with id one step toward the front (delta < 0) or back

@@ -2,7 +2,10 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+
+	"github.com/rohanthewiz/cats-todo/internal/app"
 )
 
 // performDrop carries out the chosen drop. For an existing pane it types the
@@ -63,6 +66,42 @@ func composePrompt(prompt string, images []string) string {
 		b.WriteString(p)
 	}
 	return b.String()
+}
+
+// performScheduledDrop is the fire-time drop: performDrop with the two things
+// an unattended delivery changes. The mode is forced to dropRun — a paste has
+// nobody standing by to press Enter — and a pane target is re-verified against
+// pane.list first, because panes are ephemeral and the schedule may be hours
+// old. A vanished pane is an error rather than a fallback into a new session:
+// picking that pane was picking that conversation's context, and silently
+// launching an agent run on guessed context is the worse failure. The caller
+// records the error as Missed, where a manual send is one keystroke away.
+func performScheduledDrop(client *catsClient, sc Schedule, act pendingAction) error {
+	if client == nil {
+		return errors.New("cats control socket unavailable")
+	}
+	if sc.Kind == scheduleKindPane {
+		panes, err := client.paneList()
+		if err != nil {
+			return fmt.Errorf("checking the scheduled pane: %w", err)
+		}
+		if !paneExists(panes, sc.Pane) {
+			return errors.New("the scheduled pane is gone — send manually")
+		}
+	}
+	act.mode = dropRun
+	return performDrop(client, act)
+}
+
+// paneExists reports whether pane.list still knows the pane id — split out
+// pure so the fire path's one judgment call is testable without a socket.
+func paneExists(panes []app.PaneInfo, id uint32) bool {
+	for _, p := range panes {
+		if p.Pane == id {
+			return true
+		}
+	}
+	return false
 }
 
 // dropIntoNewSession opens a fresh tab (in the active workspace — the one the

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // sampleItems is two groups of selectable rows separated by non-selectable
 // headings — the shape the todo list and target picker both produce.
@@ -142,5 +145,26 @@ func TestSelectedIndexAllSeparators(t *testing.T) {
 	l := newFuzzyList("", []listItem{{name: "Heading", selectable: false}})
 	if got := l.selectedIndex(); got != -1 {
 		t.Errorf("selectedIndex with no selectable rows = %d, want -1", got)
+	}
+}
+
+// TestViewComposesRowsView pins the split between view and rowsView: view is
+// the boxed query line stacked on exactly what rowsView renders, so the two
+// callers — the picker through view, the manager's list straight into
+// rowsView — can never drift apart on what the rows look like.
+func TestViewComposesRowsView(t *testing.T) {
+	l := newFuzzyList("filter…", sampleItems())
+	const width = 40
+
+	v := l.view("nothing here", "", width)
+	rows := l.rowsView("nothing here", width)
+	if !strings.HasSuffix(v, rows) {
+		t.Fatalf("view does not end with rowsView's output\nview:\n%q\nrows:\n%q", v, rows)
+	}
+	if !strings.Contains(v, "🔍") {
+		t.Fatal("view lost the boxed query line the picker depends on")
+	}
+	if strings.Contains(rows, "🔍") {
+		t.Fatal("rowsView must not render a query line — the manager draws its own")
 	}
 }

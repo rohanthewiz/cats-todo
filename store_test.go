@@ -552,3 +552,172 @@ func TestLoadStores(t *testing.T) {
 		}
 	})
 }
+
+// TestSetAndClearSchedule round-trips a schedule through disk, and pins the
+// omitempty contract: a backlog with no schedules must serialize without the
+// key at all, so older binaries and diffs see exactly the file they always did.
+func TestSetAndClearSchedule(t *testing.T) {
+	s := tempStore(t)
+	if err := s.add(Todo{ID: "a1", Prompt: "p"}); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "schedule") {
+		t.Fatalf("an unscheduled backlog mentions schedules:\n%s", raw)
+	}
+
+	at := time.Date(2026, 8, 3, 15, 0, 0, 0, time.UTC)
+	sc := &Schedule{At: at, Kind: scheduleKindPane, Pane: 42, Agent: "claude"}
+	if err := s.setSchedule("a1", sc); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded := &store{scope: scopeProject, path: s.path}
+	if err := reloaded.load(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := reloaded.find("a1")
+	if got.Schedule == nil || !got.Schedule.At.Equal(at) || got.Schedule.Pane != 42 {
+		t.Fatalf("schedule did not survive the round trip: %+v", got.Schedule)
+	}
+
+	if err := s.setSchedule("a1", nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = os.ReadFile(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "schedule") {
+		t.Fatalf("a cleared schedule left its key behind:\n%s", raw)
+	}
+
+	if err := s.setSchedule("ghost", sc); err != errTodoNotFound {
+		t.Errorf("setSchedule of unknown id = %v, want errTodoNotFound", err)
+	}
+}
+
+// TestClaimSchedule pins the double-fire guard: exactly one claimant wins, a
+// claim is only good for the exact At it read, and a schedule cleared from
+// another pane cannot be claimed at all.
+func TestClaimSchedule(t *testing.T) {
+	at := time.Date(2026, 8, 3, 15, 0, 0, 0, time.UTC)
+
+	build := func(t *testing.T) *store {
+		t.Helper()
+		s := tempStore(t)
+		if err := s.add(Todo{ID: "a1", Prompt: "p"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.setSchedule("a1", &Schedule{At: at, Kind: scheduleKindNew, Command: "claude"}); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	t.Run("first claim wins, second finds it gone", func(t *testing.T) {
+		s := build(t)
+		if won, err := s.claimSchedule("a1", at); err != nil || !won {
+			t.Fatalf("first claim = %v, %v — want a win", won, err)
+		}
+		if td, _ := s.find("a1"); td.Schedule != nil {
+			t.Fatal("a won claim must clear the schedule on disk")
+		}
+		if won, _ := s.claimSchedule("a1", at); won {
+			t.Fatal("the second claim won a schedule that was already taken")
+		}
+	})
+
+	t.Run("a changed At is someone else's schedule", func(t *testing.T) {
+		s := build(t)
+		if won, _ := s.claimSchedule("a1", at.Add(time.Minute)); won {
+			t.Fatal("claimed against an At this caller never read")
+		}
+		if td, _ := s.find("a1"); td.Schedule == nil {
+			t.Fatal("the losing claim must leave the schedule in place")
+		}
+	})
+
+	t.Run("cleared from another pane", func(t *testing.T) {
+		s := build(t)
+		other := &store{scope: scopeProject, path: s.path}
+		if err := other.load(); err != nil {
+			t.Fatal(err)
+		}
+		if err := other.setSchedule("a1", nil); err != nil {
+			t.Fatal(err)
+		}
+		// s's in-memory copy still shows the schedule; the claim must reload
+		// and stand down.
+		if won, _ := s.claimSchedule("a1", at); won {
+			t.Fatal("claimed a schedule another pane had already cleared")
+		}
+	})
+
+	t.Run("deleted todo", func(t *testing.T) {
+		s := build(t)
+		if err := s.delete("a1"); err != nil {
+			t.Fatal(err)
+		}
+		if won, err := s.claimSchedule("a1", at); won || err != nil {
+			t.Fatalf("claim on a deleted todo = %v, %v — want a quiet stand-down", won, err)
+		}
+	})
+}
+
+// TestDoneClearsSchedule pins the "schedule implies open" invariant on both
+// write paths that can complete a todo.
+func TestDoneClearsSchedule(t *testing.T) {
+	at := time.Date(2026, 8, 3, 15, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name string
+		done func(*store) error
+	}{
+		{"toggle", func(s *store) error { return s.toggle("a1") }},
+		{"setDone", func(s *store) error { return s.setDone("a1", true) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := tempStore(t)
+			if err := s.add(Todo{ID: "a1", Prompt: "p"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.setSchedule("a1", &Schedule{At: at, Kind: scheduleKindNew}); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.done(s); err != nil {
+				t.Fatal(err)
+			}
+			td, _ := s.find("a1")
+			if !td.Done {
+				t.Fatal("the todo should be done")
+			}
+			if td.Schedule != nil {
+				t.Fatal("completing a todo must clear its schedule")
+			}
+		})
+	}
+
+	t.Run("reopening does not resurrect it", func(t *testing.T) {
+		s := tempStore(t)
+		if err := s.add(Todo{ID: "a1", Prompt: "p"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.setSchedule("a1", &Schedule{At: at, Kind: scheduleKindNew}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.toggle("a1"); err != nil { // done — clears the schedule
+			t.Fatal(err)
+		}
+		if err := s.toggle("a1"); err != nil { // reopened
+			t.Fatal(err)
+		}
+		if td, _ := s.find("a1"); td.Schedule != nil {
+			t.Fatal("a reopened todo must come back unscheduled")
+		}
+	})
+}

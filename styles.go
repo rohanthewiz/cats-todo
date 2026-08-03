@@ -107,20 +107,27 @@ var (
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
 	countStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
 
-	// The query line's chrome: side rails only, so the field reads as a box you
-	// type into without costing the layout the two lines a full border would —
-	// every row below it is hit-tested against a constant (see actionBarRow), and
-	// a taller header would silently move the rows out from under the mouse.
+	// The drop picker's query-line chrome: side rails only, so the field reads
+	// as a box you type into without costing the layout the two lines a full
+	// border would — the picker's target rows are hit-tested against a
+	// constant (see targetRowsRow), and a taller header would silently move
+	// them out from under the mouse.
 	//
-	// The rails light when the box holds the keys and go quiet when a button
-	// does. A lit chip already says where the focus went; without this the query
-	// box never said where it came back to, and the box is what the focus
-	// returns to by default.
+	// The rails light when the box holds the keys and go quiet when it is
+	// blurred; the picker never blurs its box, so its rails are always lit.
+	// The manager's list no longer draws this box at all — its query input
+	// rides inline on the header line, where the 🔍 glyph carries the same
+	// focus signal (searchGlyphOffStyle below, promptStyle when lit).
 	searchFieldStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder(), false, true).
 				BorderForeground(lipgloss.Color(colChrome)).
 				Padding(0, 1)
 	searchFieldOnStyle = searchFieldStyle.BorderForeground(lipgloss.Color(colAccent))
+
+	// The header's inline query glyph while a button holds the keys. Its lit
+	// counterpart is promptStyle — the same accent the boxed field's rails
+	// used — so "where does typing land" reads the same in both lists.
+	searchGlyphOffStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint))
 
 	nameStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colFg))
 	nameSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Bold(true)
@@ -148,6 +155,11 @@ var (
 	checkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
 	errStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
 	okStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
+	// A scheduled todo's ◷ badge. Amber on purpose: a pending auto-drop is
+	// the one row that will act without being asked, and warm-against-green
+	// is this palette's "look here" (matchStyle does the same trick). The
+	// missed state swaps to errStyle — a promise broken outranks one pending.
+	schedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colWarn))
 
 	// Action-bar buttons. Each chip is rendered by exactly one of these styles —
 	// label and key hint together — because nesting a second style inside a

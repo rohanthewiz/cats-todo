@@ -22,12 +22,13 @@ import (
 type uiStage int
 
 const (
-	stageList    uiStage = iota // the project+global todo list
-	stageForm                   // add / edit a prompt
-	stageConfirm                // confirm a delete / clear-completed
-	stageTarget                 // pick where to drop the chosen prompt
-	stageView                   // read-only view of a prompt's full body
-	stageImages                 // attach / detach the form's images
+	stageList     uiStage = iota // the project+global todo list
+	stageForm                    // add / edit a prompt
+	stageConfirm                 // confirm a delete / clear-completed
+	stageTarget                  // pick where to drop the chosen prompt
+	stageView                    // read-only view of a prompt's full body
+	stageImages                  // attach / detach the form's images
+	stageSchedule                // set (or clear) a prompt's auto-drop time
 )
 
 // confirmKind distinguishes what the confirm stage is about to do.
@@ -124,6 +125,25 @@ type dropResultMsg struct {
 	desc string  // human description of the destination, for the status line
 	ref  todoRef // the dropped todo, so a successful drop can auto-mark it done
 	err  error
+	// sched is set when this drop was a schedule firing rather than a
+	// keystroke. The claim already cleared the schedule from disk, so on
+	// failure this copy is what gets written back — as Missed, keeping the
+	// failure on the row instead of vanishing with the status line.
+	sched *Schedule
+}
+
+// scheduleTickMsg is the schedule loop's heartbeat (see scheduleTick).
+type scheduleTickMsg time.Time
+
+// scheduleTick arms the next schedule check, one second out. The tick runs
+// unconditionally for the life of the program: no arm/disarm state machine
+// means no stale-generation or double-loop bugs, each tick compares wall
+// clock against fire times so drift can't accumulate, and a once-a-second
+// no-op message costs nothing worth engineering away.
+func scheduleTick() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return scheduleTickMsg(t)
+	})
 }
 
 // model is the Bubble Tea state for the whole manager: a small stage machine
@@ -196,6 +216,17 @@ type model struct {
 	dropTodo   todoRef
 	targets    []dropTarget
 	targetList fuzzyList
+	// pickForSchedule flips the picker's meaning: enter stores the choice on
+	// the todo (commitSchedule) instead of firing a drop. Set only by the
+	// schedule stage handing over to the picker; reset by backToList so an
+	// esc out of the picker can never leave the next manual drop scheduling.
+	pickForSchedule bool
+
+	// Schedule stage.
+	schedRef   todoRef
+	schedInput textinput.Model
+	schedErr   string
+	schedAt    time.Time // the parsed fire time, carried into the picker
 
 	// View stage.
 	viewRef todoRef
@@ -237,10 +268,11 @@ func newModel(ctx RunContext, project, global *store, client *catsClient) model 
 	return m
 }
 
-// Init starts the cursor blinking. The pane title and alt screen are properties
-// of the view in bubbletea v2 (see View), not one-shot startup commands.
+// Init starts the cursor blinking and the schedule loop ticking. The pane
+// title and alt screen are properties of the view in bubbletea v2 (see View),
+// not one-shot startup commands.
 func (m model) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, scheduleTick())
 }
 
 // Update routes by stage; non-key messages flow to whatever input is active so
@@ -251,9 +283,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.applySizes()
 		return m, nil
+	case scheduleTickMsg:
+		// Handled above the stage switch, so schedules fire whatever screen is
+		// up; the status lands when the user is next on the list. The next
+		// tick is armed in the same breath — the loop must survive every path
+		// out of fireDueSchedules.
+		return m, tea.Batch(m.fireDueSchedules(time.Time(msg)), scheduleTick())
 	case dropResultMsg:
 		m.dropping = false
 		if msg.err != nil {
+			if msg.sched != nil {
+				// The claim took the schedule off disk before the fire; put
+				// this copy back as Missed so the failure lives on the row,
+				// not just in a status line the next keystroke replaces.
+				sc := *msg.sched
+				sc.Missed = true
+				_ = m.storeFor(msg.ref.scope).setSchedule(msg.ref.id, &sc)
+				m.rebuildList()
+				m.setStatus("scheduled drop failed: "+msg.err.Error(), true)
+				return m, nil
+			}
 			m.setStatus("drop failed: "+msg.err.Error(), true)
 			return m, nil
 		}
@@ -293,6 +342,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateView(msg)
 		case stageImages:
 			return m.updateImages(msg)
+		case stageSchedule:
+			return m.updateSchedule(msg)
 		}
 	}
 	return m.forward(msg)
@@ -310,6 +361,8 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.forwardForm(msg)
 	case stageImages:
 		m.imgInput, cmd = m.imgInput.Update(msg)
+	case stageSchedule:
+		m.schedInput, cmd = m.schedInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -398,6 +451,8 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.setStatus("showing completed prompts", false)
 		}
 		return m, nil
+	case "ctrl+s":
+		return m.beginSchedule()
 	case "ctrl+w":
 		return m.beginClearDone()
 	case "ctrl+up":
@@ -430,7 +485,13 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	switch m.stage {
 	case stageList:
-		if msg.Y == actionBarRow {
+		switch msg.Y {
+		case headerRow:
+			// The query box lives on the header line now; a click anywhere on
+			// it hands the keys back to the box — the one thing a click up
+			// there could mean, and idempotent when they're already home.
+			return m, m.setActionFocus(false)
+		case actionBarRow:
 			return m.clickActionBar(msg)
 		}
 		return m.clickRow(msg)
@@ -619,6 +680,10 @@ func (m *model) moveActionFocus(delta int) tea.Cmd {
 // its own, and the box still shows a steady cursor.
 func (m *model) backToList() {
 	m.stage = stageList
+	// Every path back through here clears the picker's schedule flavor: the
+	// flag may only live for one list → schedule → picker traversal, or an
+	// esc out of the picker would leave the next manual drop scheduling.
+	m.pickForSchedule = false
 	_ = m.setActionFocus(false)
 }
 
@@ -720,8 +785,13 @@ func (m *model) rebuildList() {
 			// do to text that is already rendered. The open marker names its own
 			// dimming rather than inheriting any.
 			badge, badgeStyle := "○", descStyle
-			if t.Done {
+			switch {
+			case t.Done:
 				badge, badgeStyle = "✓", checkStyle
+			case t.Schedule != nil && t.Schedule.Missed:
+				badge, badgeStyle = "◷", errStyle
+			case t.Schedule != nil:
+				badge, badgeStyle = "◷", schedStyle
 			}
 			name := t.Title
 			if name == "" {
@@ -734,6 +804,16 @@ func (m *model) rebuildList() {
 			desc := firstLine(t.Prompt, 70)
 			if n := len(t.Images); n > 0 {
 				desc = fmt.Sprintf("📎%d  %s", n, desc)
+			}
+			// The fire time leads even the attachments: of everything on the
+			// row it is the one fact that changes on its own — and "missed"
+			// is the row asking for a hand.
+			if sc := t.Schedule; sc != nil && !t.Done {
+				when := formatScheduleTime(sc.At, time.Now())
+				if sc.Missed {
+					when = "missed " + when
+				}
+				desc = fmt.Sprintf("⏰ %s  %s", when, desc)
 			}
 			items = append(items, listItem{
 				name: name,
@@ -779,6 +859,13 @@ func (m *model) rebuildList() {
 	// (setItems re-filters and clamps), so an add/edit/toggle doesn't disturb
 	// what the user has typed or where they were.
 	m.list.setItems(items)
+	// The header budget moves with the list — the count's reserved digits and
+	// the done-hidden tag both feed it — so the query input is re-sized here,
+	// not only on resize. Before the first WindowSizeMsg there is no budget to
+	// apply and the construction-time width stands.
+	if m.width > 0 {
+		m.sizeSearchInput()
+	}
 }
 
 // hiddenDoneCount is how many completed todos the hideDone fold is holding back,
@@ -1559,6 +1646,11 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	target := m.targets[idx]
+	// A schedule-flavored picker stores the choice instead of firing it; the
+	// mode the chord implied is moot — a scheduled fire always runs.
+	if m.pickForSchedule {
+		return m.commitSchedule(target)
+	}
 	// Perform the drop without quitting: the pane persists, so we return to the
 	// list and run the (potentially slow) drop off the UI thread, reporting back
 	// via dropResultMsg. A drop into a new session focuses the freshly-created
@@ -1599,6 +1691,230 @@ func targetDesc(t dropTarget) string {
 		return "new Claude Code session"
 	}
 	return firstNonEmpty(t.agent, "session")
+}
+
+// --- Schedule stage -------------------------------------------------------------
+
+// beginSchedule opens the schedule editor for the highlighted todo: one input
+// for the fire time, then the ordinary target picker in schedule flavor. Same
+// guards as startDrop — scheduling is a promise to drop, and a promise this
+// process knows it cannot keep (no socket) should refuse now, on the list,
+// not at fire time when nobody is watching.
+func (m model) beginSchedule() (tea.Model, tea.Cmd) {
+	ref, ok := m.selectedRef()
+	if !ok {
+		return m, nil
+	}
+	if m.client == nil {
+		m.setStatus("cats control socket unavailable — can't schedule a drop", true)
+		return m, nil
+	}
+	td, ok := m.resolve(ref)
+	if !ok {
+		m.setStatus("could not find that prompt", true)
+		return m, nil
+	}
+	if td.Done {
+		m.setStatus("that prompt is done — reopen it (ctrl+t) to schedule it", false)
+		return m, nil
+	}
+
+	ti := textinput.New()
+	ti.Prompt = ""
+	// No placeholder: the example line under the input names the forms and
+	// stays put while the user types — a placeholder would say the same thing
+	// twice and then vanish the moment it was needed.
+	ti.SetWidth(searchFieldWidth)
+	// An existing schedule prefills in the editor's own datetime format, so
+	// enter round-trips it and typing replaces it.
+	if td.Schedule != nil {
+		ti.SetValue(td.Schedule.At.Format(scheduleTimeStamp))
+	}
+	ti.Focus()
+
+	m.schedRef = ref
+	m.schedInput = ti
+	m.schedErr = ""
+	m.stage = stageSchedule
+	return m, textinput.Blink
+}
+
+func (m model) updateSchedule(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	case "esc":
+		m.backToList()
+		return m, nil
+	case "enter":
+		td, ok := m.resolve(m.schedRef)
+		if !ok {
+			m.setStatus("could not find that prompt", true)
+			m.backToList()
+			return m, nil
+		}
+		// Enter on an emptied input is the clear gesture — the schedule editor
+		// is also where an existing schedule is looked at, and "delete the
+		// text, press enter" is what removing it should cost.
+		if strings.TrimSpace(m.schedInput.Value()) == "" {
+			if td.Schedule == nil {
+				m.schedErr = "type a time — or esc to leave"
+				return m, nil
+			}
+			if err := m.storeFor(m.schedRef.scope).setSchedule(m.schedRef.id, nil); err != nil {
+				m.schedErr = "save failed: " + err.Error()
+				return m, nil
+			}
+			m.rebuildList()
+			m.backToList()
+			m.setStatus("schedule cleared", false)
+			return m, nil
+		}
+		at, err := parseScheduleTime(m.schedInput.Value(), time.Now())
+		if err != nil {
+			m.schedErr = err.Error()
+			return m, nil
+		}
+		// Time first, then target: the picker is the flow's one exit for both
+		// manual and scheduled drops (chooseTarget), so the time has to be in
+		// hand before it opens.
+		m.schedAt = at
+		m.dropTodo = m.schedRef
+		m.pickForSchedule = true
+		m.targets, m.targetList = m.buildTargets()
+		m.stage = stageTarget
+		return m, textinput.Blink
+	}
+	var cmd tea.Cmd
+	m.schedInput, cmd = m.schedInput.Update(msg)
+	if m.schedErr != "" {
+		m.schedErr = "" // the error described the last attempt, not this text
+	}
+	return m, cmd
+}
+
+// commitSchedule stores the picker's choice on the todo and returns to the
+// list. Nothing fires here — the tick loop owns firing — so a scheduled todo
+// survives quit/relaunch as data, not as a pending goroutine.
+func (m model) commitSchedule(target dropTarget) (tea.Model, tea.Cmd) {
+	sc := scheduleFromTarget(target, m.schedAt, m.ctx.projectDir())
+	if err := m.storeFor(m.schedRef.scope).setSchedule(m.schedRef.id, &sc); err != nil {
+		m.setStatus("save failed: "+err.Error(), true)
+		m.backToList()
+		return m, nil
+	}
+	m.rebuildList()
+	m.backToList()
+	m.setStatus("scheduled for "+formatScheduleTime(sc.At, time.Now())+" → "+targetDesc(target), false)
+	return m, nil
+}
+
+func (m model) viewSchedule() string {
+	td, _ := m.resolve(m.schedRef)
+	title := firstNonEmpty(td.Title, firstLine(td.Prompt, 50))
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Schedule drop"))
+	b.WriteString("  ")
+	b.WriteString(descStyle.Render(truncate(title, 60)))
+	b.WriteString("\n\n")
+	b.WriteString(promptStyle.Render("When"))
+	b.WriteString("\n")
+	b.WriteString(m.schedInput.View())
+	b.WriteString("\n")
+	if m.schedErr != "" {
+		b.WriteString(errStyle.Render("• " + m.schedErr))
+	} else {
+		b.WriteString(descStyle.Render("15:30 · in 2h · tomorrow 9:00 · fires as \"drop & run\""))
+	}
+	b.WriteString("\n\n")
+	foot := "enter next: pick target · esc back"
+	if td.Schedule != nil {
+		foot = "enter next: pick target · empty + enter clears · esc back"
+	}
+	b.WriteString(footerStyle.Render(foot))
+	return b.String()
+}
+
+// --- Schedule firing ------------------------------------------------------------
+
+// fireDueSchedules is the tick's work: walk both backlogs for a schedule
+// whose moment has come, and fire it — or, when it can no longer be honored,
+// mark it Missed where the row will show it. At most one fire per tick: the
+// in-flight drop owns m.dropping, and a second due schedule simply waits for
+// a later second, still inside its grace window.
+func (m *model) fireDueSchedules(now time.Time) tea.Cmd {
+	for _, s := range []*store{m.project, m.global} {
+		for _, t := range s.todos {
+			sc := t.Schedule
+			if sc == nil || sc.Missed || t.Done || now.Before(sc.At) {
+				continue
+			}
+			ref := todoRef{scope: s.scope, id: t.ID}
+
+			// Too stale to fire, or nothing to fire through: record it on the
+			// row. Late beyond the grace means the manager wasn't here at the
+			// time — firing into a pane hours after the moment the user chose
+			// is a surprise, not a delivery.
+			if now.Sub(sc.At) > scheduleGrace || m.client == nil {
+				missed := *sc
+				missed.Missed = true
+				_ = s.setSchedule(t.ID, &missed)
+				m.rebuildList()
+				m.setStatus("missed schedule ("+formatScheduleTime(sc.At, now)+") — "+firstNonEmpty(t.Title, "prompt")+" needs a manual send", true)
+				continue
+			}
+
+			// A drop is already typing into a pane; interleaving a second
+			// would garble both. The schedule stays put and the next tick
+			// retries, still within grace.
+			if m.dropping {
+				return nil
+			}
+
+			// Claim before fire: the schedule comes off disk first, so a
+			// second manager pane scanning the same backlog finds it gone and
+			// stands down (see claimSchedule). Losing the claim is the same
+			// news — someone else is firing it.
+			won, err := s.claimSchedule(t.ID, sc.At)
+			if err != nil {
+				m.setStatus("schedule claim failed: "+err.Error(), true)
+				return nil
+			}
+			if !won {
+				m.rebuildList()
+				return nil
+			}
+			td, ok := m.resolve(ref)
+			if !ok {
+				return nil
+			}
+			m.dropping = true
+			m.rebuildList()
+			m.setStatus("firing scheduled drop → "+targetDesc(targetFromSchedule(*sc))+"…", false)
+			return m.performScheduledDropCmd(ref, *sc, td)
+		}
+	}
+	return nil
+}
+
+// performScheduledDropCmd mirrors performDropCmd for a schedule firing: the
+// pendingAction is assembled the way chooseTarget builds one, and the result
+// carries the schedule so a failure can be written back as Missed.
+func (m model) performScheduledDropCmd(ref todoRef, sc Schedule, td Todo) tea.Cmd {
+	client := m.client
+	act := pendingAction{
+		todo:   td,
+		target: targetFromSchedule(sc),
+		mode:   dropRun,
+		cwd:    sc.Cwd,
+		images: m.storeFor(ref.scope).imagePaths(td),
+	}
+	desc := targetDesc(act.target)
+	return func() tea.Msg {
+		return dropResultMsg{desc: desc, ref: ref, err: performScheduledDrop(client, sc, act), sched: &sc}
+	}
 }
 
 // --- Prompt view ----------------------------------------------------------------
@@ -1771,89 +2087,273 @@ func (m model) renderStage() string {
 		return m.viewPrompt()
 	case stageImages:
 		return m.viewImages()
+	case stageSchedule:
+		return m.viewSchedule()
 	default:
 		return m.viewList()
 	}
 }
 
-// listTitle is the fixed heading of the manager's list view. Named so
-// scopeNote can budget the header's remaining width against it — the two share
-// one terminal line.
+// listTitle is the fixed heading of the manager's list view. Everything else
+// on the header line — the scope note, the query box, the match count — is
+// budgeted around it by headerLayout, since the five of them share one
+// terminal line.
 const listTitle = "📝 Cats Todo"
 
-// listHeader renders the title chip with the binary's version trailing the
-// name, dimmed inside the same field so it reads as a footnote to the title
-// rather than a second thing on the line. The label drops its right padding so
-// the version sits one space after it and the chip keeps one padded edge.
-func listHeader() string {
+// headerChip renders the title chip, with the binary's version trailing the
+// name when the line has room for the footnote — dimmed inside the same field
+// so it reads as an aside to the title rather than a second thing on the line.
+// The label drops its right padding so the version sits one space after it and
+// the chip keeps one padded edge.
+func headerChip(withVersion bool) string {
+	if !withVersion {
+		return titleStyle.Render(listTitle)
+	}
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		titleStyle.PaddingRight(0).Render(listTitle),
 		titleVerStyle.Render(" v"+version),
 	)
 }
 
+// headerGap is the breath between the header line's segments.
+const headerGap = 2
+
+// searchGlyph fronts the inline query input on the header line. With the
+// boxed field's rails gone from this view, the glyph carries the focus
+// affordance: accent-bold when the box holds the keys, faint when a button
+// does (see headerLine).
+const searchGlyph = "🔍 "
+
+// inputCursorPad is the one cell a bubbles textinput renders past its
+// SetWidth — the column its cursor advances into. Measured against the
+// library, and held to it by TestHeaderLineFits: budgeting the input at its
+// bare SetWidth is exactly the off-by-one that used to push the match count
+// off-screen.
+const inputCursorPad = 1
+
+// The query input's sizes as the header narrows: full, squeezed (still wide
+// enough to read a typed word), and the floor below which the segment is
+// dropped from the line rather than rendered as a slot nothing fits in.
+// Type-to-filter keeps working with the segment gone — only the echo is lost.
+const (
+	searchFieldSqueezed = 12
+	searchFieldMin      = 6
+)
+
+// headerLayout is what survives on the header line at the current width. The
+// zero value means "everything": version shown, full-size search, whole note.
+type headerLayout struct {
+	withVersion bool
+	note        string // budgeted scope note (done-hidden tag included); "" = dropped
+	searchW     int    // the query input's SetWidth; 0 = segment dropped
+	count       string // "matched/total"
+	countW      int    // cells reserved for count — total's digits, so typing doesn't shift the line
+}
+
+// headerLayout budgets the header's one line: title chip, scope note, query
+// box, match count. The line must never exceed m.width — every row below it
+// is hit-tested against a constant (see actionBarRow), and a wrapped header
+// silently moves all of them out from under the mouse.
+//
+// When the pane is too narrow for everything, the segments concede in a fixed
+// order, cheapest first:
+//
+//	ws label → done-hidden tag → search shrinks → version → search floors,
+//	then drops → project name truncates (inside scopeNote) → count last
+//
+// The version goes before any of the project name does: the name is the fact
+// that decides what an edit touches, the version is a footnote.
+func (m model) headerLayout() headerLayout {
+	matched, total := m.list.counts()
+	hl := headerLayout{
+		withVersion: true,
+		searchW:     searchFieldWidth,
+		count:       fmt.Sprintf("%d/%d", matched, total),
+	}
+	hl.countW = len(fmt.Sprintf("%d/%d", total, total))
+
+	// m.width is 0 until the first WindowSizeMsg lands; with nothing to budget
+	// against, show everything rather than guess.
+	if m.width <= 0 {
+		hl.note = m.scopeNote(-1) + m.hiddenNote()
+		return hl
+	}
+
+	// Room left for the note at the current concessions. The input is counted
+	// one cell wider than its SetWidth (inputCursorPad); rune counts stand in
+	// for cell width on the note itself — it is plain prose.
+	room := func() int {
+		r := m.width - lipgloss.Width(headerChip(hl.withVersion)) - headerGap - hl.countW
+		if hl.searchW > 0 {
+			r -= headerGap + lipgloss.Width(searchGlyph) + hl.searchW + inputCursorPad
+		}
+		return r - headerGap
+	}
+
+	runew := func(s string) int { return len([]rune(s)) }
+	hidden := m.hiddenNote()
+	// The core is the note's must-keep part — project name and which backlogs
+	// are live, no ws tag. The ws label concedes on its own inside scopeNote
+	// (it only ever gets the room the core leaves over), so the ladder here
+	// starts one rung up.
+	core := runew(m.scopeNote(1 << 20))
+	if i := strings.Index(m.scopeNote(1<<20), " · ws:"); i >= 0 {
+		core = runew(m.scopeNote(1 << 20)[:i])
+	}
+
+	// Each rung runs only while the line still overflows with the core intact.
+	if core+runew(hidden) > room() {
+		hidden = ""
+	}
+	if over := core + runew(hidden) - room(); over > 0 && hl.searchW > searchFieldSqueezed {
+		hl.searchW -= min(over, hl.searchW-searchFieldSqueezed)
+	}
+	if core+runew(hidden) > room() {
+		hl.withVersion = false
+	}
+	if core+runew(hidden) > room() && hl.searchW > searchFieldMin {
+		hl.searchW = searchFieldMin
+	}
+	if core+runew(hidden) > room() && hl.searchW > 0 {
+		hl.searchW = 0
+	}
+
+	// Whatever room the ladder ended at, the note fits itself into: the ws
+	// label truncates and drops first, the project name only at the very end.
+	if r := room() - runew(hidden); r > 0 {
+		hl.note = m.scopeNote(r) + hidden
+	}
+	return hl
+}
+
+// searchWidth is the SetWidth for the header's inline query input — read off
+// the same layout the header renders from, so the drawn line and the input's
+// own idea of its width cannot disagree.
+func (m model) searchWidth() int {
+	return m.headerLayout().searchW
+}
+
+// sizeSearchInput pushes the header budget into the query input. Called from
+// applySizes (the width changed) and rebuildList (the count's digits and the
+// done-hidden tag changed — both feed the budget).
+func (m *model) sizeSearchInput() {
+	if sw := m.searchWidth(); sw > 0 {
+		m.list.input.SetWidth(sw)
+	}
+}
+
 // scopeNote names both scopes in the header: which project backlog is on
 // screen and which workspace the pane lives in — "cats + global · ws:pers".
 // The project basename leads because it is the fact that decides what an edit
 // touches; the workspace label used to stand in for it entirely, which masked
-// launches that had landed in the wrong directory. When the header line would
-// overflow the pane, the workspace label is the part that gives way —
-// truncated to the room left, dropped when even that is too little — never
-// the project name.
-func (m model) scopeNote() string {
+// launches that had landed in the wrong directory.
+//
+// room is the columns the note may occupy (room < 0: unbudgeted, before the
+// first resize). Inside that budget the workspace label gives way first —
+// truncated to the room left, dropped when even that is too little — and the
+// project name itself is cut only as the last resort, keeping its suffix:
+// "…which backlogs am I editing" outranks the tail of a directory name the
+// user already knows. The old header never cut the name at all, which let a
+// long directory overflow the line and push every click target down a row.
+func (m model) scopeNote(room int) string {
+	// A --project launch with no project has no store at all; "global only" is
+	// the ordinary no-project header. Naming a backlog that is not on screen
+	// is exactly the confusion the only-modes exist to remove.
+	if !m.project.available() {
+		note := "global only"
+		if !m.global.available() {
+			note = "no backlog here"
+		}
+		if room >= 0 {
+			note = truncate(note, room)
+		}
+		return note
+	}
+
 	project := firstNonEmpty(baseName(m.ctx.projectDir()), "project")
-	note := project + " + global"
 	// A project-only launch (--project) has no global store; saying "+ global"
 	// would be the exact confusion the mode exists to remove.
+	suffix := " + global"
 	if !m.global.available() {
-		note = project + " only"
+		suffix = " only"
 	}
 	ws := m.ctx.WorkspaceLabel
 	// A workspace named after the project adds nothing over the project name;
 	// skip the suffix rather than print "cats + global · ws:cats".
 	if ws == "" || ws == project {
-		return note
+		ws = ""
 	}
 	const sep = " · ws:"
-	// m.width is 0 until the first WindowSizeMsg lands; with no width to budget
-	// against, show the full label rather than guess.
-	if m.width > 0 {
-		// Room on the header line after the rendered title (lipgloss.Width so
-		// the style's padding counts), the two-space gap, the note, and the
-		// suffix separator. Rune count stands in for cell width on the
-		// user-authored strings; workspace labels are short and plain enough
-		// that the difference doesn't matter here.
-		room := m.width - lipgloss.Width(listHeader()) - 2 -
-			len([]rune(note)) - len([]rune(sep))
-		if room < 2 {
-			return note // no room for even one rune plus the ellipsis
+
+	if room < 0 {
+		if ws != "" {
+			return project + suffix + sep + ws
 		}
-		ws = truncate(ws, room)
+		return project + suffix
 	}
-	return note + sep + ws
+
+	coreW := len([]rune(project + suffix))
+	if ws != "" {
+		if wsRoom := room - coreW - len([]rune(sep)); wsRoom >= 2 {
+			return project + suffix + sep + truncate(ws, wsRoom)
+		}
+		// No room for even one rune plus the ellipsis — the label goes.
+	}
+	if coreW <= room {
+		return project + suffix
+	}
+	if pw := room - len([]rune(suffix)); pw >= 2 {
+		return truncate(project, pw) + suffix
+	}
+	return truncate(project, max(room, 0))
+}
+
+// hiddenNote is the header's " · N done hidden" tag while the done fold is on.
+func (m model) hiddenNote() string {
+	if !m.hideDone {
+		return ""
+	}
+	if n := m.hiddenDoneCount(); n > 0 {
+		return fmt.Sprintf(" · %d done hidden", n)
+	}
+	return ""
+}
+
+// headerLine renders the list view's single top line from the current budget:
+// chip, scope note, inline query box, match count. The glyph in front of the
+// input is the focus affordance the boxed field's rails used to be: lit when
+// the box holds the keys, faint when a button does. The input's own focus is
+// the truth here, same as the picker's rails — setActionFocus moves both.
+func (m model) headerLine() string {
+	hl := m.headerLayout()
+	var b strings.Builder
+	b.WriteString(headerChip(hl.withVersion))
+	if hl.note != "" {
+		b.WriteString("  ")
+		b.WriteString(descStyle.Render(hl.note))
+	}
+	if hl.searchW > 0 {
+		b.WriteString("  ")
+		glyph := searchGlyphOffStyle
+		if m.list.input.Focused() {
+			glyph = promptStyle
+		}
+		b.WriteString(glyph.Render(searchGlyph))
+		b.WriteString(m.list.input.View())
+	}
+	b.WriteString("  ")
+	// Right-aligned in its reserved cells, so "9/10" collapsing to "3/10" as
+	// the user types doesn't make the line's tail wobble.
+	b.WriteString(countStyle.Render(fmt.Sprintf("%*s", hl.countW, hl.count)))
+	return b.String()
 }
 
 func (m model) viewList() string {
 	var b strings.Builder
-	b.WriteString(listHeader())
-	// "global only" is the ordinary no-project header — but a --project launch
-	// with no project has no global store either, and naming a backlog that is
-	// not on screen is exactly the confusion the only-modes exist to remove.
-	scopeNote := "global only"
-	switch {
-	case m.project.available():
-		scopeNote = m.scopeNote()
-	case !m.global.available():
-		scopeNote = "no backlog here"
-	}
-	b.WriteString("  ")
-	b.WriteString(descStyle.Render(scopeNote))
-	if m.hideDone {
-		if hidden := m.hiddenDoneCount(); hidden > 0 {
-			b.WriteString(descStyle.Render(fmt.Sprintf(" · %d done hidden", hidden)))
-		}
-	}
+	b.WriteString(m.headerLine())
 	b.WriteString("\n\n")
+	b.WriteString(m.actionBar())
+	b.WriteString("\n")
 
 	// The empty list is where "there is nowhere to write" has to be said: with
 	// no backlog available, enter is not the answer and pointing at it would
@@ -1862,25 +2362,49 @@ func (m model) viewList() string {
 	if !m.project.available() && !m.global.available() {
 		empty = "No backlog here — this pane is not in a project. Relaunch from a project directory, or with --global."
 	}
-	b.WriteString(m.list.view(empty, m.actionBar(), m.width))
+	b.WriteString(m.list.rowsView(empty, m.width))
 
+	// The status row is always there — empty when quiet — so the footer sits
+	// still instead of jumping two lines every time a message lands or clears.
+	b.WriteString("\n")
 	if m.status != "" {
-		b.WriteString("\n")
 		st := okStyle
 		if m.statusErr {
 			st = errStyle
 		}
 		b.WriteString(st.Render("• " + m.status))
-		b.WriteString("\n")
 	}
-
-	b.WriteString("\n")
-	// The pointer's gesture rides along with the chord it stands for — a
-	// double-click is a guess worth confirming, not one worth making blind.
-	b.WriteString(footerStyle.Render("enter / dbl-click edit · " + m.modEnter() + " drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+x delete"))
-	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("tab buttons · ctrl+↑/↓ move · ctrl+d hide/show done · ctrl+w clear done · esc quit"))
+	b.WriteString("\n\n")
+	b.WriteString(m.listFooter())
 	return b.String()
+}
+
+// listFooter is the help line under the list. While the action bar is wide
+// enough to teach its own chords (barShowsHints), the footer only names the
+// rest — repeating "ctrl+a add" one line under a chip that says exactly that
+// taught nothing and cost a line of attention. In a pane too narrow for chip
+// hints the footer is the only teacher left, so it names everything, on the
+// same two lines it always used.
+func (m model) listFooter() string {
+	if !m.barShowsHints() {
+		// The pointer's gesture rides along with the chord it stands for — a
+		// double-click is a guess worth confirming, not one worth making blind.
+		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+x delete") +
+			"\n" +
+			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ move · ctrl+d hide/show done · ctrl+w clear done · esc quit")
+	}
+	segs := []string{
+		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+↑/↓ move",
+		"ctrl+d hide done", "ctrl+w clear done", "esc quit",
+	}
+	line := strings.Join(segs, " · ")
+	// Concede from the right rather than wrap: the footer sits below the mouse
+	// map, so a wrapped line only costs looks — but it costs them every frame.
+	for m.width > 0 && len([]rune(line)) > m.width && len(segs) > 1 {
+		segs = segs[:len(segs)-1]
+		line = strings.Join(segs, " · ")
+	}
+	return footerStyle.Render(line)
 }
 
 // actionBar renders the row of buttons under the filter. A button whose action
@@ -1931,15 +2455,7 @@ type actionChip struct {
 // time and btnStyle can measure for all of them.
 func (m model) actionChips() []actionChip {
 	acts := m.listActions()
-
-	withHints := true
-	if m.width > 0 {
-		w := indentWidth
-		for _, a := range acts {
-			w += lipgloss.Width(btnStyle.Render(a.label+" "+a.hint)) + 1
-		}
-		withHints = w <= m.width
-	}
+	withHints := m.barShowsHints()
 
 	chips := make([]actionChip, 0, len(acts))
 	x := indentWidth
@@ -1958,21 +2474,42 @@ func (m model) actionChips() []actionChip {
 	return chips
 }
 
+// barShowsHints reports whether the action bar is wide enough for every chip
+// to carry its key hint. The footer keys off the same answer — chords the
+// chips teach stay off it, and the moment the bar goes quiet the footer names
+// everything again — so the two can't both drop a chord at once.
+func (m model) barShowsHints() bool {
+	if m.width <= 0 {
+		return true
+	}
+	w := indentWidth
+	for _, a := range m.listActions() {
+		w += lipgloss.Width(btnStyle.Render(a.label+" "+a.hint)) + 1
+	}
+	return w <= m.width
+}
+
 // indentWidth is the left margin the list's rows sit at (the two columns
 // cursorGlyph occupies), so the action bar lines up with them.
 const indentWidth = 2
 
-// actionBarRow is the row the bar is drawn on, counting from the top of the
-// list view: the header (0), a blank (1), the filter line (2), a blank (3), the
-// bar (4). Each of those is exactly one line — the title chip's padding is
-// horizontal only — so a click's Y can be compared against a constant instead
-// of the view being re-measured. TestActionBarRow finds the bar in the rendered
-// frame and fails if the layout above it ever grows a line.
-const actionBarRow = 4
+// headerRow is the line the title chip, scope note and query box share — the
+// top of the list view. A click here hands the keys back to the query box.
+const headerRow = 0
 
-// listRowsRow is the first line the todo rows are drawn on: the bar (4), a blank
-// (5), then the rows. TestListRowsMatchWhatIsDrawn holds it to the frame.
-const listRowsRow = actionBarRow + 2
+// actionBarRow is the row the bar is drawn on, counting from the top of the
+// list view: the header (0), a blank (1), the bar (2). Each of those is
+// exactly one line — headerLayout budgets the header so it cannot wrap — so a
+// click's Y can be compared against a constant instead of the view being
+// re-measured. TestActionBarRow finds the bar in the rendered frame and fails
+// if the layout above it ever grows a line.
+const actionBarRow = 2
+
+// listRowsRow is the first line the todo rows are drawn on, directly under the
+// bar. A grouped list opens with its own blank-and-heading, so the first
+// backlog row keeps its breathing room either way.
+// TestListRowsMatchWhatIsDrawn holds it to the frame.
+const listRowsRow = actionBarRow + 1
 
 // targetRowsRow is the first line the drop picker's target rows are drawn on,
 // counting from the top of that view: the heading (0), a blank (1), the filter
@@ -2136,6 +2673,14 @@ func (m model) viewPrompt() string {
 	if td.Done {
 		meta += " · " + checkStyle.Render("done")
 	}
+	if sc := td.Schedule; sc != nil && !td.Done {
+		when := "scheduled " + formatScheduleTime(sc.At, time.Now())
+		if sc.Missed {
+			meta += " · " + errStyle.Render("missed "+formatScheduleTime(sc.At, time.Now()))
+		} else {
+			meta += " · " + schedStyle.Render(when)
+		}
+	}
 	b.WriteString(descStyle.Render(meta))
 	b.WriteString("\n\n")
 
@@ -2149,13 +2694,21 @@ func (m model) viewTarget() string {
 	var b strings.Builder
 	td, _ := m.resolve(m.dropTodo)
 	title := firstNonEmpty(td.Title, firstLine(td.Prompt, 50))
-	b.WriteString(titleStyle.Render("Drop into…"))
+	heading, foot := "Drop into…", "enter paste (don't submit) · "+m.modEnter()+" drop & run · esc back"
+	if m.pickForSchedule {
+		// Same picker, schedule flavor: enter stores the target instead of
+		// firing, and the paste/run split disappears — a fire with nobody at
+		// the keyboard always runs.
+		heading = "Schedule drop into… (" + formatScheduleTime(m.schedAt, time.Now()) + ")"
+		foot = "enter schedule · esc back"
+	}
+	b.WriteString(titleStyle.Render(heading))
 	b.WriteString("  ")
 	b.WriteString(descStyle.Render(truncate(title, 60)))
 	b.WriteString("\n\n")
 	b.WriteString(m.targetList.view("no agent sessions detected — pick New Claude Code session", "", m.width))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render("enter paste (don't submit) · " + m.modEnter() + " drop & run · esc back"))
+	b.WriteString(footerStyle.Render(foot))
 	return b.String()
 }
 
@@ -2165,11 +2718,13 @@ func (m model) viewTarget() string {
 // stage is entered (built in beginAdd/beginEdit/beginDrop), and calling a method
 // like textarea.SetWidth on a zero-value model dereferences nil internal state.
 func (m *model) applySizes() {
+	// The query input is budgeted by headerLayout, which self-clamps to narrow
+	// panes — so it is sized before, and regardless of, the floor below.
+	m.sizeSearchInput()
 	w := m.width - 4
 	if w < 20 {
 		return
 	}
-	m.list.input.SetWidth(w)
 	switch m.stage {
 	case stageForm:
 		m.titleInput.SetWidth(w)
@@ -2181,6 +2736,8 @@ func (m *model) applySizes() {
 		m.targetList.input.SetWidth(w)
 	case stageImages:
 		m.imgInput.SetWidth(w)
+	case stageSchedule:
+		m.schedInput.SetWidth(w)
 	case stageView:
 		m.viewVP.SetWidth(m.viewWidth())
 		m.viewVP.SetHeight(m.viewHeight())
