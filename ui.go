@@ -1990,7 +1990,8 @@ func (m model) viewContent(td Todo) string {
 		b.WriteString(body)
 		fmt.Fprintf(&b, "\n\n📎 %d attached:", len(refs))
 		for _, ref := range refs {
-			b.WriteString("\n  " + ref.rel)
+			b.WriteString("\n  ")
+			b.WriteString(ref.rel)
 			// A missing file is dropped from the delivered prompt rather than
 			// sent for the agent to chase, so this view is the only place the
 			// user finds out it went.
