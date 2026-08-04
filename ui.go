@@ -762,7 +762,8 @@ func (m *model) setStatus(s string, isErr bool) {
 // first; within each scope open todos come before done ones (array order is the
 // backlog's priority order), and done todos disappear entirely when hideDone is
 // set. The "Project"/"Global" group headings only show when both groups have at
-// least one visible todo.
+// least one visible todo; global rows additionally carry a " · global" tag of
+// their own (see tagGlobal below for why the headings aren't enough).
 func (m *model) rebuildList() {
 	var items []listItem
 	var rows []todoRef
@@ -777,6 +778,15 @@ func (m *model) rebuildList() {
 		return n
 	}
 	grouped := visible(m.project) > 0 && visible(m.global) > 0
+
+	// Global rows carry their scope on the row (" · global") whenever the list
+	// can also hold project rows. The group headings alone cannot say this: they
+	// only render when both scopes have visible todos, and they are separator
+	// rows, which filtering drops — so a filtered list, or a lone global todo
+	// under a project's, showed nothing about which backlog a row edits. In a
+	// global-only launch every row is global and the header already says so;
+	// tagging them all would be noise.
+	tagGlobal := m.project.available()
 
 	add := func(s *store) {
 		appendTodo := func(t Todo) {
@@ -816,6 +826,10 @@ func (m *model) rebuildList() {
 				}
 				desc = fmt.Sprintf("⏰ %s  %s", when, desc)
 			}
+			tag := ""
+			if tagGlobal && s.scope == scopeGlobal {
+				tag = "global"
+			}
 			items = append(items, listItem{
 				name: name,
 				desc: desc,
@@ -825,6 +839,7 @@ func (m *model) rebuildList() {
 				search:     strings.Join(strings.Fields(t.Title+" "+t.Prompt), " "),
 				badge:      badge,
 				badgeStyle: badgeStyle,
+				tag:        tag,
 				strike:     t.Done,
 				selectable: true,
 				ref:        len(rows),

@@ -31,12 +31,19 @@ import (
 // highlighted row puts a field behind every one of its segments, and text that
 // is already styled cannot be given a background without nesting a second style
 // inside the first — which is how the outer reset ends up clobbering the inner.
+//
+// tag, when set, is a quiet marker drawn right after the name (" · tag"), in
+// the list's faintest tier. It exists because group headings are not always
+// there to say what a row is: a heading is a separator row, and separators are
+// dropped while a query filters — so a fact that must survive filtering has to
+// ride the row itself.
 type listItem struct {
 	name       string
 	desc       string
 	search     string // when set, replaces desc in the fuzzy-match haystack
 	badge      string
 	badgeStyle lipgloss.Style
+	tag        string
 	strike     bool
 	selectable bool
 	ref        int
@@ -353,6 +360,13 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 			r.WriteString(onRow(it.badgeStyle, selected).Render(it.badge + " "))
 		}
 		r.WriteString(highlightName(it.name, s.matched, selected, it.strike))
+		if it.tag != "" {
+			// The tag hugs the name (one space, with its own separator dot)
+			// where the description stands two off: it qualifies the name, and
+			// the faint tier plus the dot are what keep it from reading as the
+			// description's first word.
+			r.WriteString(onRow(tagStyle, selected).Render(" · " + it.tag))
+		}
 		if it.desc != "" {
 			r.WriteString(onRow(descStyle, selected).Render("  " + it.desc))
 		}

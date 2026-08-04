@@ -132,6 +132,10 @@ var (
 	nameStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colFg))
 	nameSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Bold(true)
 	descStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
+	// A row's scope tag (" · global"). One tier below the description on
+	// purpose: the tag is a whisper about where the row lives, and at the
+	// description's own grey it would read as the prompt's first words.
+	tagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint))
 	// matchStyle stays amber. It is the one thing on screen that must not read
 	// as part of the green ramp — a fuzzy hit inside a name has to jump out of
 	// the letters around it, and warm-against-green is what does that.
