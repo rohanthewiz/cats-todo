@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -1525,20 +1526,53 @@ func (m model) startDrop(ref todoRef) (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
-// buildTargets assembles the drop destinations: a new Claude session, a new
-// session for every other agent currently running somewhere (if it's running,
-// its command is installed), plus every agent pane cats reports (Claude panes
-// first), excluding our own. Pane agent identity and cwd come straight from
-// pane.list's runtime metadata; the workspace a pane lives in is the "w1"
-// prefix of its handle, labeled via workspace.list.
+// newSessionAgents are the agents offered as "new session" drop targets whether
+// or not one is currently running anywhere. The order here is the order in the
+// picker, and the first entry is what the picker highlights by default.
+//
+// claude is unconditional: it is the manager's home ground, and the only entry
+// guaranteed to keep the picker non-empty (an environment where the binary is
+// reachable from the cats process but not from ours would otherwise be left
+// with nothing to drop into). Every other entry is gated on being found in PATH
+// — the same rule the running-pane scan gets for free ("if it's running, its
+// command is installed") — so we never offer a tab that would exec into
+// nothing.
+var newSessionAgents = []struct {
+	command   string
+	label     string
+	needsPath bool // resolve command in PATH before offering it
+}{
+	{command: "claude", label: "＋ New Claude Code session"},
+	{command: "copilot", label: "＋ New GitHub Copilot session", needsPath: true},
+}
+
+// buildTargets assembles the drop destinations: a new session per known agent
+// (see newSessionAgents), a new session for every other agent currently running
+// somewhere (if it's running, its command is installed), plus every agent pane
+// cats reports (Claude panes first), excluding our own. Pane agent identity and
+// cwd come straight from pane.list's runtime metadata; the workspace a pane
+// lives in is the "w1" prefix of its handle, labeled via workspace.list.
 func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 	wsLabel := firstNonEmpty(m.ctx.WorkspaceLabel, baseName(m.ctx.projectDir()), "the current workspace")
-	targets := []dropTarget{{
-		kind:    targetNewSession,
-		command: "claude",
-		label:   "＋ New Claude Code session",
-		desc:    "open a new tab in " + wsLabel + " and launch claude",
-	}}
+
+	// seenAgent doubles as the dedupe set for the running-agent scan below, so a
+	// running copilot doesn't earn a second "＋ New copilot session" row.
+	var targets []dropTarget
+	seenAgent := map[string]bool{}
+	for _, a := range newSessionAgents {
+		if a.needsPath {
+			if _, err := exec.LookPath(a.command); err != nil {
+				continue
+			}
+		}
+		seenAgent[a.command] = true
+		targets = append(targets, dropTarget{
+			kind:    targetNewSession,
+			command: a.command,
+			label:   a.label,
+			desc:    "open a new tab in " + wsLabel + " and launch " + a.command,
+		})
+	}
 
 	if m.client != nil {
 		if panes, err := m.client.paneList(); err == nil {
@@ -1553,9 +1587,8 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 				return agents[i].Agent == "claude" && agents[j].Agent != "claude"
 			})
 
-			// One "new session" entry per distinct non-claude agent, launched
-			// with the agent label cats detected as the command.
-			seenAgent := map[string]bool{"claude": true}
+			// One "new session" entry per distinct agent not already offered
+			// above, launched with the agent label cats detected as the command.
 			for _, p := range agents {
 				if seenAgent[p.Agent] {
 					continue

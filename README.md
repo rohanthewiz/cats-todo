@@ -59,6 +59,11 @@ pastes the prompt staged for review and `shift+enter` submits it to run (and
 marks the todo done). Inside the editor `enter` saves and `shift+enter` inserts
 a newline. Outside cats it still manages backlogs; only drops need the socket.
 
+The picker's own list is every place the prompt could land: a new Claude Code
+session, a new **GitHub Copilot** session when `copilot` is on your `PATH`, a
+new session for any other agent cats currently has running somewhere, and then
+each of those live agent panes with its state and location.
+
 The filter rides on the header line — the 🔍 box next to the title, lit while
 it holds the keys — and typing from anywhere lands in it. Under the header sits
 a row of action buttons — **Add**, **Edit**, **Send**, **Delete** — each

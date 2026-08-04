@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -661,6 +662,56 @@ func TestBeginDropWhileDroppingIsRejected(t *testing.T) {
 	if m.status == "" || m.statusErr {
 		t.Errorf("expected an informational 'in progress' status; got status=%q err=%v", m.status, m.statusErr)
 	}
+}
+
+// TestBuildTargetsOffersCopilot pins the PATH-gated new-session targets: with no
+// control socket the picker is just the newSessionAgents table, so copilot shows
+// up exactly when a `copilot` executable is resolvable — and never ahead of
+// claude, which stays the default highlight.
+func TestBuildTargetsOffersCopilot(t *testing.T) {
+	// A PATH holding nothing but an empty temp dir: LookPath("copilot") fails
+	// even on a machine where copilot really is installed.
+	emptyDir := t.TempDir()
+
+	// …and one holding an executable of that name, which is all LookPath checks.
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "copilot"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	commands := func(targets []dropTarget) []string {
+		var out []string
+		for _, tg := range targets {
+			out = append(out, tg.command)
+		}
+		return out
+	}
+
+	t.Run("absent from PATH", func(t *testing.T) {
+		t.Setenv("PATH", emptyDir)
+		m, _, _ := newModelInTemp(t)
+		targets, _ := m.buildTargets()
+		if got := commands(targets); len(got) != 1 || got[0] != "claude" {
+			t.Errorf("targets = %v, want just claude when copilot is not installed", got)
+		}
+	})
+
+	t.Run("on PATH", func(t *testing.T) {
+		t.Setenv("PATH", binDir)
+		m, _, _ := newModelInTemp(t)
+		targets, list := m.buildTargets()
+		got := commands(targets)
+		if len(got) != 2 || got[0] != "claude" || got[1] != "copilot" {
+			t.Fatalf("targets = %v, want [claude copilot]", got)
+		}
+		if targets[1].label == "" || !strings.Contains(targets[1].desc, "launch copilot") {
+			t.Errorf("copilot target = %+v, want a label and a 'launch copilot' description", targets[1])
+		}
+		// The picker's default highlight must still be the Claude session.
+		if idx := list.selectedIndex(); idx != 0 {
+			t.Errorf("default selection = %d, want the first (claude) target", idx)
+		}
+	})
 }
 
 // TestTargetDesc covers the short destination labels used in the status line.
