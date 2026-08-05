@@ -176,12 +176,22 @@ func (c *catsClient) focusPane(pane uint32) error {
 // and is ready to receive a pasted prompt. We wait for any of them before
 // pasting so keystrokes are not dropped into a half-started app. Matching is
 // best effort — on timeout we paste anyway. These track Claude Code's
-// footer/banner strings and may need refreshing as its UI evolves.
+// footer/banner strings and may need refreshing as its UI evolves; a probe
+// that no longer draws costs every drop the full wait timeout, so when drops
+// go slow, capture a startup and re-check this list first.
+//
+// The spaces here are real matches even though the TUI draws word gaps as
+// cursor-column jumps: catway's output stripper turns each movement sequence
+// into a single separator (see cats cmd/catway/outscan.go), so "Welcome back"
+// arrives spaced. On a catway older than that fix, spaced probes silently
+// never match the stream and drops fall back to the timeout.
 var claudeReadyProbes = []string{
-	"for shortcuts",
-	"Welcome to Claude",
-	"/help for help",
-	"esc to interrupt",
+	"Claude Code v",     // banner box title, every 2.x start, version-agnostic
+	"Welcome back",      // returning-user greeting inside the banner
+	"Welcome to Claude", // first-run greeting, and pre-2.x banners
+	"for shortcuts",     // "? for shortcuts" footer (older layouts)
+	"/help for help",    // pre-2.x footer
+	"esc to interrupt",  // already mid-turn (e.g. launched with a prompt arg)
 	"Bypassing Permissions",
 }
 
