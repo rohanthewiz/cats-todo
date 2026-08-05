@@ -297,3 +297,35 @@ prompt. `internal/app` and `internal/ctlproto` are client-side copies of the
 cats wire vocabulary and control-socket client; the wire values are the
 compatibility contract, so keep them in lockstep with cats when the protocol
 grows.
+
+### Knowing when a new agent is ready
+
+A drop into a *new* session cannot paste immediately: the agent is still
+starting, and keystrokes that arrive before its input box is drawn are simply
+lost. So `waitForAgentReady` (in `client.go`) holds the prompt until the pane
+looks ready.
+
+For Claude Code it does that by watching the pane's output for any of the
+banner and footer strings in `claudeReadyProbes` — `"Claude Code v"` and
+`"Welcome back"` for the 2.x startup box, `"Welcome to Claude"`, `"for
+shortcuts"` and `"/help for help"` for older layouts, plus `"esc to interrupt"`
+and `"Bypassing Permissions"` for a session that came up already busy. They go
+to the server as one alternation regex, so a single `pane.wait_for_output`
+waiter matches whichever the running version happens to draw, with a 12s
+deadline. Any other agent has no banner we know, so it waits for the pane's
+first non-blank byte (the pane is exec'd straight into the agent, so that byte
+is the agent and not a shell prompt) and then gives it a 600ms settle.
+
+The match is best effort: on timeout the prompt is pasted anyway. That makes a
+stale probe a silent cost rather than a failure — every new-session drop pays
+the full 12s wait before pasting. Claude Code 2.1.x did exactly this by
+replacing the strings the old list probed for, which is why the list is
+version-agnostic now (`"Claude Code v"` rather than any particular version) and
+why a slow drop is worth checking here first: capture a startup, and see
+whether anything in the list still appears in it.
+
+The probes contain spaces on purpose. A TUI draws word gaps as cursor-column
+jumps rather than literal spaces, but catway's output stripper renders each
+movement sequence as a single separator, so `"Welcome back"` reaches the
+matcher spaced. Against a catway older than that fix, the spaced probes never
+match and drops quietly fall back to the timeout.
