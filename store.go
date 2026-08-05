@@ -26,6 +26,17 @@ type Todo struct {
 	Images  []string  `json:"images,omitempty"`
 	Done    bool      `json:"done"`
 	Created time.Time `json:"created"`
+	// Frozen marks a prompt the user has decided not to do — kept on the record
+	// rather than deleted, and deliberately not the same flag as Done: done
+	// claims the work happened, and a backlog that says so about work nobody
+	// ever did is a backlog that lies. The two are mutually exclusive (see
+	// setFrozen and setDone), so every todo is in exactly one of three states —
+	// open, frozen, done — which is what the list renders as three groups.
+	//
+	// Same compat contract as Images and Schedule: omitted from the JSON when
+	// false, so an unfrozen backlog reads exactly as it did before the field
+	// existed, and an older binary sees a plain open todo rather than choking.
+	Frozen bool `json:"frozen,omitempty"`
 	// Schedule is the todo's pending one-shot auto-drop, nil when none. Same
 	// compat contract as Images: omitted from the JSON when absent, so an
 	// unscheduled backlog reads exactly as it did before the field existed and
@@ -65,6 +76,35 @@ const (
 	scheduleKindPane = "pane"
 	scheduleKindNew  = "new"
 )
+
+// The three states a todo can be in, in the order the list draws them within a
+// scope. The numbering is the render order and nothing else — it is not stored,
+// so it can be reordered freely.
+const (
+	groupOpen   = iota // still to do
+	groupFrozen        // decided against, kept for the record
+	groupDone          // finished
+)
+
+// group is which of the three render groups this todo belongs to. Done outranks
+// Frozen so that a backlog hand-edited into claiming both still lands in exactly
+// one group — the renderer walks the groups in separate passes, and a todo that
+// answered yes twice would otherwise be drawn twice.
+func (t Todo) group() int {
+	switch {
+	case t.Done:
+		return groupDone
+	case t.Frozen:
+		return groupFrozen
+	}
+	return groupOpen
+}
+
+// closed reports whether a todo has left the active backlog — finished or
+// abandoned. Everything that asks "is there work here" (the fold, the header's
+// hidden count, the pane title's open count) asks it this way: neither state is
+// work outstanding, and only the row itself needs to tell the two apart.
+func (t Todo) closed() bool { return t.Done || t.Frozen }
 
 // scope marks where a todo lives: with the project (committed in the repo) or in
 // the user's global backlog.
@@ -283,7 +323,9 @@ func (s *store) delete(id string) error {
 // toggle flips the done flag of the todo with id and persists. Completing a
 // todo clears its schedule: "schedule implies open" is the invariant the tick
 // scans by, and a done todo auto-dropping later would be work resurrected from
-// the grave.
+// the grave. It also thaws a frozen todo — done and frozen are exclusive (see
+// Todo.Frozen), and of the two, "this happened" is the one the user just
+// asserted.
 func (s *store) toggle(id string) error {
 	if err := s.reload(); err != nil {
 		return err
@@ -293,12 +335,75 @@ func (s *store) toggle(id string) error {
 			s.todos[i].Done = !s.todos[i].Done
 			if s.todos[i].Done {
 				s.todos[i].Schedule = nil
+				s.todos[i].Frozen = false
 				s.fileAsLatestDone(i)
 			}
 			return s.save()
 		}
 	}
 	return errTodoNotFound
+}
+
+// toggleFrozen flips the frozen flag of the todo with id and persists,
+// returning the state it landed in.
+//
+// The landing state is returned rather than left for the caller to infer from
+// what it had on screen. The flip happens after a reload, so another pane may
+// have frozen or thawed this todo since this one last drew the row, and a status
+// line that reports the caller's guess would be confidently wrong exactly when
+// the two panes disagree.
+func (s *store) toggleFrozen(id string) (bool, error) {
+	if err := s.reload(); err != nil {
+		return false, err
+	}
+	for i := range s.todos {
+		if s.todos[i].ID == id {
+			frozen := !s.todos[i].Frozen
+			s.freeze(i, frozen)
+			return frozen, s.save()
+		}
+	}
+	return false, errTodoNotFound
+}
+
+// setFrozen sets the frozen flag of the todo with id to frozen and persists.
+// Unlike toggleFrozen it is idempotent — the no-op case skips the save — which
+// is what a caller wants when it is enforcing a state rather than flipping one.
+func (s *store) setFrozen(id string, frozen bool) error {
+	if err := s.reload(); err != nil {
+		return err
+	}
+	for i := range s.todos {
+		if s.todos[i].ID == id {
+			if s.todos[i].Frozen == frozen {
+				return nil
+			}
+			s.freeze(i, frozen)
+			return s.save()
+		}
+	}
+	return errTodoNotFound
+}
+
+// freeze applies the frozen state to the todo at index i, without saving — the
+// shared half of toggleFrozen and setFrozen.
+//
+// Freezing clears Done (the two states are exclusive) and any pending schedule:
+// a prompt the user has decided not to run must not run itself later, which is
+// the same reason completing clears one.
+//
+// Array position is deliberately left alone, and that is the one place freezing
+// differs from completing (compare fileAsLatestDone). A completed prompt is
+// finished and belongs on top of the pile of finished things; a frozen one has
+// not happened — it is still work, holding its place in the backlog's priority
+// order — so a thaw hands it back the position it had rather than dropping it at
+// the end of the open group.
+func (s *store) freeze(i int, frozen bool) {
+	s.todos[i].Frozen = frozen
+	if frozen {
+		s.todos[i].Done = false
+		s.todos[i].Schedule = nil
+	}
 }
 
 // fileAsLatestDone moves the todo at index i to the head of the done group, so
@@ -346,8 +451,10 @@ func (s *store) setDone(id string, done bool) error {
 			}
 			s.todos[i].Done = done
 			if done {
-				// Same invariant as toggle: a completed todo holds no schedule.
+				// Same invariants as toggle: a completed todo holds no schedule,
+				// and is not also frozen.
 				s.todos[i].Schedule = nil
+				s.todos[i].Frozen = false
 				s.fileAsLatestDone(i)
 			}
 			return s.save()
@@ -402,10 +509,15 @@ func (s *store) claimSchedule(id string, at time.Time) (bool, error) {
 }
 
 // move shifts the todo with id one step toward the front (delta < 0) or back
-// (delta > 0) of the backlog, swapping only with neighbors in the same done
-// state — mirroring the list view, which shows open todos first and done todos
-// last within each scope. Array order is the backlog's priority order, so the
-// swap is persisted. Moving past the edge of the group is a quiet no-op.
+// (delta > 0) of the backlog, swapping only with neighbors in the same render
+// group — mirroring the list view, which shows open todos first, then frozen,
+// then done within each scope. Array order is the backlog's priority order, so
+// the swap is persisted. Moving past the edge of the group is a quiet no-op.
+//
+// Matching on the group rather than on Done alone is what keeps the keystroke
+// honest now that there are three of them: swapping a done todo with the frozen
+// one above it would move the row nowhere the user can see, since the two are
+// drawn in different passes.
 func (s *store) move(id string, delta int) error {
 	if err := s.reload(); err != nil {
 		return err
@@ -425,7 +537,7 @@ func (s *store) move(id string, delta int) error {
 		step = -1
 	}
 	for j := cur + step; j >= 0 && j < len(s.todos); j += step {
-		if s.todos[j].Done == s.todos[cur].Done {
+		if s.todos[j].group() == s.todos[cur].group() {
 			s.todos[cur], s.todos[j] = s.todos[j], s.todos[cur]
 			return s.save()
 		}
@@ -435,6 +547,11 @@ func (s *store) move(id string, delta int) error {
 
 // clearDone removes every done todo and persists, returning how many were
 // removed. Zero removals skip the save.
+//
+// Frozen todos are untouched, and that is the point of the state: freezing is a
+// decision the user wanted to keep a record of, so the sweep that clears
+// finished work must not quietly throw it away. Deleting one stays a
+// deliberate, per-todo act (ctrl+x).
 func (s *store) clearDone() (int, error) {
 	if err := s.reload(); err != nil {
 		return 0, err

@@ -89,6 +89,17 @@ Completed prompts collect below the open ones, newest first, so what you just
 finished is at the top of the pile rather than the bottom. `ctrl+d` folds them
 away and `ctrl+w` clears them out.
 
+`ctrl+f` **freezes** a prompt — "will not do". It is deliberately not the same
+thing as done: marking work finished that nobody ever did makes the backlog lie,
+and deleting it throws away the fact that the decision was made at all. A frozen
+prompt is drawn `❄` in the list, dimmed but *not* struck through, and sits in its
+own group between the open prompts and the completed ones. `ctrl+d` folds it away
+with them, `ctrl+w` leaves it alone, and `ctrl+f` again thaws it — back into the
+exact place it held, since freezing never cost it its priority. A frozen prompt
+also stops going anywhere: any pending auto-drop is cancelled the moment it
+freezes, and both `shift+enter` and `ctrl+s` refuse it until it is thawed, so a
+decision not to do the work can't be undone by a stray keystroke.
+
 A prompt can also be dropped on a timer: `ctrl+s` asks when (`15:30`, `in 2h`,
 `tomorrow 9:00`), then opens the same target picker, and the row carries the
 fire time — `◷` and `⏰ 15:30` — until the moment comes. The fire is always

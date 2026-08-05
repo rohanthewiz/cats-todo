@@ -25,7 +25,9 @@ import (
 // non-selectable separator: with a name it renders as a dim group heading,
 // without one as a blank spacer. badge, when set, is drawn before the name
 // (used to mark done todos) in badgeStyle. strike renders the name
-// struck-through (done).
+// struck-through (done); dim renders it in the same receded greys without the
+// strike (frozen), so a row can say "not active work" without also claiming the
+// work was carried out.
 //
 // The badge arrives as a glyph and a style rather than pre-rendered text: the
 // highlighted row puts a field behind every one of its segments, and text that
@@ -45,6 +47,7 @@ type listItem struct {
 	badgeStyle lipgloss.Style
 	tag        string
 	strike     bool
+	dim        bool
 	selectable bool
 	ref        int
 }
@@ -359,7 +362,7 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 		if it.badge != "" {
 			r.WriteString(onRow(it.badgeStyle, selected).Render(it.badge + " "))
 		}
-		r.WriteString(highlightName(it.name, s.matched, selected, it.strike))
+		r.WriteString(highlightName(it.name, s.matched, selected, it.strike, it.dim))
 		if it.tag != "" {
 			// The tag hugs the name (one space, with its own separator dot)
 			// where the description stands two off: it qualifies the name, and
@@ -383,7 +386,9 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 
 // highlightName renders a row's name with the fuzzy-matched characters
 // emphasized. When strike is set (a done todo) the base text is dimmed and
-// struck through.
+// struck through; when dim is set without it (a frozen todo) the text recedes
+// the same way but keeps its letters intact. strike wins if a caller somehow
+// asks for both — a finished todo reads as finished first.
 //
 // Done and selected used to be exclusive, done winning: a completed row under
 // the cursor drew exactly like a completed row anywhere else, so the highlight
@@ -392,13 +397,19 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 // row that is being looked at comes up one tier of grey, since receding into
 // the background is right for a row nobody asked about and wrong for the row
 // under the cursor.
-func highlightName(name string, matched []int, selected, strike bool) string {
+func highlightName(name string, matched []int, selected, strike, dim bool) string {
 	base := nameStyle
 	switch {
 	case strike && selected:
 		base = doneSelStyle
 	case strike:
 		base = doneStyle
+	case dim && selected:
+		// Same reason the done row comes up a tier under the cursor: receding is
+		// right for a row nobody asked about and wrong for the one being read.
+		base = frozenSelStyle
+	case dim:
+		base = frozenStyle
 	case selected:
 		base = nameSelStyle
 	}

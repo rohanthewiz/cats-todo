@@ -158,9 +158,13 @@ type model struct {
 	stage uiStage
 
 	// List stage.
-	list     fuzzyList
-	rows     []todoRef // selectable row index -> todo
-	hideDone bool      // fold completed todos out of the list
+	list fuzzyList
+	rows []todoRef // selectable row index -> todo
+	// hideClosed folds everything that is no longer active work — done and
+	// frozen alike — out of the list. One fold rather than two because the
+	// question it answers is "show me what is left to do", and a prompt the user
+	// has decided against is no more left to do than a finished one.
+	hideClosed bool
 	// Action bar. actionFocus says whether tab has walked the focus out of the
 	// query box and onto a button; actionIdx is which one. Focus is a bool
 	// rather than a -1 sentinel in actionIdx so the zero-value model starts
@@ -441,15 +445,17 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.beginDelete()
 	case "ctrl+t":
 		return m.toggleSelected()
+	case "ctrl+f":
+		return m.freezeSelected()
 	case "ctrl+v":
 		return m.beginView()
 	case "ctrl+d":
-		m.hideDone = !m.hideDone
+		m.hideClosed = !m.hideClosed
 		m.rebuildList()
-		if m.hideDone {
-			m.setStatus("hiding completed prompts", false)
+		if m.hideClosed {
+			m.setStatus("hiding completed and frozen prompts", false)
 		} else {
-			m.setStatus("showing completed prompts", false)
+			m.setStatus("showing completed and frozen prompts", false)
 		}
 		return m, nil
 	case "ctrl+s":
@@ -753,17 +759,60 @@ func (m model) toggleSelected() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// freezeSelected flips the highlighted todo between open and frozen — "I am not
+// going to do this", said without deleting the prompt or lying that it was
+// done.
+//
+// The highlight is re-parked on the todo afterwards because the row moves: a
+// freeze drops it out of the open group and into the frozen one further down (or
+// out of sight entirely while the fold is on), and a cursor left at its old
+// index would land on whichever prompt slid up into the gap. The status line
+// says which way the flip went, since with the fold on the row itself is gone
+// and there is nothing else to read it from.
+func (m model) freezeSelected() (tea.Model, tea.Cmd) {
+	ref, ok := m.selectedRef()
+	if !ok {
+		return m, nil
+	}
+	// Read before the flip: freezing clears any pending schedule, and once it is
+	// gone the row shows nothing to tell the user their auto-drop went with it.
+	td, _ := m.resolve(ref)
+	frozen, err := m.storeFor(ref.scope).toggleFrozen(ref.id)
+	if err != nil {
+		m.setStatus("save failed: "+err.Error(), true)
+		return m, nil
+	}
+	m.rebuildList()
+	m.selectRow(ref)
+	if frozen {
+		msg := "frozen — will not do (ctrl+f to unfreeze)"
+		if td.Schedule != nil {
+			msg += " · scheduled drop cancelled"
+		}
+		m.setStatus(msg, false)
+	} else {
+		m.setStatus("unfrozen — back on the list", false)
+	}
+	return m, nil
+}
+
 func (m *model) setStatus(s string, isErr bool) {
 	m.status = s
 	m.statusErr = isErr
 }
 
 // rebuildList regenerates the list rows from the two stores. Project todos come
-// first; within each scope open todos come before done ones (array order is the
-// backlog's priority order), and done todos disappear entirely when hideDone is
-// set. The "Project"/"Global" group headings only show when both groups have at
-// least one visible todo; global rows additionally carry a " · global" tag of
-// their own (see tagGlobal below for why the headings aren't enough).
+// first; within each scope the three render groups follow in order — open, then
+// frozen, then done (array order is the backlog's priority order within each) —
+// and both closed groups disappear entirely when hideClosed is set. The
+// "Project"/"Global" group headings only show when both groups have at least one
+// visible todo; global rows additionally carry a " · global" tag of their own
+// (see tagGlobal below for why the headings aren't enough).
+//
+// Frozen sits between open and done rather than among either. Above done because
+// it is not finished work and should not be filed with what is; below open
+// because it is not work waiting to be picked up. The middle is the only place
+// left, and it happens to be the honest one.
 func (m *model) rebuildList() {
 	var items []listItem
 	var rows []todoRef
@@ -771,7 +820,7 @@ func (m *model) rebuildList() {
 	visible := func(s *store) int {
 		n := 0
 		for _, t := range s.todos {
-			if !t.Done || !m.hideDone {
+			if !t.closed() || !m.hideClosed {
 				n++
 			}
 		}
@@ -799,6 +848,13 @@ func (m *model) rebuildList() {
 			switch {
 			case t.Done:
 				badge, badgeStyle = "✓", checkStyle
+			case t.Frozen:
+				// Ahead of the schedule badges deliberately, though freezing
+				// clears a schedule so the two should never meet: if a backlog
+				// edited by hand ever produced both, "will not do" is the fact
+				// that matters and the ◷ would be a promise this manager has
+				// already stopped keeping (fireDueSchedules skips frozen todos).
+				badge, badgeStyle = "❄", frozenBadgeStyle
 			case t.Schedule != nil && t.Schedule.Missed:
 				badge, badgeStyle = "◷", errStyle
 			case t.Schedule != nil:
@@ -841,22 +897,27 @@ func (m *model) rebuildList() {
 				badgeStyle: badgeStyle,
 				tag:        tag,
 				strike:     t.Done,
+				// Frozen recedes like a done row but keeps its letters: the
+				// strike is a claim that the work happened, which is exactly what
+				// freezing does not say.
+				dim:        t.Frozen,
 				selectable: true,
 				ref:        len(rows),
 			})
 			rows = append(rows, ref)
 		}
-		for _, t := range s.todos {
-			if !t.Done {
-				appendTodo(t)
+		// One pass per render group, in render order. Passing over the slice
+		// three times is what keeps the grouping in the view instead of in the
+		// file: the array stays the user's priority order, so a thaw puts a
+		// prompt back exactly where it was rather than at the end of the queue.
+		for _, g := range []int{groupOpen, groupFrozen, groupDone} {
+			if g != groupOpen && m.hideClosed {
+				return
 			}
-		}
-		if m.hideDone {
-			return
-		}
-		for _, t := range s.todos {
-			if t.Done {
-				appendTodo(t)
+			for _, t := range s.todos {
+				if t.group() == g {
+					appendTodo(t)
+				}
 			}
 		}
 	}
@@ -884,9 +945,26 @@ func (m *model) rebuildList() {
 	}
 }
 
-// hiddenDoneCount is how many completed todos the hideDone fold is holding back,
-// for the header note.
-func (m model) hiddenDoneCount() int {
+// hiddenClosedCount is how many todos the hideClosed fold is holding back —
+// completed and frozen together, since the fold takes both — for the header
+// note.
+func (m model) hiddenClosedCount() int {
+	n := 0
+	for _, s := range []*store{m.project, m.global} {
+		for _, t := range s.todos {
+			if t.closed() {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// doneCount is how many completed todos sit across both backlogs — what ctrl+w
+// would sweep away. Frozen todos are not counted: the sweep leaves them alone
+// (see store.clearDone), so counting them would put a number in the confirm
+// prompt that does not match what the key does.
+func (m model) doneCount() int {
 	n := 0
 	for _, s := range []*store{m.project, m.global} {
 		for _, t := range s.todos {
@@ -1450,9 +1528,10 @@ func (m model) beginDelete() (tea.Model, tea.Cmd) {
 }
 
 // beginClearDone arms the confirm stage to remove every completed todo across
-// both scopes, or reports there is nothing to clear.
+// both scopes, or reports there is nothing to clear. Frozen prompts are not in
+// the count and not in the sweep — see store.clearDone.
 func (m model) beginClearDone() (tea.Model, tea.Cmd) {
-	count := m.hiddenDoneCount()
+	count := m.doneCount()
 	if count == 0 {
 		m.setStatus("no completed prompts to clear", false)
 		return m, nil
@@ -1532,6 +1611,16 @@ func (m model) startDrop(ref todoRef) (tea.Model, tea.Cmd) {
 	}
 	if m.client == nil {
 		m.setStatus("cats control socket unavailable — can't drop into a session", true)
+		m.backToList()
+		return m, nil
+	}
+	// A frozen prompt is a decision not to do the work, and shift+enter is one
+	// keystroke away from every row in the list — including the ones that scroll
+	// under the cursor after a rebuild. Refusing here is what makes the decision
+	// hold: unfreezing is a deliberate act, and once it is done the drop works
+	// like any other.
+	if td, ok := m.resolve(ref); ok && td.Frozen {
+		m.setStatus("that prompt is frozen — unfreeze it (ctrl+f) to send it", false)
 		m.backToList()
 		return m, nil
 	}
@@ -1766,6 +1855,14 @@ func (m model) beginSchedule() (tea.Model, tea.Cmd) {
 		m.setStatus("that prompt is done — reopen it (ctrl+t) to schedule it", false)
 		return m, nil
 	}
+	// Freezing already clears a pending schedule; refusing to set a new one is
+	// the same rule kept from the other side, so the state cannot be worked
+	// around by scheduling first and freezing after — or after, by scheduling a
+	// prompt that is already shelved.
+	if td.Frozen {
+		m.setStatus("that prompt is frozen — unfreeze it (ctrl+f) to schedule it", false)
+		return m, nil
+	}
 
 	ti := textinput.New()
 	ti.Prompt = ""
@@ -1896,7 +1993,12 @@ func (m *model) fireDueSchedules(now time.Time) tea.Cmd {
 	for _, s := range []*store{m.project, m.global} {
 		for _, t := range s.todos {
 			sc := t.Schedule
-			if sc == nil || sc.Missed || t.Done || now.Before(sc.At) {
+			// t.closed() covers both states that mean "do not fire": done, and
+			// frozen. Each clears the schedule as it is set, so a closed todo
+			// holding one should not exist — this is the backstop for a backlog
+			// edited by hand or written by an older binary that did not know the
+			// invariant, where firing would be the worst possible reading of it.
+			if sc == nil || sc.Missed || t.closed() || now.Before(sc.At) {
 				continue
 			}
 			ref := todoRef{scope: s.scope, id: t.ID}
@@ -2054,9 +2156,11 @@ func (m model) viewContent(td Todo) string {
 
 // --- View ---------------------------------------------------------------------
 
-// openCount is how many unfinished todos sit in the backlog this pane is named
+// openCount is how many todos still to do sit in the backlog this pane is named
 // after: the project's, or the global one when that is the only backlog the
-// launch opened (--global, or no project to scope to).
+// launch opened (--global, or no project to scope to). Frozen prompts are not
+// counted — the number is read as "work waiting here", and the point of freezing
+// one is that it is not waiting for anybody.
 //
 // A project pane deliberately does not count global todos, even though its list
 // shows them. The global backlog is the same list in every project, so counting
@@ -2069,7 +2173,7 @@ func (m model) openCount() int {
 	}
 	n := 0
 	for _, t := range s.todos {
-		if !t.Done {
+		if !t.closed() {
 			n++
 		}
 	}
@@ -2357,13 +2461,15 @@ func (m model) scopeNote(room int) string {
 	return truncate(project, max(room, 0))
 }
 
-// hiddenNote is the header's " · N done hidden" tag while the done fold is on.
+// hiddenNote is the header's " · N hidden" tag while the fold is on. It says
+// "hidden" rather than "done hidden" now that the fold takes frozen prompts too:
+// naming one of the two states would misreport the other half of the number.
 func (m model) hiddenNote() string {
-	if !m.hideDone {
+	if !m.hideClosed {
 		return ""
 	}
-	if n := m.hiddenDoneCount(); n > 0 {
-		return fmt.Sprintf(" · %d done hidden", n)
+	if n := m.hiddenClosedCount(); n > 0 {
+		return fmt.Sprintf(" · %d hidden", n)
 	}
 	return ""
 }
@@ -2438,13 +2544,17 @@ func (m model) listFooter() string {
 	if !m.barShowsHints() {
 		// The pointer's gesture rides along with the chord it stands for — a
 		// double-click is a guess worth confirming, not one worth making blind.
-		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+x delete") +
+		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+x delete") +
 			"\n" +
-			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ move · ctrl+d hide/show done · ctrl+w clear done · esc quit")
+			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ move · ctrl+d hide/show closed · ctrl+w clear done · esc quit")
 	}
+	// Freeze rides directly after done: the two are the ways a prompt leaves the
+	// open list, and reading them side by side is what teaches that they are
+	// different claims. It also puts the pair ahead of the concessions the loop
+	// below makes from the right, so a narrow pane keeps them.
 	segs := []string{
-		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+↑/↓ move",
-		"ctrl+d hide done", "ctrl+w clear done", "esc quit",
+		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze", "ctrl+↑/↓ move",
+		"ctrl+d hide closed", "ctrl+w clear done", "esc quit",
 	}
 	line := strings.Join(segs, " · ")
 	// Concede from the right rather than wrap: the footer sits below the mouse
@@ -2721,6 +2831,9 @@ func (m model) viewPrompt() string {
 	}
 	if td.Done {
 		meta += " · " + checkStyle.Render("done")
+	}
+	if td.Frozen {
+		meta += " · " + frozenBadgeStyle.Render("frozen — will not do")
 	}
 	if sc := td.Schedule; sc != nil && !td.Done {
 		when := "scheduled " + formatScheduleTime(sc.At, time.Now())

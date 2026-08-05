@@ -721,3 +721,184 @@ func TestDoneClearsSchedule(t *testing.T) {
 		}
 	})
 }
+
+// TestFreeze pins the frozen state's whole contract: the flags it is exclusive
+// with, the schedule it cancels, the array position it leaves alone, and the
+// round trip through JSON.
+func TestFreeze(t *testing.T) {
+	at := time.Date(2026, 8, 3, 15, 0, 0, 0, time.UTC)
+
+	t.Run("toggle reports the state it landed in", func(t *testing.T) {
+		s := tempStore(t)
+		if err := s.add(Todo{ID: "a1", Prompt: "p"}); err != nil {
+			t.Fatal(err)
+		}
+		frozen, err := s.toggleFrozen("a1")
+		if err != nil || !frozen {
+			t.Fatalf("toggleFrozen = %v, %v — want true, nil", frozen, err)
+		}
+		if td, _ := s.find("a1"); !td.Frozen {
+			t.Fatal("the todo should be frozen")
+		}
+		if frozen, err = s.toggleFrozen("a1"); err != nil || frozen {
+			t.Fatalf("second toggleFrozen = %v, %v — want false, nil", frozen, err)
+		}
+		if td, _ := s.find("a1"); td.Frozen {
+			t.Fatal("the todo should be thawed")
+		}
+	})
+
+	t.Run("freezing cancels a pending schedule", func(t *testing.T) {
+		s := tempStore(t)
+		if err := s.add(Todo{ID: "a1", Prompt: "p"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.setSchedule("a1", &Schedule{At: at, Kind: scheduleKindNew}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.toggleFrozen("a1"); err != nil {
+			t.Fatal(err)
+		}
+		if td, _ := s.find("a1"); td.Schedule != nil {
+			t.Fatal("freezing a todo must clear its schedule — nothing shelved may fire")
+		}
+	})
+
+	t.Run("frozen and done are exclusive", func(t *testing.T) {
+		s := tempStore(t)
+		if err := s.add(Todo{ID: "a1", Prompt: "p", Done: true}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.toggleFrozen("a1"); err != nil {
+			t.Fatal(err)
+		}
+		if td, _ := s.find("a1"); !td.Frozen || td.Done {
+			t.Fatalf("freezing a done todo = {Frozen:%v Done:%v}, want frozen and not done", td.Frozen, td.Done)
+		}
+		// …and the other way round: completing thaws.
+		if err := s.setDone("a1", true); err != nil {
+			t.Fatal(err)
+		}
+		if td, _ := s.find("a1"); td.Frozen || !td.Done {
+			t.Fatalf("completing a frozen todo = {Frozen:%v Done:%v}, want done and not frozen", td.Frozen, td.Done)
+		}
+	})
+
+	t.Run("setFrozen is idempotent", func(t *testing.T) {
+		s := tempStore(t)
+		if err := s.add(Todo{ID: "a1", Prompt: "p"}); err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if err := s.setFrozen("a1", true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if td, _ := s.find("a1"); !td.Frozen {
+			t.Fatal("the todo should be frozen")
+		}
+		if err := s.setFrozen("missing", true); err != errTodoNotFound {
+			t.Fatalf("setFrozen on a missing todo = %v, want errTodoNotFound", err)
+		}
+	})
+
+	// A thaw hands the prompt back the place it had — unlike completing, which
+	// files the todo at the head of the done group. Freezing is a decision about
+	// the work, not a claim it happened, so it must not cost the prompt its
+	// priority.
+	t.Run("freezing holds the array position", func(t *testing.T) {
+		s := tempStore(t)
+		for _, id := range []string{"a1", "a2", "a3"} {
+			if err := s.add(Todo{ID: id, Prompt: id}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := s.toggleFrozen("a2"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.toggleFrozen("a2"); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, td := range s.todos {
+			got = append(got, td.ID)
+		}
+		if strings.Join(got, ",") != "a1,a2,a3" {
+			t.Fatalf("order after a freeze/thaw = %v, want a1,a2,a3", got)
+		}
+	})
+
+	// The compat contract the field's comment promises: an unfrozen backlog reads
+	// exactly as it did before the field existed.
+	t.Run("the flag round-trips and stays out of the JSON when false", func(t *testing.T) {
+		s := tempStore(t)
+		if err := s.add(Todo{ID: "a1", Prompt: "p"}); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(s.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "frozen") {
+			t.Fatalf("an unfrozen todo wrote a frozen key:\n%s", data)
+		}
+		if _, err := s.toggleFrozen("a1"); err != nil {
+			t.Fatal(err)
+		}
+		reloaded := &store{scope: scopeProject, path: s.path}
+		if err := reloaded.load(); err != nil {
+			t.Fatal(err)
+		}
+		if td, _ := reloaded.find("a1"); !td.Frozen {
+			t.Fatal("the frozen flag did not survive a save/load round trip")
+		}
+	})
+
+	// Freezing is a record the user asked to keep; the sweep that clears finished
+	// work must not take it with them.
+	t.Run("clearDone leaves frozen todos alone", func(t *testing.T) {
+		s := tempStore(t)
+		if err := s.add(Todo{ID: "done", Prompt: "d", Done: true}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.add(Todo{ID: "frozen", Prompt: "f", Frozen: true}); err != nil {
+			t.Fatal(err)
+		}
+		n, err := s.clearDone()
+		if err != nil || n != 1 {
+			t.Fatalf("clearDone = %d, %v — want 1, nil", n, err)
+		}
+		if _, ok := s.find("frozen"); !ok {
+			t.Fatal("clearDone swept away a frozen todo")
+		}
+	})
+
+	// Reordering swaps within a render group, and frozen is its own group: a
+	// frozen todo has no neighbor to trade with here, so the move is a quiet
+	// no-op rather than a swap the list could not show.
+	t.Run("move stays inside the frozen group", func(t *testing.T) {
+		s := tempStore(t)
+		for _, td := range []Todo{
+			{ID: "a1", Prompt: "open"},
+			{ID: "a2", Prompt: "frozen", Frozen: true},
+			{ID: "a3", Prompt: "done", Done: true},
+		} {
+			if err := s.add(td); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.move("a2", -1); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.move("a2", 1); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, td := range s.todos {
+			got = append(got, td.ID)
+		}
+		if strings.Join(got, ",") != "a1,a2,a3" {
+			t.Fatalf("order = %v, want a1,a2,a3 — a frozen todo must not swap across groups", got)
+		}
+	})
+}

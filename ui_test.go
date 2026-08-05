@@ -641,17 +641,29 @@ func TestSelectedRowIsHighlighted(t *testing.T) {
 	t.Run("a completed row answers the cursor", func(t *testing.T) {
 		// Same name, same strike, different selection: the two must not render
 		// alike, or the cursor is invisible on everything already finished.
-		on := highlightName("already done", nil, true, true)
-		off := highlightName("already done", nil, false, true)
+		on := highlightName("already done", nil, true, true, false)
+		off := highlightName("already done", nil, false, true, false)
 		if on == off {
 			t.Fatal("a selected done row renders exactly like an unselected one")
+		}
+	})
+
+	t.Run("a frozen row recedes without a strike", func(t *testing.T) {
+		// The dim tier says "not active work"; the strike would say "this was
+		// carried out", which is the one thing freezing must never claim.
+		got := highlightName("not doing this", nil, false, false, true)
+		if strings.Contains(got, "\x1b[9m") || strings.Contains(got, ";9m") {
+			t.Fatalf("strikethrough in %q — a frozen row must not read as done", got)
+		}
+		if got == highlightName("not doing this", nil, false, false, false) {
+			t.Fatal("a frozen row renders exactly like an open one")
 		}
 	})
 
 	t.Run("done and selected both survive", func(t *testing.T) {
 		// Neither wins outright: the strike says what the todo is, the field
 		// says which row the keys are on.
-		got := highlightName("already done", nil, true, true)
+		got := highlightName("already done", nil, true, true, false)
 		if !strings.Contains(got, "\x1b[9m") && !strings.Contains(got, ";9m") {
 			t.Fatalf("no strikethrough in %q — selection swallowed the done marking", got)
 		}
@@ -942,9 +954,11 @@ func TestHeaderLineFits(t *testing.T) {
 		{"long workspace label", func(m *model) {
 			m.ctx.WorkspaceLabel = "a-rather-long-workspace-name"
 		}},
-		{"done-hidden tag showing", func(m *model) {
-			m.project.todos = append(m.project.todos, Todo{ID: "d1", Title: "done", Done: true})
-			m.hideDone = true
+		{"hidden tag showing", func(m *model) {
+			m.project.todos = append(m.project.todos,
+				Todo{ID: "d1", Title: "done", Done: true},
+				Todo{ID: "f1", Title: "frozen", Frozen: true})
+			m.hideClosed = true
 			m.rebuildList()
 		}},
 	}

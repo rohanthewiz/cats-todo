@@ -310,9 +310,10 @@ func TestRebuildListSortsDoneToBottom(t *testing.T) {
 	}
 }
 
-// TestHideDoneFoldsCompleted pins ctrl+d's fold: with hideDone set, done todos
-// leave the rows entirely, and clearing it brings them back.
-func TestHideDoneFoldsCompleted(t *testing.T) {
+// TestHideClosedFoldsCompletedAndFrozen pins ctrl+d's fold: with hideClosed set,
+// done *and* frozen todos leave the rows entirely, and clearing it brings them
+// back.
+func TestHideClosedFoldsCompletedAndFrozen(t *testing.T) {
 	m, project, _ := newModelInTemp(t)
 	if err := project.add(Todo{ID: "open", Prompt: "o"}); err != nil {
 		t.Fatal(err)
@@ -320,20 +321,34 @@ func TestHideDoneFoldsCompleted(t *testing.T) {
 	if err := project.add(Todo{ID: "done", Prompt: "d", Done: true}); err != nil {
 		t.Fatal(err)
 	}
+	if err := project.add(Todo{ID: "frozen", Prompt: "f", Frozen: true}); err != nil {
+		t.Fatal(err)
+	}
 
-	m.hideDone = true
+	m.hideClosed = true
 	m.rebuildList()
 	if len(m.rows) != 1 || m.rows[0].id != "open" {
 		t.Errorf("hidden rows = %+v, want only the open todo", m.rows)
 	}
-	if m.hiddenDoneCount() != 1 {
-		t.Errorf("hiddenDoneCount = %d, want 1", m.hiddenDoneCount())
+	if m.hiddenClosedCount() != 2 {
+		t.Errorf("hiddenClosedCount = %d, want 2 (done + frozen)", m.hiddenClosedCount())
+	}
+	// The clear-completed sweep counts only what it will actually delete.
+	if m.doneCount() != 1 {
+		t.Errorf("doneCount = %d, want 1 (frozen is not cleared)", m.doneCount())
 	}
 
-	m.hideDone = false
+	m.hideClosed = false
 	m.rebuildList()
-	if len(m.rows) != 2 {
-		t.Errorf("unhidden rows = %+v, want both todos back", m.rows)
+	if len(m.rows) != 3 {
+		t.Errorf("unhidden rows = %+v, want all three todos back", m.rows)
+	}
+	// Render order within a scope: open, then frozen, then done.
+	want := []string{"open", "frozen", "done"}
+	for i, id := range want {
+		if m.rows[i].id != id {
+			t.Fatalf("row %d = %q, want %q (order: open, frozen, done)", i, m.rows[i].id, id)
+		}
 	}
 }
 
@@ -929,4 +944,77 @@ func TestTargetPickerModifierEnterRuns(t *testing.T) {
 			t.Errorf("enter: dropping=%v cmd=%v, want a dispatched drop", m.dropping, cmd != nil)
 		}
 	})
+}
+
+// TestFreezeSelected walks ctrl+f through the manager: the flip persists, the
+// highlight follows the row down into the frozen group, and the status line says
+// which way it went.
+func TestFreezeSelected(t *testing.T) {
+	m, project, _ := newModelInTemp(t)
+	for _, td := range []Todo{{ID: "a", Prompt: "a"}, {ID: "b", Prompt: "b"}} {
+		if err := project.add(td); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.rebuildList()
+
+	// Freeze the first row: it drops below the still-open second one.
+	next, _ := m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	m = next.(model)
+	if td, _ := project.find("a"); !td.Frozen {
+		t.Fatal("ctrl+f did not freeze the highlighted todo")
+	}
+	if len(m.rows) != 2 || m.rows[0].id != "b" || m.rows[1].id != "a" {
+		t.Fatalf("rows = %+v, want the frozen todo below the open one", m.rows)
+	}
+	if idx := m.list.selectedIndex(); idx < 0 || m.rows[idx].id != "a" {
+		t.Errorf("highlight sits on row %d, want it to follow the frozen todo", idx)
+	}
+	if !strings.Contains(m.status, "frozen") || m.statusErr {
+		t.Errorf("status = %q, want it to report the freeze", m.status)
+	}
+
+	// And back: the thaw returns it to the position it held.
+	next, _ = m.updateList(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	m = next.(model)
+	if td, _ := project.find("a"); td.Frozen {
+		t.Fatal("a second ctrl+f did not unfreeze the todo")
+	}
+	if m.rows[0].id != "a" {
+		t.Errorf("rows = %+v, want the thawed todo back in its original place", m.rows)
+	}
+}
+
+// TestFrozenPromptsRefuseToLeave pins the two ways a frozen prompt could reach
+// an agent behind the user's back — a stray shift+enter, and a schedule set
+// after the fact. Both are refused with a way out rather than silently doing
+// nothing, which on a keystroke reads as a broken binding.
+func TestFrozenPromptsRefuseToLeave(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{"drop", tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}},
+		{"schedule", tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, project, _ := newModelInTemp(t)
+			if err := project.add(Todo{ID: "a", Prompt: "not doing this", Frozen: true}); err != nil {
+				t.Fatal(err)
+			}
+			m.rebuildList()
+			// A live client, so the refusal cannot be the socket guard passing
+			// for the frozen one.
+			m.client = &catsClient{}
+
+			next, _ := m.updateList(tc.key)
+			m = next.(model)
+			if m.stage != stageList {
+				t.Fatalf("stage = %v, want to stay on the list — a frozen prompt has nowhere to go", m.stage)
+			}
+			if !strings.Contains(m.status, "frozen") || !strings.Contains(m.status, "ctrl+f") {
+				t.Errorf("status = %q, want it to name the state and the way out", m.status)
+			}
+		})
+	}
 }

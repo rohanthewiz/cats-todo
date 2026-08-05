@@ -156,14 +156,27 @@ var (
 	// at — and it recedes further still against the highlight's lifted field,
 	// so holding it there would make selecting a done todo cost legibility.
 	doneSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim)).Strikethrough(true)
-	checkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
-	errStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
-	okStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
+	// A frozen todo's name: the same two greys as done, minus the strike. Both
+	// states recede, so they share the ramp — but the strike is what says "this
+	// happened", and a prompt nobody is going to do never did. The badge is what
+	// separates them; the greys only say "not active work".
+	frozenStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint))
+	frozenSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
+	checkStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
+	errStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
+	okStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
 	// A scheduled todo's ◷ badge. Amber on purpose: a pending auto-drop is
 	// the one row that will act without being asked, and warm-against-green
 	// is this palette's "look here" (matchStyle does the same trick). The
 	// missed state swaps to errStyle — a promise broken outranks one pending.
 	schedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colWarn))
+	// A frozen todo's ❄ badge, in the palette's one cool hue (colInfo, borrowed
+	// from the action bar's Add chip). Cold is the whole idea, and it is the one
+	// thing the badges can be told apart by at a glance: green ✓ finished, amber
+	// ◷ pending, blue ❄ shelved. Grey was the other candidate and is wrong — the
+	// row's own greys already say "inactive", so a grey badge would repeat the
+	// name's tier instead of naming which kind of inactive it is.
+	frozenBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colInfo))
 
 	// Action-bar buttons. Each chip is rendered by exactly one of these styles —
 	// label and key hint together — because nesting a second style inside a
