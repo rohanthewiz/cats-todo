@@ -520,7 +520,7 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // everywhere else a pointer is used: open the thing under it. It is also the
 // gesture's safest reading. Opening a form is undone by esc, and the one action
 // that reaches out of this program — handing a prompt to a live agent — stays
-// off a gesture the hand can make by accident, on the bar's ➜ Send chip and
+// off a gesture the hand can make by accident, on the bar's ✉ Send chip and
 // shift+enter. Sending with the pointer is two clicks in two places, and that
 // deliberateness is the point.
 //
@@ -625,7 +625,7 @@ func (m model) listActions() []listAction {
 	return []listAction{
 		{label: "✚ Add", hint: "ctrl+a", tint: colInfo},
 		{label: "✎ Edit", hint: "enter", tint: colStraw, needsSel: true},
-		{label: "➜ Send", hint: m.modEnter(), tint: colAccent, needsSel: true},
+		{label: "✉ Send", hint: m.modEnter(), tint: colAccent, needsSel: true},
 		{label: "✖ Delete", hint: "ctrl+x", tint: colErr, needsSel: true},
 	}
 }
