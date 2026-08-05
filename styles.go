@@ -43,12 +43,19 @@ const (
 	// by hue and not only by paleness.
 	colInfo  = "#6ea9d8"
 	colStraw = "#eee5c9"
-	// The row cursor, and the only place magenta appears. It sits outside the
-	// palette on purpose: the mark saying "here" has to be findable at a glance
-	// in a pane full of green, and a green mark on green rows is the one thing
-	// that can't be. Muted rather than full magenta because it is a pointer, not
-	// an alarm — it should be the first thing found, not the loudest.
-	colCursor = "#b47fae"
+	// The row cursor. It sits outside the palette on purpose: the mark saying
+	// "here" has to be findable at a glance in a pane full of green, and a green
+	// mark on green rows is the one thing that can't be.
+	//
+	// A bright, saturated yellow rather than colWarn's amber, even though both
+	// are warm-against-green. matchStyle already owns amber inside the rows, and
+	// the cursor sits one column to their left; at the same hue and brightness
+	// the gutter mark and a fuzzy hit on the same line would read as one run of
+	// color. Pushing the cursor up in both (50° 100% 60% against colWarn's
+	// 43° 71% 59%) keeps them separable, and the extra brightness is what a
+	// pointer drawn in a single glyph needs to compete with a whole highlighted
+	// word.
+	colCursor = "#ffd633"
 )
 
 // onRow puts st on the highlighted row's field, and returns it untouched
