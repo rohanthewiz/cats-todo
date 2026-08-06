@@ -164,6 +164,36 @@ func (c *catsClient) tabCreate(cwd, title string, command []string) (num int, pa
 	return out.Num, out.Pane, nil
 }
 
+// worktreeCreateTimeout bounds worktree.create. Far past callTimeout because
+// the server shells out to `git worktree add`, which materialises a whole
+// checkout: seconds on a small repo, and a minute or more on a large one with a
+// cold page cache. Timing out early would be the worst outcome available — the
+// branch and the checkout would still be created, just with nothing launched in
+// them and an error on screen saying otherwise.
+const worktreeCreateTimeout = 3 * time.Minute
+
+// worktreeCreate asks cats for a new `git worktree` checkout on branch, opened
+// as a new workspace (created, focused, and named after the branch by the
+// server) and returns the resolved branch and checkout path. Passing Path empty
+// lets the server derive the checkout location under its configured worktree
+// root (config: worktrees.directory), which is what the browser front-end's own
+// new-worktree dialog does — the plugin has no business inventing a second
+// convention for where a user's checkouts live.
+//
+// anchor is the pane whose working directory names the repo to branch from; 0
+// means "the focused pane", the server's own default. Addressing our own pane
+// explicitly matters for a scheduled drop, which fires with nobody watching and
+// the focus wherever the user last left it.
+func (c *catsClient) worktreeCreate(anchor uint32, branch string) (app.WorktreeCreateResult, error) {
+	p := app.WorktreeCreateParams{Branch: branch}
+	if anchor != 0 {
+		p.Pane = &anchor
+	}
+	var out app.WorktreeCreateResult
+	err := c.call(app.CmdWorktreeCreate, p, &out, worktreeCreateTimeout)
+	return out, err
+}
+
 // focusPane reveals the pane into the viewport. agent.focus rather than
 // pane.focus: the drop target may live in another workspace or tab, and
 // agent.focus (like the agents sidebar it serves) crosses both, while

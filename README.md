@@ -61,8 +61,38 @@ a newline. Outside cats it still manages backlogs; only drops need the socket.
 
 The picker's own list is every place the prompt could land: a new Claude Code
 session, a new **GitHub Copilot** session when `copilot` is on your `PATH`, a
-new session for any other agent cats currently has running somewhere, and then
-each of those live agent panes with its state and location.
+new session for any other agent cats currently has running somewhere, then the
+same set again **on a new worktree**, and finally each live agent pane with its
+state and location.
+
+### Dropping onto a new worktree
+
+A plain new-session drop launches its agent in the project's own checkout,
+which is right for one agent and wrong for two: they share a working tree, so
+the second one edits files the first is half-way through changing. The
+`… on a new worktree` rows fix that. Picking one asks cats to cut a fresh `git
+worktree` checkout on a new branch, open it as its own workspace, and launch
+the agent there — the prompt gets a tree to itself, and several agents can work
+the same backlog in parallel without stepping on each other.
+
+The branch is named after the todo, under a `todo/` namespace and with a short
+unique suffix — `todo/fix-the-sidebar-3f9c` — so the same prompt can be dropped
+onto several worktrees at once (three attempts at one task, compared
+afterwards) and `git branch -D 'todo/*'` clears a finished batch. The checkout
+lands wherever cats is configured to put them (`worktrees.directory`, default
+`~/.cats/worktrees`); the plugin does not invent a second convention. Alongside
+the agent's tab the new workspace has a shell of its own, which is where you
+review the branch and merge it.
+
+These rows only appear when the backlog's project is inside a git repository —
+including a repository that *is* a worktree, so a manager opened in one
+checkout can still cut the next. A worktree drop that fails to create its
+checkout fails outright rather than falling back to the shared tree: choosing
+the row is choosing the isolation.
+
+Scheduled drops (`ctrl+s`, below) can target a worktree too. The branch is cut
+when the drop fires, not when it is scheduled, so it always comes off HEAD as
+it stands at that moment.
 
 The filter rides on the header line — the 🔍 box next to the title, lit while
 it holds the keys — and typing from anywhere lands in it. Under the header sits

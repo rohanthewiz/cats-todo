@@ -79,8 +79,13 @@ type dropTarget struct {
 	pane    uint32 // for targetExistingPane
 	agent   string // detected agent label, for existing panes
 	command string // launch command, for targetNewSession ("claude", "codex", …)
-	label   string
-	desc    string
+	// worktree asks for a fresh git checkout to launch in, rather than the
+	// project's own tree (see worktree.go). A flag on targetNewSession rather
+	// than a third kind: every step of the drop is identical, down to the
+	// waiting and the paste — only the directory the tab is rooted at differs.
+	worktree bool
+	label    string
+	desc     string
 }
 
 // dropMode is the per-drop submit choice.
@@ -117,6 +122,12 @@ type pendingAction struct {
 	// holds no store to resolve them itself. Already filtered to files that
 	// exist (see store.imagePaths).
 	images []string
+	// anchorPane is the manager's own pane id (0 when unresolved), naming the
+	// repo a worktree drop branches from — worktree.create reads the addressed
+	// pane's working directory. Captured at dispatch alongside cwd, and for the
+	// same reason: the drop goroutine holds no RunContext. Only a worktree
+	// target reads it.
+	anchorPane uint32
 }
 
 // dropResultMsg reports the outcome of an asynchronous drop back to the Update
@@ -1650,18 +1661,28 @@ var newSessionAgents = []struct {
 	{command: "copilot", label: "＋ New GitHub Copilot session", needsPath: true},
 }
 
-// buildTargets assembles the drop destinations: a new session per known agent
-// (see newSessionAgents), a new session for every other agent currently running
-// somewhere (if it's running, its command is installed), plus every agent pane
-// cats reports (Claude panes first), excluding our own. Pane agent identity and
-// cwd come straight from pane.list's runtime metadata; the workspace a pane
-// lives in is the "w1" prefix of its handle, labeled via workspace.list.
+// buildTargets assembles the drop destinations, in the order the picker shows
+// them: a new session per known agent (see newSessionAgents), a new session for
+// every other agent currently running somewhere (if it's running, its command
+// is installed), the same set again on a fresh git worktree when the project is
+// a repo, plus every agent pane cats reports (Claude panes first), excluding our
+// own. Pane agent identity and cwd come straight from pane.list's runtime
+// metadata; the workspace a pane lives in is the "w1" prefix of its handle,
+// labeled via workspace.list.
+//
+// The two new-session flavours are emitted as two blocks rather than
+// interleaved per agent, so the second block reads as one answer to one
+// question ("somewhere isolated, instead") and the default highlight stays on
+// the plain first row.
 func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 	wsLabel := firstNonEmpty(m.ctx.WorkspaceLabel, baseName(m.ctx.projectDir()), "the current workspace")
 
-	// seenAgent doubles as the dedupe set for the running-agent scan below, so a
-	// running copilot doesn't earn a second "＋ New copilot session" row.
-	var targets []dropTarget
+	// The launchable agents, gathered before any row is built so the worktree
+	// block can mirror the plain one exactly. seenAgent doubles as the dedupe
+	// set for the running-agent scan below, so a running copilot doesn't earn a
+	// second "＋ New copilot session" row.
+	type newAgent struct{ command, label string }
+	var newAgents []newAgent
 	seenAgent := map[string]bool{}
 	for _, a := range newSessionAgents {
 		if a.needsPath {
@@ -1670,17 +1691,14 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 			}
 		}
 		seenAgent[a.command] = true
-		targets = append(targets, dropTarget{
-			kind:    targetNewSession,
-			command: a.command,
-			label:   a.label,
-			desc:    "open a new tab in " + wsLabel + " and launch " + a.command,
-		})
+		newAgents = append(newAgents, newAgent{command: a.command, label: a.label})
 	}
 
+	// panes is nil when there is no socket (or the call fails), which is what
+	// degrades the picker to the new-session rows alone.
+	var agents []app.PaneInfo
 	if m.client != nil {
 		if panes, err := m.client.paneList(); err == nil {
-			var agents []app.PaneInfo
 			for _, p := range panes {
 				if p.Agent == "" || isOwnPane(m.ctx, p) {
 					continue
@@ -1698,40 +1716,65 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 					continue
 				}
 				seenAgent[p.Agent] = true
-				targets = append(targets, dropTarget{
-					kind:    targetNewSession,
-					command: p.Agent,
-					label:   "＋ New " + p.Agent + " session",
-					desc:    "open a new tab in " + wsLabel + " and launch " + p.Agent,
-				})
+				newAgents = append(newAgents, newAgent{command: p.Agent, label: "＋ New " + p.Agent + " session"})
 			}
+		}
+	}
 
-			wsLabels := map[string]string{}
-			if labels, err := m.client.workspaceLabels(); err == nil {
-				wsLabels = labels
+	var targets []dropTarget
+	for _, a := range newAgents {
+		targets = append(targets, dropTarget{
+			kind:    targetNewSession,
+			command: a.command,
+			label:   a.label,
+			desc:    "open a new tab in " + wsLabel + " and launch " + a.command,
+		})
+	}
+
+	// The worktree block, offered only where there is something to branch from.
+	// Not gated on the socket, for the same reason the plain rows above are not:
+	// startDrop refuses to open the picker at all without one.
+	if repo := gitRepoRoot(m.ctx.projectDir()); repo != "" {
+		for _, a := range newAgents {
+			targets = append(targets, dropTarget{
+				kind:     targetNewSession,
+				command:  a.command,
+				worktree: true,
+				label:    a.label + " on a new worktree",
+				desc: "branch " + baseName(repo) + " into a fresh checkout, open it as a workspace, and launch " +
+					a.command + " there",
+			})
+		}
+	}
+
+	// The running-pane block. agents is empty without a socket, so the
+	// workspace.list call below is only reached when there is something to label.
+	if len(agents) > 0 {
+		wsLabels := map[string]string{}
+		if labels, err := m.client.workspaceLabels(); err == nil {
+			wsLabels = labels
+		}
+		for _, p := range agents {
+			wsID := paneWorkspaceID(p)
+			loc := firstNonEmpty(wsLabels[wsID], baseName(p.Cwd))
+			here := ""
+			if wsID != "" && wsID == m.ctx.WorkspaceID {
+				here = " (this project)"
 			}
-			for _, p := range agents {
-				wsID := paneWorkspaceID(p)
-				loc := firstNonEmpty(wsLabels[wsID], baseName(p.Cwd))
-				here := ""
-				if wsID != "" && wsID == m.ctx.WorkspaceID {
-					here = " (this project)"
-				}
-				// Surface the agent's live state ("working", "idle", …) with its
-				// location — picking an idle session over a busy one is usually
-				// the point of the choice.
-				desc := p.Cwd
-				if p.AgentState != "" {
-					desc = "[" + p.AgentState + "] " + desc
-				}
-				targets = append(targets, dropTarget{
-					kind:  targetExistingPane,
-					pane:  p.Pane,
-					agent: p.Agent,
-					label: fmt.Sprintf("%s · %s%s", p.Agent, firstNonEmpty(loc, "session"), here),
-					desc:  desc,
-				})
+			// Surface the agent's live state ("working", "idle", …) with its
+			// location — picking an idle session over a busy one is usually
+			// the point of the choice.
+			desc := p.Cwd
+			if p.AgentState != "" {
+				desc = "[" + p.AgentState + "] " + desc
 			}
+			targets = append(targets, dropTarget{
+				kind:  targetExistingPane,
+				pane:  p.Pane,
+				agent: p.Agent,
+				label: fmt.Sprintf("%s · %s%s", p.Agent, firstNonEmpty(loc, "session"), here),
+				desc:  desc,
+			})
 		}
 	}
 
@@ -1796,11 +1839,12 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 	m.backToList()
 	m.setStatus("dropping into "+targetDesc(target)+"…", false)
 	return m, m.performDropCmd(m.dropTodo, pendingAction{
-		todo:   td,
-		target: target,
-		mode:   mode,
-		cwd:    m.ctx.projectDir(),
-		images: m.storeFor(m.dropTodo.scope).imagePaths(td),
+		todo:       td,
+		target:     target,
+		mode:       mode,
+		cwd:        m.ctx.projectDir(),
+		images:     m.storeFor(m.dropTodo.scope).imagePaths(td),
+		anchorPane: m.ctx.OwnPaneID,
 	})
 }
 
@@ -1822,10 +1866,16 @@ func (m model) performDropCmd(ref todoRef, act pendingAction) tea.Cmd {
 // "dropping…" / "dropped →" status lines.
 func targetDesc(t dropTarget) string {
 	if t.kind == targetNewSession {
+		name := "new Claude Code session"
 		if t.command != "" && t.command != "claude" {
-			return "new " + t.command + " session"
+			name = "new " + t.command + " session"
 		}
-		return "new Claude Code session"
+		if t.worktree {
+			// Worth spelling out in the status line: this drop is about to make
+			// a branch and a checkout, which the plain flavour never does.
+			name += " on a new worktree"
+		}
+		return name
 	}
 	return firstNonEmpty(t.agent, "session")
 }
@@ -2060,6 +2110,10 @@ func (m model) performScheduledDropCmd(ref todoRef, sc Schedule, td Todo) tea.Cm
 		mode:   dropRun,
 		cwd:    sc.Cwd,
 		images: m.storeFor(ref.scope).imagePaths(td),
+		// Read from the live context, not the schedule: the anchor names a pane
+		// that has to exist *now* (this one), where every other field of a
+		// schedule describes what was chosen back then.
+		anchorPane: m.ctx.OwnPaneID,
 	}
 	desc := targetDesc(act.target)
 	return func() tea.Msg {

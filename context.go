@@ -37,6 +37,13 @@ type RunContext struct {
 	OwnPane        string // CATS_PANE_ID handle: "w1:p3", or the "p_<id>" fallback
 	WorkspaceID    string // public workspace id ("w1")
 	WorkspaceLabel string
+	// OwnPaneID is the manager pane's numeric cats id, 0 when unresolved. The
+	// handle above is what the picker compares panes against, but the control
+	// API addresses panes by number, and a worktree drop has to name the pane it
+	// anchors on: worktree.create resolves the repo from the addressed pane's
+	// working directory and defaults to the *focused* pane — which, during an
+	// unattended scheduled fire, is wherever the user happens to be looking.
+	OwnPaneID uint32
 	// Scope is the launch's backlog selection (--project / --global). The
 	// bare launch shows both backlogs merged; the only-modes exist for the
 	// plugins dialog, whose two actions promise a *project* view and a
@@ -196,7 +203,36 @@ func gatherRunContext(client *catsClient, scope launchScope) RunContext {
 	if labels, err := client.workspaceLabels(); err == nil {
 		ctx.WorkspaceLabel = labels[ctx.WorkspaceID]
 	}
+	ctx.OwnPaneID = resolveOwnPaneID(client, ctx)
 	return ctx
+}
+
+// resolveOwnPaneID turns the CATS_PANE_ID handle into the numeric pane id the
+// control API addresses (see RunContext.OwnPaneID), or 0 when it cannot.
+//
+// The "p_<id>" fallback form embeds the number already, so it costs nothing.
+// The public "w1:p3" handle does not, and only pane.list maps one to the other
+// — hence the round trip, done once at startup rather than per drop, since a
+// pane's id is fixed for its lifetime and this is our own pane.
+func resolveOwnPaneID(client *catsClient, ctx RunContext) uint32 {
+	if raw, ok := strings.CutPrefix(ctx.OwnPane, "p_"); ok {
+		if n, err := strconv.ParseUint(raw, 10, 32); err == nil {
+			return uint32(n)
+		}
+	}
+	if client == nil || ctx.OwnPane == "" {
+		return 0
+	}
+	panes, err := client.paneList()
+	if err != nil {
+		return 0
+	}
+	for _, p := range panes {
+		if isOwnPane(ctx, p) {
+			return p.Pane
+		}
+	}
+	return 0
 }
 
 // isOwnPane reports whether p is the pane this manager runs in, matching both

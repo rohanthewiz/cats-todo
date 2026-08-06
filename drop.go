@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rohanthewiz/cats-todo/internal/app"
 )
@@ -121,6 +122,11 @@ func paneExists(panes []app.PaneInfo, id uint32) bool {
 //
 // tab.create returns the new tab's root pane id and leaves the tab focused, so
 // there is no workspace resolution or pane discovery step — create, then drive.
+//
+// A worktree target inserts one step ahead of all that: cut a checkout, and
+// root the tab there instead (see dropWorktree). Everything downstream is
+// unchanged, which is the point — the isolation is a property of the directory
+// the agent starts in, not of how the prompt is delivered.
 func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) error {
 	command := firstNonEmpty(act.target.command, "claude")
 	label := command
@@ -128,12 +134,57 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) er
 		label = command + ": " + truncate(t, 18)
 	}
 
+	cwd := act.cwd
+	if act.target.worktree {
+		path, err := dropWorktree(client, act)
+		if err != nil {
+			return err
+		}
+		cwd = path
+	}
+
 	// Fields, not a shell: the command is an agent name (possibly with flags),
 	// and tab.create execs the argv directly.
-	_, pane, err := client.tabCreate(act.cwd, label, strings.Fields(command))
+	_, pane, err := client.tabCreate(cwd, label, strings.Fields(command))
 	if err != nil {
 		return err
 	}
 	client.waitForAgentReady(pane, command)
 	return client.sendInput(pane, prompt, act.mode == dropRun)
+}
+
+// dropWorktree cuts the checkout a worktree drop lands in and returns its path.
+//
+// The whole of the git work happens server-side (worktree.create: `git worktree
+// add -b <branch>` off the anchoring pane's repo at HEAD, then a new workspace
+// created, focused and named after the branch). Two consequences shape what
+// follows this call:
+//
+//   - The new workspace is already active, so the tab.create that comes next
+//     lands in it with no workspace argument to pass — the same "create, then
+//     drive" flow an ordinary new-session drop uses. It also arrives with one
+//     shell pane of its own, which is the workspace's minimum and a useful
+//     thing to have next to an agent working a branch.
+//   - The returned path is a real directory, so it is passed to tab.create
+//     explicitly rather than relying on the workspace's identity cwd. A tab
+//     rooted anywhere else would defeat the entire exercise, so this is the one
+//     value in the flow worth being literal about.
+//
+// A failure here aborts the drop rather than falling back to the project
+// checkout: choosing "on a new worktree" is choosing isolation, and quietly
+// starting an agent in the shared tree instead is precisely the outcome the
+// user asked to avoid.
+func dropWorktree(client *catsClient, act pendingAction) (string, error) {
+	branch := todoBranchName(act.todo, time.Now().UnixMicro())
+	res, err := client.worktreeCreate(act.anchorPane, branch)
+	if err != nil {
+		return "", fmt.Errorf("creating the worktree: %w", err)
+	}
+	if res.Path == "" {
+		// Defensive: a server that reported success without a checkout path
+		// leaves us nothing to root the tab at, and tab.create would silently
+		// fall back to the workspace default.
+		return "", errors.New("cats created the worktree but reported no path")
+	}
+	return res.Path, nil
 }

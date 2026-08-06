@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +126,32 @@ func TestScheduleTargetRoundTrip(t *testing.T) {
 		sc := scheduleFromTarget(dropTarget{kind: targetNewSession}, at, "")
 		if sc.Command != "claude" {
 			t.Fatalf("Command = %q, want the claude default", sc.Command)
+		}
+	})
+
+	t.Run("new session on a worktree", func(t *testing.T) {
+		// The flag has to survive the round trip on its own: a scheduled
+		// worktree drop that came back as a plain one would launch the agent in
+		// the shared checkout — the exact thing the target was chosen to avoid.
+		in := dropTarget{kind: targetNewSession, command: "claude", worktree: true}
+		sc := scheduleFromTarget(in, at, "/tmp/proj")
+		if !sc.Worktree {
+			t.Fatalf("scheduleFromTarget = %+v, lost the worktree choice", sc)
+		}
+		if out := targetFromSchedule(sc); !out.worktree {
+			t.Fatalf("targetFromSchedule = %+v, lost the worktree choice", out)
+		}
+	})
+
+	t.Run("a plain new session stays out of the JSON", func(t *testing.T) {
+		// The omitempty compat contract: an unscheduled-for-worktree backlog
+		// must read exactly as it did before the field existed.
+		raw, err := json.Marshal(scheduleFromTarget(dropTarget{kind: targetNewSession}, at, "/tmp/proj"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "worktree") {
+			t.Fatalf("schedule JSON = %s, want no worktree key when the flag is off", raw)
 		}
 	})
 }

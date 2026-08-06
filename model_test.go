@@ -729,6 +729,64 @@ func TestBuildTargetsOffersCopilot(t *testing.T) {
 	})
 }
 
+// TestBuildTargetsOffersWorktrees pins the second new-session block: one
+// worktree row per launchable agent, but only where there is a repo to branch
+// from, and never ahead of the plain rows (the default highlight must stay on
+// "New Claude Code session" — the drop that makes no branch).
+func TestBuildTargetsOffersWorktrees(t *testing.T) {
+	// Keep the agent set to claude alone so the row counts below are about the
+	// two flavours and not about what happens to be installed on the machine.
+	t.Setenv("PATH", t.TempDir())
+
+	t.Run("outside a repo there is nothing to branch", func(t *testing.T) {
+		m, _, _ := newModelInTemp(t)
+		targets, _ := m.buildTargets()
+		for _, tg := range targets {
+			if tg.worktree {
+				t.Fatalf("targets = %+v, want no worktree rows outside a repo", targets)
+			}
+		}
+	})
+
+	t.Run("inside a repo, one worktree row per agent", func(t *testing.T) {
+		m, _, _ := newModelInTemp(t)
+		mkdir(t, filepath.Join(m.ctx.WorkDir, ".git"))
+
+		targets, list := m.buildTargets()
+		if len(targets) != 2 {
+			t.Fatalf("targets = %+v, want the plain claude row and its worktree twin", targets)
+		}
+		if targets[0].worktree {
+			t.Errorf("the first row is a worktree row; the plain drop must stay the default")
+		}
+		wt := targets[1]
+		if !wt.worktree || wt.kind != targetNewSession || wt.command != "claude" {
+			t.Fatalf("worktree row = %+v, want a claude new-session target with the flag set", wt)
+		}
+		if !strings.Contains(wt.label, "worktree") {
+			t.Errorf("worktree row label = %q, want it to say so", wt.label)
+		}
+		if !strings.Contains(wt.desc, baseName(m.ctx.WorkDir)) {
+			t.Errorf("worktree row desc = %q, want the repo it branches from", wt.desc)
+		}
+		if idx := list.selectedIndex(); idx != 0 {
+			t.Errorf("default selection = %d, want the plain claude row", idx)
+		}
+	})
+
+	t.Run("found from a subdirectory of the repo", func(t *testing.T) {
+		// The backlog can live below the repo root; the branch point is still
+		// the repo, so the rows must still be offered.
+		m, _, _ := newModelInTemp(t)
+		mkdir(t, filepath.Join(filepath.Dir(m.ctx.WorkDir), ".git"))
+
+		targets, _ := m.buildTargets()
+		if len(targets) != 2 || !targets[1].worktree {
+			t.Fatalf("targets = %+v, want a worktree row from inside the repo", targets)
+		}
+	})
+}
+
 // TestTargetDesc covers the short destination labels used in the status line.
 func TestTargetDesc(t *testing.T) {
 	if got := targetDesc(dropTarget{kind: targetNewSession}); got != "new Claude Code session" {
@@ -739,6 +797,13 @@ func TestTargetDesc(t *testing.T) {
 	}
 	if got := targetDesc(dropTarget{kind: targetExistingPane}); got != "session" {
 		t.Errorf("agentless existing-pane desc = %q, want the 'session' fallback", got)
+	}
+	// A drop that is about to cut a branch says so in the status line.
+	if got := targetDesc(dropTarget{kind: targetNewSession, worktree: true}); got != "new Claude Code session on a new worktree" {
+		t.Errorf("worktree new-session desc = %q", got)
+	}
+	if got := targetDesc(dropTarget{kind: targetNewSession, command: "codex", worktree: true}); got != "new codex session on a new worktree" {
+		t.Errorf("worktree codex desc = %q", got)
 	}
 }
 

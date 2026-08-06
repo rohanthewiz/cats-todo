@@ -63,6 +63,13 @@ type Schedule struct {
 	// schedule time because the fire happens with no form on screen to ask.
 	Command string `json:"command,omitempty"`
 	Cwd     string `json:"cwd,omitempty"`
+	// Worktree marks a new-session target that cuts a fresh git checkout to
+	// launch in (see worktree.go). Recorded rather than resolved at schedule
+	// time: the branch is named and the checkout made when the drop fires, so
+	// it branches off HEAD as it stands then, not hours earlier. Same compat
+	// contract as the fields above — omitted when false, so an older binary
+	// reads the schedule as the plain new-session drop it otherwise is.
+	Worktree bool `json:"worktree,omitempty"`
 	// Missed marks a schedule that came due when it couldn't fire — the
 	// manager was closed past the grace window, the pane was gone, the drop
 	// failed. The tick skips it, the row shows it, and sending by hand (which

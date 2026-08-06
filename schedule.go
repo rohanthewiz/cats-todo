@@ -136,6 +136,7 @@ func scheduleFromTarget(t dropTarget, at time.Time, cwd string) Schedule {
 	sc.Kind = scheduleKindNew
 	sc.Command = firstNonEmpty(t.command, "claude")
 	sc.Cwd = cwd
+	sc.Worktree = t.worktree
 	return sc
 }
 
@@ -146,5 +147,9 @@ func targetFromSchedule(sc Schedule) dropTarget {
 	if sc.Kind == scheduleKindPane {
 		return dropTarget{kind: targetExistingPane, pane: sc.Pane, agent: sc.Agent}
 	}
-	return dropTarget{kind: targetNewSession, command: firstNonEmpty(sc.Command, "claude")}
+	return dropTarget{
+		kind:     targetNewSession,
+		command:  firstNonEmpty(sc.Command, "claude"),
+		worktree: sc.Worktree,
+	}
 }
