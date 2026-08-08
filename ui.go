@@ -490,8 +490,8 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateMouse routes a click to whatever the stage draws as clickable: the
-// action bar on the list, a target row in the drop picker. Everything else
-// ignores the pointer.
+// action bar on the list, a target row in the drop picker, the fields and the
+// toolbar on the form. Everything else ignores the pointer.
 //
 // A click always moves the keyboard's place onto what was clicked before acting,
 // so the two ways in leave the manager in the same state — the pointer puts the
@@ -515,6 +515,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.clickRow(msg)
 	case stageTarget:
 		return m.clickTarget(msg)
+	case stageForm:
+		return m.clickForm(msg)
 	}
 	return m, nil
 }
@@ -587,6 +589,218 @@ func (m model) clickTarget(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.chooseTarget(dropPaste)
+}
+
+// clickForm is the pointer on the edit form: a click in either field puts the
+// keys — and the caret — where it landed, a click on a label focuses that field
+// without disturbing its caret, and a click on the toolbar presses a button.
+//
+// The form is the one screen where the pointer earns the terminal's own
+// click-drag selection (see View): every other stage is a list, where the
+// gesture is "pick a thing", but a prompt being written is a body of text whose
+// caret has to be placeable at a word in the middle of it without walking there
+// one key at a time.
+func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Y == formTitleLabelRow:
+		return m, m.focusForm(formFieldTitle)
+	case msg.Y == formTitleRow:
+		cmd := m.focusForm(formFieldTitle)
+		m.placeTitleCursor(msg.X)
+		return m, cmd
+	case msg.Y == formPromptLabelRow:
+		return m, m.focusForm(formFieldPrompt)
+	case msg.Y >= formPromptRow && msg.Y < formPromptRow+m.promptArea.Height():
+		cmd := m.focusForm(formFieldPrompt)
+		m.placePromptCursor(msg.X, msg.Y-formPromptRow)
+		return m, cmd
+	case msg.Y == m.formBarRow():
+		return m.clickFormBar(msg)
+	}
+	return m, nil
+}
+
+// placeTitleCursor drops the title field's caret on the column that was clicked.
+// The field's own prompt is empty (see newFormInputs), so it starts at column 0
+// of its row and the click's X is a column of the value itself.
+//
+// A title too long for the field scrolls sideways inside it, and bubbles keeps
+// that horizontal offset private — so on a scrolled field the click only takes
+// the focus and the caret stays where it was. Moving it to a column computed
+// from the wrong origin would put it somewhere the user did not point at, and a
+// caret in the wrong place is worse than one that didn't move.
+func (m *model) placeTitleCursor(x int) {
+	runes := []rune(m.titleInput.Value())
+	if lipgloss.Width(string(runes)) > m.titleInput.Width() {
+		return
+	}
+	m.titleInput.SetCursor(colAtWidth(runes, x))
+}
+
+// colAtWidth turns a cell offset into a rune index in runes: the index of the
+// character the offset falls on, clamped to the end of the line. Widths are
+// added up rather than counted so a click lands on the same character the eye
+// picked even on a line holding double-width glyphs.
+func colAtWidth(runes []rune, x int) int {
+	if x <= 0 {
+		return 0
+	}
+	w := 0
+	for i, r := range runes {
+		rw := lipgloss.Width(string(r))
+		if w+rw > x {
+			return i
+		}
+		w += rw
+	}
+	return len(runes)
+}
+
+// promptLine identifies one display line of the prompt editor: the logical row
+// it belongs to, and the column of the value that row's soft-wrapped segment
+// starts at. The pair is what a textarea.LineInfo reports for any caret sitting
+// on that line, so it is the key a click's screen row is resolved through.
+type promptLine struct {
+	row, startCol int
+}
+
+// promptLines maps the prompt editor's value to its display lines, in order:
+// the slice is display-line index → line, and the map is the inverse.
+//
+// The textarea soft-wraps, so a display line is not a logical line and the
+// mapping cannot be computed from the value alone without reimplementing the
+// library's private word-wrap. It is measured instead: a copy of the model is
+// walked from the top with the library's own line motion, one display line per
+// step, until stepping stops moving.
+//
+// The copy shares the model's viewport pointer, so the walk scrolls the real
+// editor — placePromptCursor is what puts the scroll back, and is the only
+// caller for that reason. Everything else the walk touches (the caret's row and
+// column) lives in the copy.
+func promptLines(ta textarea.Model) ([]promptLine, map[promptLine]int) {
+	lines := make([]promptLine, 0, ta.LineCount())
+	index := make(map[promptLine]int, ta.LineCount())
+	probe := ta
+	probe.MoveToBegin()
+	// maxLines in the library is 10000; the same order of magnitude here is a
+	// backstop for a walk that somehow neither advances nor repeats, not a limit
+	// any real prompt reaches.
+	for range 20000 {
+		key := promptLine{probe.Line(), probe.LineInfo().StartColumn}
+		if _, seen := index[key]; seen {
+			break // the walk stopped moving: the end of the value
+		}
+		index[key] = len(lines)
+		lines = append(lines, key)
+		probe.CursorDown()
+	}
+	return lines, index
+}
+
+// stepPromptTo walks the editor's caret to display line want, one line at a
+// time. The step count is not trusted: after every move the caret's own
+// LineInfo is looked up in the index, so an off-by-one in the library's wrap
+// arithmetic costs a wasted step rather than a caret on the wrong line. A move
+// that fails to change the line gives up instead of spinning.
+func stepPromptTo(ta *textarea.Model, index map[promptLine]int, want int) {
+	at := func() int {
+		i, ok := index[promptLine{ta.Line(), ta.LineInfo().StartColumn}]
+		if !ok {
+			return -1
+		}
+		return i
+	}
+	for range len(index) + 1 {
+		cur := at()
+		if cur < 0 || cur == want {
+			return
+		}
+		if cur < want {
+			ta.CursorDown()
+		} else {
+			ta.CursorUp()
+		}
+		if at() == cur {
+			return
+		}
+	}
+}
+
+// placePromptCursor moves the prompt editor's caret to the character the pointer
+// landed on: row is the clicked line counted from the top of the editor's box,
+// x its column on the screen.
+//
+// The textarea has no notion of a click, and the two things a mapping needs —
+// which display line the caret is on, and how to jump to another — are private
+// (cursorLineNumber, setCursorLineRelative). What is public is one-line-at-a-
+// time motion, so the caret is walked there through the display-line table:
+//
+//	         ┌─ the value, in display lines ──┐
+//	   0     │ ...                            │  above the viewport
+//	  y0 ───▶│ first visible line             │  ScrollYOffset
+//	         │ ...                            │
+//	   d ───▶│ the clicked line               │  y0 + row
+//	         │ ...                            │
+//	last ───▶│ ...                            │
+//
+// The scroll has to come out of this where it went in, because the click was
+// aimed at what is on screen now. Two things move it: building the table (which
+// walks to the bottom, leaving the view scrolled there), and the caret itself,
+// since the library scrolls to keep it visible. That second behaviour is also
+// the lever back: a caret arriving from below lands the view exactly on its own
+// line, so stepping to the bottom and then up to y0 restores the offset, and the
+// remaining steps down to d stay inside the viewport and move nothing.
+func (m *model) placePromptCursor(x, row int) {
+	y0 := m.promptArea.ScrollYOffset() // before the table walk scrolls it away
+	lines, index := promptLines(m.promptArea)
+	if len(lines) == 0 {
+		return
+	}
+	last := len(lines) - 1
+	y0 = min(y0, last) // a value shortened since the last scroll
+	d := min(y0+max(row, 0), last)
+
+	stepPromptTo(&m.promptArea, index, last)
+	stepPromptTo(&m.promptArea, index, y0)
+	stepPromptTo(&m.promptArea, index, d)
+
+	// The caret is on the right line; the column is the clicked cell measured
+	// from the first character of that line, which sits one gutter in (the
+	// textarea's own prompt, "┃ ").
+	li := m.promptArea.LineInfo()
+	rowRunes := promptRowRunes(m.promptArea)
+	start := min(li.StartColumn, len(rowRunes))
+	avail := min(li.Width, len(rowRunes)-start)
+	// A soft-wrapped line ends with the space the wrap ate. Clicking off the end
+	// of one means "after the last word", not "the first column of the next
+	// line", so the reachable run stops one short of that space. The last line
+	// of a logical row has no such space and keeps its whole length, which is
+	// what lets a click past the end of a paragraph land at the end of it.
+	if li.RowOffset+1 < li.Height && avail > 0 {
+		avail--
+	}
+	seg := rowRunes[start : start+max(avail, 0)]
+	m.promptArea.SetCursorColumn(start + colAtWidth(seg, x-promptGutterWidth(m.promptArea)))
+}
+
+// promptRowRunes is the logical line the prompt editor's caret sits on. The
+// textarea exposes its value only as a whole string, so the row is cut out of
+// it here.
+func promptRowRunes(ta textarea.Model) []rune {
+	lines := strings.Split(ta.Value(), "\n")
+	if r := ta.Line(); r >= 0 && r < len(lines) {
+		return []rune(lines[r])
+	}
+	return nil
+}
+
+// promptGutterWidth is how many columns the editor draws before the first
+// character of a line: its prompt ("┃ " by default), which the form leaves
+// alone. Line numbers are off (see newFormInputs), so there is nothing else in
+// front of the text. Measured rather than hardcoded so a change to the prompt
+// can't quietly aim every click two columns off.
+func promptGutterWidth(ta textarea.Model) int {
+	return lipgloss.Width(ta.Prompt)
 }
 
 // listAction is one button in the action bar under the filter. Every button
@@ -1037,9 +1251,8 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	m.titleInput, m.promptArea = m.newFormInputs("", "")
 	m.formImages, m.formImagesOrig = nil, nil
 	m.discardClipboardCaptures()
-	m.formFocus = 1 // start in the prompt — that's the point of an entry
-	m.titleInput.Blur()
-	cmd := m.promptArea.Focus()
+	// Start in the prompt — that's the point of an entry.
+	cmd := m.focusForm(formFieldPrompt)
 	m.formErr = ""
 	m.stage = stageForm
 	return m, cmd
@@ -1067,13 +1280,18 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.formImages = m.newFormImages(ref.scope, td)
 	m.formImagesOrig = td.Images
 	m.discardClipboardCaptures()
-	m.formFocus = 1
-	m.titleInput.Blur()
-	cmd := m.promptArea.Focus()
+	cmd := m.focusForm(formFieldPrompt)
 	m.formErr = ""
 	m.stage = stageForm
 	return m, cmd
 }
+
+// formChromeHeight is how many lines the form spends on everything that isn't
+// the prompt editor, so the editor gets the rest: the six above it (see
+// formPromptRow), then the attachment note, the toolbar, an error line, a blank,
+// and the footer — eleven — plus two of slack for a footer that needs a second
+// line in a narrow pane.
+const formChromeHeight = 13
 
 // newFormInputs builds the title field and prompt editor, sized to the screen
 // and pre-filled with the given values.
@@ -1107,7 +1325,7 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 	}
 	ti.SetWidth(w)
 	ta.SetWidth(w)
-	h := m.height - 12
+	h := m.height - formChromeHeight
 	if h < 4 {
 		h = 8
 	}
@@ -1121,12 +1339,7 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "esc":
-		// Abandoning the form abandons its clipboard captures with it: their temp
-		// files exist only because this form was open.
-		m.discardClipboardCaptures()
-		m.backToList()
-		m.formErr = ""
-		return m, nil
+		return m.cancelForm()
 	case "enter":
 		// Enter saves from either field. The prompt area's newline lives on
 		// modifier+enter instead (see newFormInputs, which rebinds the
@@ -1161,20 +1374,50 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.forwardForm(msg)
 }
 
-func (m model) toggleFormFocus() (tea.Model, tea.Cmd) {
-	if m.formFocus == 0 {
-		m.formFocus = 1
-		m.titleInput.Blur()
-		return m, m.promptArea.Focus()
+// cancelForm leaves the form without saving — esc, and the toolbar's ✖ Cancel.
+// Abandoning the form abandons its clipboard captures with it: their temp files
+// exist only because this form was open.
+func (m model) cancelForm() (tea.Model, tea.Cmd) {
+	m.discardClipboardCaptures()
+	m.backToList()
+	m.formErr = ""
+	return m, nil
+}
+
+// The two fields of the form, in tab order — the values m.formFocus holds.
+const (
+	formFieldTitle = iota
+	formFieldPrompt
+)
+
+// focusForm puts the keys on one field and takes them off the other, returning
+// that field's cursor-blink command. It is idempotent by design: focusing the
+// field that already holds the keys still restarts its blink, which is what a
+// click inside it should do.
+func (m *model) focusForm(field int) tea.Cmd {
+	m.formFocus = field
+	if field == formFieldTitle {
+		m.promptArea.Blur()
+		return m.titleInput.Focus()
 	}
-	m.formFocus = 0
-	m.promptArea.Blur()
-	return m, m.titleInput.Focus()
+	m.titleInput.Blur()
+	return m.promptArea.Focus()
+}
+
+func (m model) toggleFormFocus() (tea.Model, tea.Cmd) {
+	next := formFieldTitle
+	if m.formFocus == formFieldTitle {
+		next = formFieldPrompt
+	}
+	// The command is taken before m is returned: a returned value is a copy, and
+	// taking it first would hand back the model as it was before the focus moved.
+	cmd := m.focusForm(next)
+	return m, cmd
 }
 
 func (m model) forwardForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	if m.formFocus == 0 {
+	if m.formFocus == formFieldTitle {
 		m.titleInput, cmd = m.titleInput.Update(msg)
 	} else {
 		m.promptArea, cmd = m.promptArea.Update(msg)
@@ -1229,7 +1472,7 @@ func (m *model) setImgStatus(s string, isErr bool) {
 func (m model) closeImages() (tea.Model, tea.Cmd) {
 	m.setImgStatus("", false)
 	m.stage = stageForm
-	if m.formFocus == 0 {
+	if m.formFocus == formFieldTitle {
 		return m, m.titleInput.Focus()
 	}
 	return m, m.promptArea.Focus()
@@ -2269,10 +2512,11 @@ func (m model) View() tea.View {
 	// Mouse reporting is asked for only where there is something to click. It
 	// isn't free: while it is on, a drag belongs to this program rather than to
 	// the terminal, so the pane's own click-to-select stops working. The list
-	// stage pays that for the action bar and the picker for its target rows;
-	// the prompt view — the one screen whose whole point is text worth copying
-	// out — keeps its selection.
-	if m.stage == stageList || m.stage == stageTarget {
+	// stage pays that for the action bar, the picker for its target rows, and the
+	// form for placing the caret in a prompt being written; the prompt view — the
+	// one screen whose whole point is text worth copying out — keeps its
+	// selection.
+	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -2749,6 +2993,28 @@ const actionBarRow = 2
 // TestListRowsMatchWhatIsDrawn holds it to the frame.
 const listRowsRow = actionBarRow + 1
 
+// The form's fixed rows, counting from the top of that view: the heading (0), a
+// blank (1), the Title label (2), the title field (3), a blank (4), the Prompt
+// label (5), then the prompt editor. Every one of those is exactly one line, so
+// a click's Y is compared against these constants instead of the view being
+// re-measured. TestFormRowsMatchWhatIsDrawn finds each of them in the rendered
+// frame and fails if the layout ever grows a line.
+//
+// Everything below the editor moves with its height, so those rows are computed
+// (see formBarRow) rather than named here.
+const (
+	formTitleLabelRow  = 2
+	formTitleRow       = 3
+	formPromptLabelRow = 5
+	formPromptRow      = 6
+)
+
+// formBarRow is the line the form's toolbar sits on: under the editor, with the
+// attachment note on the one line between them.
+func (m model) formBarRow() int {
+	return formPromptRow + m.promptArea.Height() + 1
+}
+
 // targetRowsRow is the first line the drop picker's target rows are drawn on,
 // counting from the top of that view: the heading (0), a blank (1), the filter
 // line (2), a blank (3), then the rows. The picker draws no action bar, so the
@@ -2776,8 +3042,15 @@ func (m model) viewForm() string {
 
 	// The attachment line is always shown, empty or not: an attachment editor
 	// nobody knows about is one nobody uses, and "none" is also the answer to
-	// "did my screenshot make it in".
-	b.WriteString(descStyle.Render("📎 " + firstNonEmpty(m.imageCountNote(), "no images") + " — ctrl+o to attach"))
+	// "did my screenshot make it in". It no longer names ctrl+o — the toolbar's
+	// ❐ Images chip, one line below, says that and is clickable besides.
+	b.WriteString(descStyle.Render("📎 " + firstNonEmpty(m.imageCountNote(), "no images")))
+	b.WriteString("\n")
+
+	// The toolbar sits directly under the editor and above the error line, so its
+	// row is a function of the editor's height alone (see formBarRow) — a failed
+	// save must not move the buttons out from under the pointer.
+	b.WriteString(m.formBar())
 	b.WriteString("\n")
 
 	if m.formErr != "" {
@@ -2786,14 +3059,177 @@ func (m model) viewForm() string {
 	}
 
 	b.WriteString("\n")
-	help := "enter save · " + m.modEnter() + " newline · tab switch field · ctrl+o images · esc cancel"
-	// Advertise the scope toggle only when it works (see the ctrl+g handler):
-	// an only-mode launch pins the scope, so the hint would be a lie there.
-	if m.formMode == formAdd && m.project.available() && m.global.available() {
-		help = "enter save · " + m.modEnter() + " newline · tab switch · ctrl+o images · ctrl+g scope · esc cancel"
-	}
-	b.WriteString(footerStyle.Render(help))
+	b.WriteString(m.formFooter())
 	return b.String()
+}
+
+// formActions is the form's toolbar, in order. It reuses listAction: the two bars
+// are the same object — a labelled chip standing for a chord, tinted by
+// consequence — and needsSel simply has nothing to say here, since a form always
+// has something to act on.
+//
+// The order is the order a prompt's editing session ends: keep it, break the line
+// you are on, attach to it, throw it away. Save takes the accent because it is the
+// one button that writes to disk; Cancel keeps red as the only warning on the row.
+//
+// Every icon is a one-cell text dingbat, for the reason listActions gives: the
+// emoji forms measure as two columns but get drawn clipped at a cell edge, and no
+// layout width fixes a terminal's own rasteriser. ❐ is the dingbat squares' pick
+// for "images" — same font family as ✔ ✖, so the row stays one set.
+func (m model) formActions() []listAction {
+	return []listAction{
+		{label: "✔ Save", hint: "enter", tint: colAccent},
+		{label: "↵ Newline", hint: m.modEnter(), tint: colStraw},
+		{label: "❐ Images", hint: "ctrl+o", tint: colInfo},
+		{label: "✖ Cancel", hint: "esc", tint: colErr},
+	}
+}
+
+// Indexes into formActions — used by clickFormBar to name what it is dispatching.
+const (
+	formActionSave = iota
+	formActionNewline
+	formActionImages
+	formActionCancel
+)
+
+// formChips lays the toolbar out the way actionChips lays out the list's bar:
+// the chip contents, and the half-open column span each one occupies, so the
+// same description both draws the row and hit-tests it. The row starts at column
+// 0, where the heading and both fields start — the list's bar is indented to
+// clear its cursor gutter, and the form has none.
+func (m model) formChips() []actionChip {
+	acts := m.formActions()
+	withHints := m.formBarShowsHints()
+
+	chips := make([]actionChip, 0, len(acts))
+	x := 0
+	for i, a := range acts {
+		if i > 0 {
+			x++ // the space between chips
+		}
+		text := a.label
+		if withHints {
+			text = a.label + " " + a.hint
+		}
+		w := lipgloss.Width(btnStyle.Render(text))
+		chips = append(chips, actionChip{text: text, start: x, end: x + w})
+		x += w
+	}
+	return chips
+}
+
+// formBarShowsHints reports whether the toolbar is wide enough for every chip to
+// carry its chord. The footer keys off the same answer — chords the chips teach
+// stay off it, and the moment the chips go quiet the footer names them again.
+func (m model) formBarShowsHints() bool {
+	if m.width <= 0 {
+		return true
+	}
+	w := 0
+	for _, a := range m.formActions() {
+		w += lipgloss.Width(btnStyle.Render(a.label+" "+a.hint)) + 1
+	}
+	return w <= m.width
+}
+
+// formBar renders the toolbar. Every chip is live — unlike the list's bar there
+// is no such thing as a button with nothing to act on here — so each is drawn in
+// btnStyle with its own hue dropped into the letters, derived rather than nested
+// for the reason the list's bar gives.
+//
+// No chip carries a focus field: the form's tab ring is its two text fields, and
+// lighting a button the keyboard cannot reach would promise a stop that isn't
+// there. These are pointer targets that name their keys.
+func (m model) formBar() string {
+	acts := m.formActions()
+	var b strings.Builder
+	for i, c := range m.formChips() {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(btnStyle.Foreground(lipgloss.Color(acts[i].tint)).Render(c.text))
+	}
+	return b.String()
+}
+
+// clickFormBar presses the toolbar button under the pointer, if it is on one.
+// The gaps between chips are not buttons, so a miss does nothing.
+func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	for i, c := range m.formChips() {
+		if msg.X < c.start || msg.X >= c.end {
+			continue
+		}
+		switch i {
+		case formActionSave:
+			return m.saveForm()
+		case formActionNewline:
+			// A newline is an edit to the prompt, so the keys follow it there —
+			// pressing this from the title field would otherwise put a line break
+			// somewhere the user cannot see.
+			cmd := m.focusForm(formFieldPrompt)
+			m.promptArea.InsertString("\n")
+			return m, cmd
+		case formActionImages:
+			return m.beginImages()
+		case formActionCancel:
+			return m.cancelForm()
+		}
+	}
+	return m, nil
+}
+
+// formFooter is the dimmed help line under the toolbar. It teaches the caret
+// keys — the ones a text editor lives on and no chip can stand for, since they
+// act at the cursor rather than on the form — and leads with the pointer, which
+// is the whole reason the rest of the line is now optional.
+//
+// The chords the toolbar prints on its chips stay off it, for the reason
+// listFooter gives: a hint one line under a button that says exactly the same
+// thing taught nothing and cost a line of attention. In a pane too narrow for
+// chip hints the footer is the only teacher left, so it names them again.
+func (m model) formFooter() string {
+	var lines []string
+	if !m.formBarShowsHints() {
+		lines = append(lines, m.fitFooter([]string{
+			"enter save", m.modEnter() + " newline", "ctrl+o images", "esc cancel",
+		}))
+	}
+	// In the order they must survive a narrowing pane, which is the order they
+	// are worth knowing: the pointer, then the two chords that move the caret
+	// furthest per keystroke, then field switching. ↑/↓ and ←/→ are not on the
+	// line at all — a text box's arrow keys are the one thing nobody has to be
+	// told, and the segments that go without saying are what buy room for the
+	// ones that don't.
+	segs := []string{
+		"click places the caret", "ctrl+a/e line start/end", "alt+←/→ word", "tab switch field",
+	}
+	// Advertise the scope toggle only when it works (see the ctrl+g handler): an
+	// only-mode launch pins the scope, so the hint would be a lie there. It goes
+	// last because it is the one segment that isn't about moving the caret.
+	if m.formMode == formAdd && m.project.available() && m.global.available() {
+		segs = append(segs, "ctrl+g scope")
+	}
+	lines = append(lines, m.fitFooter(segs))
+
+	for i, ln := range lines {
+		lines[i] = footerStyle.Render(ln)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// fitFooter joins help segments into one line that fits the pane, dropping them
+// from the right until it does. Conceding beats wrapping: a wrapped footer pushes
+// nothing out of place — the form's clickable rows are all above it — but it
+// costs a line every frame in a pane already short enough to be squeezing the
+// editor. The first segment always survives, however narrow the pane.
+func (m model) fitFooter(segs []string) string {
+	line := strings.Join(segs, " · ")
+	for m.width > 0 && lipgloss.Width(line) > m.width && len(segs) > 1 {
+		segs = segs[:len(segs)-1]
+		line = strings.Join(segs, " · ")
+	}
+	return line
 }
 
 // viewImages renders the attachment editor: the path box, then one row per
@@ -2970,7 +3406,7 @@ func (m *model) applySizes() {
 	case stageForm:
 		m.titleInput.SetWidth(w)
 		m.promptArea.SetWidth(w)
-		if h := m.height - 12; h >= 4 {
+		if h := m.height - formChromeHeight; h >= 4 {
 			m.promptArea.SetHeight(h)
 		}
 	case stageTarget:

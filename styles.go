@@ -56,6 +56,20 @@ const (
 	// pointer drawn in a single glyph needs to compete with a whole highlighted
 	// word.
 	colCursor = "#ffd633"
+	// The highlighted row's field. It used to be colPanel — the palette's one
+	// step up from the page — and that step was too small to see: against
+	// colBg it lands at roughly 1.2:1, which is a shade, not a highlight.
+	//
+	// This is the same green family taken up to about 1.9:1 against the page, so
+	// the lit row is unmistakable from across the pane while still reading as a
+	// surface rather than as a block of color. It stays a separate constant from
+	// colPanel on purpose: colPanel means "a recessed surface" (the inert button
+	// field) and this means "the row the keys are on", and a highlight that has
+	// to be legible cannot be pinned to a tone chosen to recede.
+	//
+	// colFgHi on top of it still clears 10:1, so nothing on the row loses
+	// contrast to gain the field.
+	colSel = "#3b5245"
 )
 
 // onRow puts st on the highlighted row's field, and returns it untouched
@@ -65,15 +79,14 @@ const (
 // Wrapping the finished row in one background style cannot work: the segments
 // end in resets, and the first of them drops the field for the rest of the line.
 //
-// colPanel is reused rather than a new tone invented. It is already the
-// palette's one step up from the page, and a highlight the eye has to hunt for
-// is the wrong kind of subtle — but so is a second surface color that means
-// something different by a shade.
+// The field is colSel, a tone of its own rather than the panel grey the button
+// bar uses: a highlight the eye has to hunt for is the wrong kind of subtle, and
+// colPanel — one shade off the page — was exactly that.
 func onRow(st lipgloss.Style, selected bool) lipgloss.Style {
 	if !selected {
 		return st
 	}
-	return st.Background(lipgloss.Color(colPanel))
+	return st.Background(lipgloss.Color(colSel))
 }
 
 // cursorGlyph marks the highlighted row, trailing space included: it occupies
