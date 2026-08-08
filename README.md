@@ -234,7 +234,7 @@ property of the prompt instead. They are stored with it in `todos.json`, so they
 travel with the repo and a drop reproduces the whole setup — whether you pressed
 the key or a schedule fired it at 3am.
 
-In the editor, `ctrl+e` opens the ⚙ panel (or click the **Session** chip).
+In the editor, `ctrl+r` opens the ⚙ panel (or click the **Session** chip).
 `↑`/`↓` walk the rows, `←`/`→` (or `space`) change the one under the cursor, and
 `esc` goes back to the prompt. The form shows what is set on its `⚙` line, the
 list marks a configured prompt with `⚙`, and nothing is written until you save

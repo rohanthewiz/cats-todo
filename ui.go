@@ -1402,12 +1402,18 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the one that cannot lose. (Same problem, same shape of answer, as
 		// shift+enter vs alt+enter — see modEnter.)
 		return m.beginImages()
-	case "ctrl+e":
-		// The session panel. ctrl+e costs the prompt editor its emacs-style
-		// "caret to line end" — this switch runs before the textarea sees the
-		// key — which is why the footer names `end` for that instead. The
-		// alternatives were worse: ctrl+s is save, ctrl+o is images, and every
-		// other free ctrl chord in a text editor is one nobody would guess.
+	case "ctrl+r":
+		// The session panel — the one thing on the form that is about how the
+		// prompt will *run*, which is what ctrl+r already means one screen over
+		// (the picker's drop & run). Reusing the letter for the same idea in a
+		// different stage is the pattern ctrl+x follows too — delete in the
+		// list, remove in the attachment editor.
+		//
+		// Every chord this switch takes is one the editor below never sees, so
+		// the choice is constrained to what a text editor does not already own:
+		// ctrl+a/e are the caret's line ends, ctrl+w and ctrl+u and ctrl+k
+		// delete, ctrl+f/b/n/p move, ctrl+s is save and ctrl+o is images. ctrl+r
+		// is free in both the textarea's keymap and the textinput's.
 		return m.beginSession()
 	case "ctrl+g":
 		// Toggling scope needs both stores: an only-mode launch (--project /
@@ -3474,7 +3480,7 @@ func (m model) formActions() []listAction {
 		{label: "✔ Save", hint: "enter", tint: colAccent},
 		{label: "↵ Newline", hint: m.modEnter(), tint: colStraw},
 		{label: "❐ Images", hint: "ctrl+o", tint: colInfo},
-		{label: "⚙ Session", hint: "ctrl+e", tint: colStraw},
+		{label: "⚙ Session", hint: "ctrl+r", tint: colStraw},
 		{label: "✖ Cancel", hint: "esc", tint: colErr},
 	}
 }
@@ -3594,7 +3600,7 @@ func (m model) formFooter() string {
 	var lines []string
 	if !m.formBarShowsHints() {
 		lines = append(lines, m.fitFooter([]string{
-			"enter save", m.modEnter() + " newline", "ctrl+o images", "ctrl+e session", "esc cancel",
+			"enter save", m.modEnter() + " newline", "ctrl+o images", "ctrl+r session", "esc cancel",
 		}))
 	}
 	// In the order they must survive a narrowing pane, which is the order they
@@ -3603,11 +3609,8 @@ func (m model) formFooter() string {
 	// line at all — a text box's arrow keys are the one thing nobody has to be
 	// told, and the segments that go without saying are what buy room for the
 	// ones that don't.
-	// "ctrl+a/end", not the emacs pair: ctrl+e opens the session panel now (see
-	// updateForm), so the key that still walks the caret to the end of the line
-	// is the one this names.
 	segs := []string{
-		"click places the caret", "ctrl+a/end line start/end", "alt+←/→ word", "tab switch field",
+		"click places the caret", "ctrl+a/e line start/end", "alt+←/→ word", "tab switch field",
 	}
 	// Advertise the scope toggle only when it works (see the ctrl+g handler): an
 	// only-mode launch pins the scope, so the hint would be a lie there. It goes

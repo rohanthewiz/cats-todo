@@ -69,7 +69,7 @@ func main() {
 			fmt.Println("  -g / --global opens it on the global backlog only")
 			fmt.Println("  add -i / --image attaches an image (repeatable); it rides along when dropped")
 			fmt.Println("  add --model/--effort/--perm/--clear/--sess-load/--sess-use/--ctx/--finish/--review/--release")
-			fmt.Println("      record how the agent receiving the prompt should be set up (ctrl+e in the editor)")
+			fmt.Println("      record how the agent receiving the prompt should be set up (ctrl+r in the editor)")
 			fmt.Println("  init creates this project's backlog (.cats-todo/, committed with the repo)")
 			return
 		default:

@@ -389,16 +389,16 @@ func TestExpandSessLoad(t *testing.T) {
 // --- The panel -----------------------------------------------------------------
 
 // openSessionPanel puts a model in the session panel over a fresh add form, the
-// way ctrl+e does.
+// way ctrl+r does.
 func openSessionPanel(t *testing.T) (model, *store) {
 	t.Helper()
 	m, project, _ := newModelInTemp(t)
 	next, _ := m.beginAdd()
 	m = next.(model)
-	next, _ = m.updateForm(pressKey("ctrl+e"))
+	next, _ = m.updateForm(pressKey("ctrl+r"))
 	m = next.(model)
 	if m.stage != stageSession {
-		t.Fatalf("ctrl+e from the form left stage = %v, want stageSession", m.stage)
+		t.Fatalf("ctrl+r from the form left stage = %v, want stageSession", m.stage)
 	}
 	return m, project
 }
@@ -524,7 +524,7 @@ func TestSessionPanelEscRestoresFocus(t *testing.T) {
 	if m.formFocus != formFieldTitle {
 		t.Fatal("tab did not move the focus to the title")
 	}
-	next, _ = m.updateForm(pressKey("ctrl+e"))
+	next, _ = m.updateForm(pressKey("ctrl+r"))
 	m = stepSession(t, next.(model), "esc")
 	if !m.titleInput.Focused() || m.promptArea.Focused() {
 		t.Errorf("after esc from the title: title focused=%v prompt focused=%v",
@@ -657,7 +657,7 @@ func TestSessionMarkerOnRow(t *testing.T) {
 func TestSessionPanelFitsThePane(t *testing.T) {
 	for _, width := range []int{60, 80, 100, 120} {
 		m := withForm(t, "", "body", width, 40)
-		next, _ := m.updateForm(pressKey("ctrl+e"))
+		next, _ := m.updateForm(pressKey("ctrl+r"))
 		m = next.(model)
 		m.formSession = SessionOpts{
 			Model: "claude-opus-5", Effort: effortXHigh, Permission: permBypass,
@@ -679,5 +679,46 @@ func TestSessionPanelFitsThePane(t *testing.T) {
 				t.Errorf("at height 40 the panel renders %d lines with the cursor on row %d", n, row)
 			}
 		}
+	}
+}
+
+// TestFormCaretKeysSurviveTheSessionChord is the reason the panel is on ctrl+r
+// and not on ctrl+e. The form's key switch runs before the editor sees anything,
+// so a chord taken here is a chord the textarea loses — and ctrl+e is the
+// emacs-style "caret to end of line" the form's own footer teaches.
+func TestFormCaretKeysSurviveTheSessionChord(t *testing.T) {
+	m := withForm(t, "", "alpha beta gamma", 100, 40)
+	m.promptArea.SetCursorColumn(0)
+
+	next, _ := m.updateForm(pressKey("ctrl+e"))
+	m = next.(model)
+	if m.stage != stageForm {
+		t.Fatalf("ctrl+e left the form (stage = %v) — it belongs to the editor", m.stage)
+	}
+	if got := m.promptArea.LineInfo().ColumnOffset; got != len("alpha beta gamma") {
+		t.Errorf("after ctrl+e the caret is at column %d, want the end of the line (%d)",
+			got, len("alpha beta gamma"))
+	}
+
+	// And its counterpart, which was never in question but is half of the pair
+	// the footer names.
+	next, _ = m.updateForm(pressKey("ctrl+a"))
+	m = next.(model)
+	if got := m.promptArea.LineInfo().ColumnOffset; got != 0 {
+		t.Errorf("after ctrl+a the caret is at column %d, want the line start", got)
+	}
+
+	// The chord that does open the panel, and the footer that names it.
+	next, _ = m.updateForm(pressKey("ctrl+r"))
+	if next.(model).stage != stageSession {
+		t.Errorf("ctrl+r left stage = %v, want stageSession", next.(model).stage)
+	}
+	// Narrow enough that the chips drop their hints, wide enough that the footer
+	// can still carry them — where the footer is the only teacher left.
+	if foot := withForm(t, "", "body", 88, 40).formFooter(); !strings.Contains(foot, "ctrl+r session") {
+		t.Errorf("a pane too narrow for the chip hints does not name the chord: %q", foot)
+	}
+	if foot := withForm(t, "", "body", 120, 40).formFooter(); !strings.Contains(foot, "ctrl+a/e") {
+		t.Errorf("the footer no longer teaches the caret pair it kept: %q", foot)
 	}
 }
