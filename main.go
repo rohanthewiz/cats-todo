@@ -11,6 +11,9 @@
 //	cats-todo -p | --project      open it on this project's backlog only
 //	cats-todo -g | --global       open it on the global backlog only
 //	cats-todo add [-g] [-t] [-i] ...  quick-capture a prompt (-i attaches an image)
+//	                                  …plus the session options: --model, --effort,
+//	                                  --perm, --clear, --sess-load, --sess-use,
+//	                                  --ctx, --finish, --review, --release
 //	cats-todo init [-f]           create this project's backlog (committed with the repo)
 //	cats-todo version
 //
@@ -65,6 +68,8 @@ func main() {
 			fmt.Println("  -p / --project opens it on this project's backlog only")
 			fmt.Println("  -g / --global opens it on the global backlog only")
 			fmt.Println("  add -i / --image attaches an image (repeatable); it rides along when dropped")
+			fmt.Println("  add --model/--effort/--perm/--clear/--sess-load/--sess-use/--ctx/--finish/--review/--release")
+			fmt.Println("      record how the agent receiving the prompt should be set up (ctrl+e in the editor)")
 			fmt.Println("  init creates this project's backlog (.cats-todo/, committed with the repo)")
 			return
 		default:

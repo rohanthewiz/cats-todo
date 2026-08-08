@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ const (
 	stageView                    // read-only view of a prompt's full body
 	stageImages                  // attach / detach the form's images
 	stageSchedule                // set (or clear) a prompt's auto-drop time
+	stageSession                 // edit the form's per-todo session options
 )
 
 // confirmKind distinguishes what the confirm stage is about to do.
@@ -222,6 +224,27 @@ type model struct {
 	recent    []string
 	recentIdx int
 
+	// Session options editor (the form's other sub-stage, so its state lives and
+	// dies with the form's the way the attachment editor's does).
+	//
+	// formSession is the whole record being edited — seeded from the todo in
+	// beginEditRef, written back by saveForm. It is held by value rather than as
+	// a pointer so that cancelling the form cannot have touched the stored one.
+	formSession SessionOpts
+	sessCursor  int
+	// sessInput is the box the two free-text rows share: the context argument
+	// on one, the file being added on the other. One input rather than two
+	// because only ever one row holds the keys, and the value is committed to
+	// formSession as the cursor leaves the row (see moveSessCursor).
+	sessInput textinput.Model
+	// sessSkills records whether this machine has the sess-* commands
+	// installed, probed once when the panel opens rather than on every frame —
+	// the answer cannot change while a panel is up, and the check is three
+	// stats. It only greys the context rows; it never blocks a save.
+	sessSkills    bool
+	sessStatus    string
+	sessStatusErr bool
+
 	// Confirm stage.
 	confirmKind       confirmKind
 	pendingDelete     todoRef
@@ -360,6 +383,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateImages(msg)
 		case stageSchedule:
 			return m.updateSchedule(msg)
+		case stageSession:
+			return m.updateSession(msg)
 		}
 	}
 	return m.forward(msg)
@@ -379,6 +404,8 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.imgInput, cmd = m.imgInput.Update(msg)
 	case stageSchedule:
 		m.schedInput, cmd = m.schedInput.Update(msg)
+	case stageSession:
+		m.sessInput, cmd = m.sessInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -1097,6 +1124,13 @@ func (m *model) rebuildList() {
 			if n := len(t.Images); n > 0 {
 				desc = fmt.Sprintf("📎%d  %s", n, desc)
 			}
+			// Session options get a bare ⚙ rather than their summary: the row
+			// has one line, the summary can be six segments long, and what the
+			// row has to answer is "does this prompt carry a setup" — the
+			// answer to "which one" is one keystroke away in the form.
+			if t.Session.configured() {
+				desc = "⚙ " + desc
+			}
 			// The fire time leads even the attachments: of everything on the
 			// row it is the one fact that changes on its own — and "missed"
 			// is the row asking for a hand.
@@ -1250,6 +1284,9 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	m.editID = ""
 	m.titleInput, m.promptArea = m.newFormInputs("", "")
 	m.formImages, m.formImagesOrig = nil, nil
+	// A new prompt starts on the defaults — the zero SessionOpts is exactly the
+	// behaviour a drop had before options existed.
+	m.formSession = SessionOpts{}
 	m.discardClipboardCaptures()
 	// Start in the prompt — that's the point of an entry.
 	cmd := m.focusForm(formFieldPrompt)
@@ -1279,6 +1316,13 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.titleInput, m.promptArea = m.newFormInputs(td.Title, td.Prompt)
 	m.formImages = m.newFormImages(ref.scope, td)
 	m.formImagesOrig = td.Images
+	// A copy, not the pointer: an abandoned form must leave the stored options
+	// exactly as they were, and editing through the pointer would have changed
+	// them the moment a row was cycled.
+	m.formSession = SessionOpts{}
+	if td.Session != nil {
+		m.formSession = td.Session.clone()
+	}
 	m.discardClipboardCaptures()
 	cmd := m.focusForm(formFieldPrompt)
 	m.formErr = ""
@@ -1288,10 +1332,10 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 
 // formChromeHeight is how many lines the form spends on everything that isn't
 // the prompt editor, so the editor gets the rest: the six above it (see
-// formPromptRow), then the attachment note, the toolbar, an error line, a blank,
-// and the footer — eleven — plus two of slack for a footer that needs a second
-// line in a narrow pane.
-const formChromeHeight = 13
+// formPromptRow), then the attachment note, the session note, the toolbar, an
+// error line, a blank, and the footer — twelve — plus two of slack for a footer
+// that needs a second line in a narrow pane.
+const formChromeHeight = 14
 
 // newFormInputs builds the title field and prompt editor, sized to the screen
 // and pre-filled with the given values.
@@ -1358,6 +1402,13 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the one that cannot lose. (Same problem, same shape of answer, as
 		// shift+enter vs alt+enter — see modEnter.)
 		return m.beginImages()
+	case "ctrl+e":
+		// The session panel. ctrl+e costs the prompt editor its emacs-style
+		// "caret to line end" — this switch runs before the textarea sees the
+		// key — which is why the footer names `end` for that instead. The
+		// alternatives were worse: ctrl+s is save, ctrl+o is images, and every
+		// other free ctrl chord in a text editor is one nobody would guess.
+		return m.beginSession()
 	case "ctrl+g":
 		// Toggling scope needs both stores: an only-mode launch (--project /
 		// --global) has one side unavailable, and switching to it would save
@@ -1683,6 +1734,295 @@ func (m model) droppedRels() []string {
 	return dropped
 }
 
+// --- Session options editor ---------------------------------------------------
+
+// The rows of the session panel, in the order they are drawn — which is the
+// order the options take effect: how the session launches, what it starts from,
+// what it does, how it ends. The cursor is an index into this set, so the
+// numbering is the layout and nothing else; it is not stored anywhere.
+const (
+	sessRowModel      = iota // --model
+	sessRowEffort            // --effort
+	sessRowPermission        // --permission-mode
+	sessRowClear             // /clear an existing pane first
+	sessRowContext           // /sess-load | /sess-use
+	sessRowContextArg        // its argument (free text)
+	sessRowFiles             // extra files to read (free text, repeatable)
+	sessRowFinish            // what to do when the work is done
+	sessRowReviews           // which review skills to run first
+	sessRowRelease           // and cut a release
+	sessRowCount
+)
+
+// The values each enum row cycles through. "" leads every ring because it is
+// the default — the panel opens on it, and one press of ← from there lands on
+// the last real value rather than on nothing.
+//
+// The model ring is aliases only, and short: it is a convenience, not the set of
+// legal values (normalizeModel takes any id), and a ring of every model ever
+// shipped would be a worse way to reach "sonnet" than typing it at the CLI. A
+// value set elsewhere and not in the ring is kept — see cycleValue.
+var (
+	sessModelValues      = []string{"", "opus", "sonnet", "haiku", "fable"}
+	sessEffortValues     = []string{"", effortLow, effortMedium, effortHigh, effortXHigh, effortMax}
+	sessPermissionValues = []string{"", permAcceptEdits, permAuto, permPlan, permManual, permDontAsk, permBypass}
+	sessContextValues    = []string{ctxNone, ctxLoad, ctxUse}
+	sessFinishValues     = []string{finishNone, finishCommit, finishPush, finishWrap}
+	// The review row cycles presets rather than toggling a set: a row of
+	// independent checkboxes needs a second cursor inside one line, and these
+	// six combinations are the ones anybody actually asks for. Any other
+	// combination is still reachable — `--review` is repeatable at the CLI, and
+	// a set that came in that way is shown as-is and only changes if this row is
+	// cycled.
+	sessReviewValues = [][]string{
+		nil,
+		{reviewCode},
+		{reviewSecurity},
+		{reviewSimplify},
+		{reviewCode, reviewSecurity},
+		{reviewCode, reviewSecurity, reviewSimplify},
+	}
+)
+
+// beginSession opens the session panel over the form, the way beginImages opens
+// the attachment editor: the form's own inputs are blurred so only one cursor
+// blinks, and closeSession hands the focus back to whichever field had it.
+func (m model) beginSession() (tea.Model, tea.Cmd) {
+	m.sessCursor = 0
+	m.sessSkills = sessSkillsAvailable()
+	m.setSessStatus("", false)
+
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.SetWidth(sessInputWidth(m.width))
+	m.sessInput = ti
+	m.syncSessInput()
+
+	m.titleInput.Blur()
+	m.promptArea.Blur()
+	m.stage = stageSession
+	return m, textinput.Blink
+}
+
+// setSessStatus sets the panel's one message line, mirroring setImgStatus.
+func (m *model) setSessStatus(s string, isErr bool) {
+	m.sessStatus = s
+	m.sessStatusErr = isErr
+}
+
+// closeSession returns to the form, restoring focus to the field that had it —
+// the same contract closeImages keeps, and for the same reason: a sub-stage that
+// gives the keys back somewhere else makes the form feel like it moved.
+func (m model) closeSession() (tea.Model, tea.Cmd) {
+	m.commitSessInput()
+	m.setSessStatus("", false)
+	m.stage = stageForm
+	if m.formFocus == formFieldTitle {
+		return m, m.titleInput.Focus()
+	}
+	return m, m.promptArea.Focus()
+}
+
+// sessRowIsText reports whether row i is one of the two free-text rows. They are
+// the rows where the shared input holds the keys, so ←/→ move the caret there
+// instead of cycling a value.
+func sessRowIsText(i int) bool {
+	return i == sessRowContextArg || i == sessRowFiles
+}
+
+// sessInputWidth budgets the panel's shared box. It is capped well short of the
+// pane: the box sits in the value column with the row's note beside it, and a
+// field stretched to the right edge would push that note off the screen — for
+// two values (a count, a filename) that are never long anyway.
+func sessInputWidth(paneWidth int) int {
+	const maxWidth = 40
+	w := paneWidth - 20
+	if w > maxWidth || paneWidth <= 0 {
+		w = maxWidth
+	}
+	if w < 12 {
+		w = 12
+	}
+	return w
+}
+
+// syncSessInput points the shared box at the row the cursor is now on: the
+// context argument's current value on one row, an empty add-box on the other,
+// and nothing (blurred) anywhere else — a blinking cursor on a row that ignores
+// typing is a promise the panel doesn't keep.
+func (m *model) syncSessInput() {
+	switch m.sessCursor {
+	case sessRowContextArg:
+		m.sessInput.Placeholder = "the last saved session"
+		if m.formSession.Context == ctxUse {
+			m.sessInput.Placeholder = "part of a session doc's name"
+		}
+		m.sessInput.SetValue(m.formSession.ContextArg)
+		m.sessInput.CursorEnd()
+		m.sessInput.Focus()
+	case sessRowFiles:
+		m.sessInput.Placeholder = "path to a file, relative to the project"
+		m.sessInput.SetValue("")
+		m.sessInput.Focus()
+	default:
+		m.sessInput.Blur()
+	}
+}
+
+// commitSessInput writes the context-argument box back to the record. Called
+// whenever the cursor leaves that row and whenever the panel closes, so the
+// value survives without the row needing an explicit "save" gesture. The files
+// row commits per entry instead (enter appends), so there is nothing of its box
+// worth keeping.
+func (m *model) commitSessInput() {
+	if m.sessCursor == sessRowContextArg {
+		m.formSession.ContextArg = strings.TrimSpace(m.sessInput.Value())
+	}
+}
+
+// moveSessCursor walks the cursor by delta, committing the row it leaves and
+// arming the row it lands on.
+func (m *model) moveSessCursor(delta int) {
+	next := m.sessCursor + delta
+	if next < 0 || next >= sessRowCount {
+		return
+	}
+	m.commitSessInput()
+	m.sessCursor = next
+	m.syncSessInput()
+}
+
+func (m model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	case "esc":
+		return m.closeSession()
+	case "up", "ctrl+p":
+		m.moveSessCursor(-1)
+		return m, nil
+	case "down", "ctrl+n", "tab":
+		m.moveSessCursor(1)
+		return m, nil
+	case "shift+tab":
+		m.moveSessCursor(-1)
+		return m, nil
+	case "enter":
+		// The same "do what's in front of me" split the attachment editor uses:
+		// a path in the box gets added, and an empty box (or any other row)
+		// means there is nothing left to say here.
+		if m.sessCursor == sessRowFiles && strings.TrimSpace(m.sessInput.Value()) != "" {
+			return m.addSessFile()
+		}
+		return m.closeSession()
+	case "ctrl+x":
+		if m.sessCursor == sessRowFiles {
+			return m.removeSessFile()
+		}
+		return m, nil
+	case "left", "right", " ", "space":
+		// The caret keys belong to the box on a text row; only the enum rows
+		// have anything to cycle.
+		if !sessRowIsText(m.sessCursor) {
+			delta := 1
+			if msg.String() == "left" {
+				delta = -1
+			}
+			m.cycleSessRow(delta)
+			return m, nil
+		}
+	}
+	var cmd tea.Cmd
+	m.sessInput, cmd = m.sessInput.Update(msg)
+	return m, cmd
+}
+
+// cycleSessRow steps the highlighted enum row one value along its ring.
+func (m *model) cycleSessRow(delta int) {
+	o := &m.formSession
+	switch m.sessCursor {
+	case sessRowModel:
+		o.Model = cycleValue(sessModelValues, o.Model, delta)
+	case sessRowEffort:
+		o.Effort = cycleValue(sessEffortValues, o.Effort, delta)
+	case sessRowPermission:
+		o.Permission = cycleValue(sessPermissionValues, o.Permission, delta)
+	case sessRowClear:
+		o.Clear = !o.Clear
+	case sessRowContext:
+		o.Context = cycleValue(sessContextValues, o.Context, delta)
+		// The argument belongs to the mode that asked for it: a count meant for
+		// /sess-load is not a pattern for /sess-use, and carrying it across
+		// would quietly send "/sess-use 2".
+		o.ContextArg = ""
+	case sessRowFinish:
+		o.Finish = cycleValue(sessFinishValues, o.Finish, delta)
+	case sessRowReviews:
+		o.Reviews = cycleSessReviews(o.Reviews, delta)
+	case sessRowRelease:
+		o.Release = !o.Release
+	}
+	m.setSessStatus("", false)
+}
+
+// cycleSessReviews steps the review set one preset along. A set that matches no
+// preset (built with repeated --review flags) steps to the first one, which is
+// the only sensible landing place: the ring has no position for it to be at.
+func cycleSessReviews(cur []string, delta int) []string {
+	i := -1
+	for j, preset := range sessReviewValues {
+		if slices.Equal(preset, cur) {
+			i = j
+			break
+		}
+	}
+	if i < 0 {
+		return sessReviewValues[0]
+	}
+	n := len(sessReviewValues)
+	return sessReviewValues[((i+delta)%n+n)%n]
+}
+
+// addSessFile appends what is in the box to the extra-files list. The path is
+// taken as typed and never resolved: it is delivered as text for the agent to
+// read, in a session whose working directory is the project's, so a relative
+// path is both what the user means and what will still be right tomorrow.
+func (m model) addSessFile() (tea.Model, tea.Cmd) {
+	f := strings.TrimSpace(m.sessInput.Value())
+	if f == "" {
+		return m, nil
+	}
+	if slices.Contains(m.formSession.Files, f) {
+		m.setSessStatus(f+" is already on the list", true)
+		return m, nil
+	}
+	m.formSession.Files = append(m.formSession.Files, f)
+	m.sessInput.SetValue("")
+	m.setSessStatus("added "+f, false)
+	return m, nil
+}
+
+// removeSessFile drops the last file added — the undo for a typo, in the one
+// gesture a row without a cursor of its own can offer.
+func (m model) removeSessFile() (tea.Model, tea.Cmd) {
+	if len(m.formSession.Files) == 0 {
+		return m, nil
+	}
+	last := len(m.formSession.Files) - 1
+	gone := m.formSession.Files[last]
+	m.formSession.Files = m.formSession.Files[:last]
+	m.setSessStatus("removed "+gone, false)
+	return m, nil
+}
+
+// sessionNote is the form's ⚙ line: what the options say, or that there are
+// none. Always something rather than nothing, for the reason the 📎 line is
+// always drawn — a panel nobody knows about is a panel nobody uses.
+func (m model) sessionNote() string {
+	return firstNonEmpty(m.formSession.summary(), "default session")
+}
+
 // imageCountNote describes the form's attachment list for a heading or status
 // line, or "" when there is nothing attached.
 func (m model) imageCountNote() string {
@@ -1728,7 +2068,13 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 			m.formErr = "attach failed: " + err.Error()
 			return m, nil
 		}
-		if err := st.add(Todo{ID: id, Title: title, Prompt: prompt, Images: added, Created: time.Now()}); err != nil {
+		if err := st.add(Todo{
+			ID: id, Title: title, Prompt: prompt, Images: added,
+			// nil when nothing was set, so a prompt taking the defaults writes
+			// no "session" key at all (see sessionPtr).
+			Session: sessionPtr(m.formSession),
+			Created: time.Now(),
+		}); err != nil {
 			// The copies are on disk but no todo will ever reference them.
 			st.removeImages(id)
 			m.formErr = "save failed: " + err.Error()
@@ -1751,6 +2097,15 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 		}
 		if err := st.setImages(m.editID, append(m.keptRels(), added...)); err != nil {
 			st.removeImageFiles(m.editID, added)
+			m.formErr = "save failed: " + err.Error()
+			return m, nil
+		}
+		// Same "record it explicitly" split as the images above: update() is
+		// text-only, so the options are their own write (see setSession). No
+		// rollback of the copies here — by this point the text and the
+		// attachments are already saved, so failing loudly and leaving them is
+		// more honest than un-attaching files the todo now references.
+		if err := st.setSession(m.editID, sessionPtr(m.formSession)); err != nil {
 			m.formErr = "save failed: " + err.Error()
 			return m, nil
 		}
@@ -1964,13 +2319,28 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 		}
 	}
 
+	// The todo being dropped is chosen before the picker is built (startDrop and
+	// updateSchedule both set it first), so the rows can say what this
+	// particular prompt's options will and won't survive on them. The warning is
+	// on the row rather than in the status line afterwards, because the point of
+	// it is to be read before the choice, not after it.
+	td, _ := m.resolve(m.dropTodo)
+	flagNote := ""
+	if td.Session.hasLaunchFlags() {
+		flagNote = " · the session's model/effort flags are claude-only and won't be passed"
+	}
+
 	var targets []dropTarget
 	for _, a := range newAgents {
+		desc := "open a new tab in " + wsLabel + " and launch " + a.command
+		if !isClaudeCommand(a.command) {
+			desc += flagNote
+		}
 		targets = append(targets, dropTarget{
 			kind:    targetNewSession,
 			command: a.command,
 			label:   a.label,
-			desc:    "open a new tab in " + wsLabel + " and launch " + a.command,
+			desc:    desc,
 		})
 	}
 
@@ -1979,13 +2349,17 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 	// startDrop refuses to open the picker at all without one.
 	if repo := gitRepoRoot(m.ctx.projectDir()); repo != "" {
 		for _, a := range newAgents {
+			desc := "branch " + baseName(repo) + " into a fresh checkout, open it as a workspace, and launch " +
+				a.command + " there"
+			if !isClaudeCommand(a.command) {
+				desc += flagNote
+			}
 			targets = append(targets, dropTarget{
 				kind:     targetNewSession,
 				command:  a.command,
 				worktree: true,
 				label:    a.label + " on a new worktree",
-				desc: "branch " + baseName(repo) + " into a fresh checkout, open it as a workspace, and launch " +
-					a.command + " there",
+				desc:     desc,
 			})
 		}
 	}
@@ -2432,6 +2806,12 @@ func (m model) viewHeight() int {
 // the list's badges are written verbatim to avoid.
 func (m model) viewContent(td Todo) string {
 	body := td.Prompt
+	// The session line goes above the attachments and below the body, in the
+	// same plain text for the same reason: this is one wrapped block, and a
+	// pre-styled span inside it loses its reset at the wrap points.
+	if s := td.Session.summary(); s != "" {
+		body += "\n\n⚙ session: " + s
+	}
 	if refs := m.storeFor(m.viewRef.scope).resolveImages(td); len(refs) > 0 {
 		var b strings.Builder
 		b.WriteString(body)
@@ -2540,6 +2920,8 @@ func (m model) renderStage() string {
 		return m.viewImages()
 	case stageSchedule:
 		return m.viewSchedule()
+	case stageSession:
+		return m.viewSession()
 	default:
 		return m.viewList()
 	}
@@ -3010,9 +3392,9 @@ const (
 )
 
 // formBarRow is the line the form's toolbar sits on: under the editor, with the
-// attachment note on the one line between them.
+// attachment note and the session note on the two lines between them.
 func (m model) formBarRow() int {
-	return formPromptRow + m.promptArea.Height() + 1
+	return formPromptRow + m.promptArea.Height() + 2
 }
 
 // targetRowsRow is the first line the drop picker's target rows are drawn on,
@@ -3045,6 +3427,17 @@ func (m model) viewForm() string {
 	// "did my screenshot make it in". It no longer names ctrl+o — the toolbar's
 	// ❐ Images chip, one line below, says that and is clickable besides.
 	b.WriteString(descStyle.Render("📎 " + firstNonEmpty(m.imageCountNote(), "no images")))
+	b.WriteString("\n")
+
+	// And the session line, on the same terms: always drawn, so "how will this
+	// run" is answered on the form rather than only inside a panel — and so
+	// "default session" is available as the answer.
+	//
+	// Trimmed to the pane, and that is load-bearing rather than tidy: a fully
+	// configured prompt's summary runs past a hundred columns, and a line that
+	// wrapped here would push the toolbar one row down from where every click on
+	// it is hit-tested (see formBarRow).
+	b.WriteString(descStyle.Render(m.fitToPane("⚙ "+m.sessionNote(), 0)))
 	b.WriteString("\n")
 
 	// The toolbar sits directly under the editor and above the error line, so its
@@ -3081,15 +3474,22 @@ func (m model) formActions() []listAction {
 		{label: "✔ Save", hint: "enter", tint: colAccent},
 		{label: "↵ Newline", hint: m.modEnter(), tint: colStraw},
 		{label: "❐ Images", hint: "ctrl+o", tint: colInfo},
+		{label: "⚙ Session", hint: "ctrl+e", tint: colStraw},
 		{label: "✖ Cancel", hint: "esc", tint: colErr},
 	}
 }
 
 // Indexes into formActions — used by clickFormBar to name what it is dispatching.
+//
+// Session goes between Images and Cancel rather than on the end: the two chips
+// are the same gesture ("something else this prompt carries"), and Cancel is the
+// row's one red button, which has to stay at the end where a row of buttons is
+// read from — nobody scans past the exit.
 const (
 	formActionSave = iota
 	formActionNewline
 	formActionImages
+	formActionSession
 	formActionCancel
 )
 
@@ -3172,6 +3572,8 @@ func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		case formActionImages:
 			return m.beginImages()
+		case formActionSession:
+			return m.beginSession()
 		case formActionCancel:
 			return m.cancelForm()
 		}
@@ -3192,7 +3594,7 @@ func (m model) formFooter() string {
 	var lines []string
 	if !m.formBarShowsHints() {
 		lines = append(lines, m.fitFooter([]string{
-			"enter save", m.modEnter() + " newline", "ctrl+o images", "esc cancel",
+			"enter save", m.modEnter() + " newline", "ctrl+o images", "ctrl+e session", "esc cancel",
 		}))
 	}
 	// In the order they must survive a narrowing pane, which is the order they
@@ -3201,8 +3603,11 @@ func (m model) formFooter() string {
 	// line at all — a text box's arrow keys are the one thing nobody has to be
 	// told, and the segments that go without saying are what buy room for the
 	// ones that don't.
+	// "ctrl+a/end", not the emacs pair: ctrl+e opens the session panel now (see
+	// updateForm), so the key that still walks the caret to the end of the line
+	// is the one this names.
 	segs := []string{
-		"click places the caret", "ctrl+a/e line start/end", "alt+←/→ word", "tab switch field",
+		"click places the caret", "ctrl+a/end line start/end", "alt+←/→ word", "tab switch field",
 	}
 	// Advertise the scope toggle only when it works (see the ctrl+g handler): an
 	// only-mode launch pins the scope, so the hint would be a lie there. It goes
@@ -3301,6 +3706,243 @@ func (m model) viewImages() string {
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render("↑/↓ select · ctrl+x remove · esc back — nothing is copied until you save"))
 	return b.String()
+}
+
+// sessValueLabel is how one row's current value is drawn: the value itself, or
+// what the default means in words. "default" alone would be true and useless —
+// what a reader wants to know is what happens if they leave the row alone, and
+// for most of these rows that is "whatever the agent does normally".
+func (m model) sessValueLabel(row int) string {
+	o := m.formSession
+	switch row {
+	case sessRowModel:
+		return firstNonEmpty(o.Model, "default")
+	case sessRowEffort:
+		return firstNonEmpty(o.Effort, "default")
+	case sessRowPermission:
+		return firstNonEmpty(o.Permission, "default")
+	case sessRowClear:
+		return yesNo(o.Clear)
+	case sessRowContext:
+		switch o.Context {
+		case ctxLoad:
+			return "/sess-load"
+		case ctxUse:
+			return "/sess-use"
+		}
+		return "none"
+	case sessRowContextArg:
+		switch o.Context {
+		case ctxLoad:
+			return "how many sessions back (blank: the last)"
+		case ctxUse:
+			return "which saved session to match"
+		}
+		return ""
+	case sessRowFinish:
+		switch o.Finish {
+		case finishCommit:
+			return "commit the work"
+		case finishPush:
+			return "commit and push"
+		case finishWrap:
+			return "run /sess-wrap"
+		}
+		return "nothing"
+	case sessRowReviews:
+		if len(o.Reviews) == 0 {
+			return "none"
+		}
+		return strings.Join(o.Reviews, ", ")
+	case sessRowRelease:
+		return yesNo(o.Release)
+	}
+	return ""
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+// The session panel's row labels and the note each one carries, in row order.
+// The note is what the option actually does — a panel of bare enum names would
+// make the user open the README to find out what "dontAsk" costs them.
+var sessRowLabels = [sessRowCount]struct{ label, note string }{
+	sessRowModel:      {"Model", "--model, on a new claude session"},
+	sessRowEffort:     {"Effort", "--effort, on a new claude session"},
+	sessRowPermission: {"Permission", "--permission-mode, on a new claude session"},
+	sessRowClear:      {"Clear first", "send /clear before the prompt, in an existing pane"},
+	sessRowContext:    {"Context", "load prior work before reading the prompt"},
+	sessRowContextArg: {"", ""}, // its note is the mode's own (see viewSession)
+	sessRowFiles:      {"Files", "enter adds · ctrl+x removes the last"},
+	sessRowFinish:     {"Finish", "what to do once the work is done"},
+	sessRowReviews:    {"Reviews", "run these first — ←/→ cycles the sets"},
+	sessRowRelease:    {"Release", "and cut a release afterwards"},
+}
+
+// viewSession renders the session panel: one row per option, the cursor on the
+// row the keys are acting on, and the two free-text rows showing the shared box
+// in place of a value.
+//
+// The rows are drawn as label · value · note rather than as a form of boxes.
+// Nine of the ten are one-of-a-few choices, and a choice is quicker to make from
+// a value you can cycle than from a field you have to spell — which is also why
+// only the two rows that cannot be enumerated get a box at all.
+func (m model) viewSession() string {
+	var b strings.Builder
+	heading := titleStyle.Render("Session options")
+	b.WriteString(heading)
+	b.WriteString("  ")
+	// The summary is every option joined, so it is the one thing here with no
+	// bound at all — a fully configured prompt runs to well over a hundred
+	// columns. It gets whatever the heading leaves and no more.
+	b.WriteString(descStyle.Render(m.fitToPane(
+		firstNonEmpty(m.formSession.summary(), "default session"), lipgloss.Width(heading)+2)))
+	b.WriteString("\n\n")
+
+	const labelWidth = 12
+	for row := range sessRowCount {
+		// Each row is built on its own before it joins the frame, so its note can
+		// be measured against what is already on the line and dropped rather than
+		// wrapped: these rows are a table, and one row wrapping puts every row
+		// below it a line off from where the eye — and the next glance — expects.
+		var line strings.Builder
+
+		// The context argument is the context row's own second line: it belongs
+		// to that choice, and giving it a label of its own would read as an
+		// eleventh option rather than as the rest of the tenth.
+		label := sessRowLabels[row].label
+		if row == sessRowContextArg {
+			label = ""
+		}
+		if row == m.sessCursor {
+			line.WriteString(cursorStyle.Render(cursorGlyph))
+		} else {
+			line.WriteString("  ")
+		}
+		line.WriteString(nameStyle.Render(fmt.Sprintf("%-*s", labelWidth, label)))
+
+		// The context rows go quiet where the commands they call don't exist.
+		// Quiet, not disabled: the backlog travels, and the machine that runs
+		// the prompt is not always the machine that wrote it.
+		dimmed := !m.sessSkills && (row == sessRowContext || row == sessRowContextArg)
+		valueStyle := nameSelStyle
+		if row != m.sessCursor {
+			valueStyle = nameStyle
+		}
+		if dimmed {
+			valueStyle = descStyle
+		}
+
+		// Every value is trimmed to what the label column leaves: a model id, a
+		// /sess-use pattern and a file list are all user text with no length to
+		// rely on, and this is a table.
+		value := func(s string) string { return valueStyle.Render(m.fitToPane(s, indentWidth+labelWidth)) }
+
+		switch row {
+		case sessRowContextArg:
+			switch {
+			case m.formSession.Context == ctxNone:
+				// Nothing to argue about until a context mode is chosen.
+				line.WriteString(descStyle.Render("—"))
+			case row == m.sessCursor:
+				line.WriteString(m.sessInput.View())
+			default:
+				line.WriteString(value(firstNonEmpty(m.formSession.ContextArg, "—")))
+			}
+		case sessRowFiles:
+			switch {
+			case row == m.sessCursor:
+				line.WriteString(m.sessInput.View())
+			case len(m.formSession.Files) > 0:
+				line.WriteString(value(strings.Join(m.formSession.Files, ", ")))
+			default:
+				line.WriteString(value("none"))
+			}
+		default:
+			line.WriteString(value(m.sessValueLabel(row)))
+		}
+
+		// The note is an aside about the row the cursor is on, so it goes on only
+		// where there is room for it beside the value.
+		note := sessRowLabels[row].note
+		if row == sessRowContextArg {
+			note = m.sessValueLabel(row)
+		}
+		if note != "" && row == m.sessCursor {
+			if m.width <= 0 || lipgloss.Width(line.String())+3+lipgloss.Width(note) <= m.width {
+				line.WriteString("   ")
+				line.WriteString(descStyle.Render(note))
+			}
+		}
+		line.WriteString("\n")
+
+		// The files already on the list, under the box that adds to them —
+		// there is no room for them beside it once it holds a path.
+		if row == sessRowFiles && row == m.sessCursor {
+			for _, f := range m.formSession.Files {
+				line.WriteString("      ")
+				line.WriteString(descStyle.Render("· " + m.fitToPane(f, 8)))
+				line.WriteString("\n")
+			}
+		}
+		b.WriteString(line.String())
+	}
+
+	if !m.sessSkills {
+		b.WriteString("\n")
+		b.WriteString(m.wrapToPane(descStyle,
+			"no sess-* skills found here — the context rows still save, for the machine that runs the prompt"))
+		b.WriteString("\n")
+	}
+	if m.sessStatus != "" {
+		st := okStyle
+		if m.sessStatusErr {
+			st = errStyle
+		}
+		b.WriteString("\n")
+		b.WriteString(m.wrapToPane(st, "• "+m.sessStatus))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	// Through fitFooter for the reason the form's footer is: a pane too narrow
+	// for the whole line concedes a segment rather than wrapping one.
+	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+		"↑/↓ row", "←/→ or space change", "enter/esc back to the form",
+	})))
+	b.WriteString("\n")
+	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+		"nothing is saved until you save the form", "the launch flags ride on new claude sessions only",
+	})))
+	return b.String()
+}
+
+// fitToPane trims s to the columns left after `used` of them are spent, for a
+// value drawn on one line of a table. It is a no-op before the first
+// WindowSizeMsg, when there is no width to fit to.
+func (m model) fitToPane(s string, used int) string {
+	room := m.width - used
+	if m.width <= 0 || room >= lipgloss.Width(s) {
+		return s
+	}
+	if room < 4 {
+		room = 4
+	}
+	return truncate(s, room)
+}
+
+// wrapToPane renders a whole-line note in st, wrapped to the pane rather than
+// truncated: unlike a table value, a sentence that has to be read loses more by
+// losing its end than by taking a second line.
+func (m model) wrapToPane(st lipgloss.Style, s string) string {
+	if m.width <= 0 {
+		return st.Render(s)
+	}
+	return st.Width(m.width).Render(s)
 }
 
 func (m model) viewConfirm() string {
@@ -3415,6 +4057,8 @@ func (m *model) applySizes() {
 		m.imgInput.SetWidth(w)
 	case stageSchedule:
 		m.schedInput.SetWidth(w)
+	case stageSession:
+		m.sessInput.SetWidth(sessInputWidth(m.width))
 	case stageView:
 		m.viewVP.SetWidth(m.viewWidth())
 		m.viewVP.SetHeight(m.viewHeight())

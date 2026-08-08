@@ -23,6 +23,10 @@ import (
 // than referenced (see images.go), so a screenshot can be attached and then
 // cleared off the Desktop; at drop time its path rides along in the prompt for
 // the agent to read.
+//
+// The session flags (--model, --finish, …) are the CLI's half of the form's ⚙
+// panel: the same record, the same normalization, so a value the TUI would
+// refuse is refused here with the same words (see session.go).
 func addFromCLI(args []string) {
 	fs := flag.NewFlagSet("cats-todo add", flag.ExitOnError)
 	global := fs.Bool("g", false, "add to the global backlog instead of the project's")
@@ -32,12 +36,38 @@ func addFromCLI(args []string) {
 	var images stringList
 	fs.Var(&images, "i", "attach an image file (repeatable); copied into the backlog")
 	fs.Var(&images, "image", "alias for -i")
+
+	// Session options. Every one of them is optional and every zero value means
+	// "inherit the default", so `add` with none of them behaves exactly as it
+	// did before they existed.
+	model := fs.String("model", "", "model for a new claude session (sonnet, opus, claude-opus-5, …)")
+	effort := fs.String("effort", "", "effort for a new claude session (low|medium|high|xhigh|max)")
+	perm := fs.String("perm", "", "permission mode for a new claude session (acceptEdits|auto|plan|manual|dontAsk|bypassPermissions)")
+	clear := fs.Bool("clear", false, "send /clear before the prompt when dropping into an existing pane")
+	var sessLoad optString
+	fs.Var(&sessLoad, "sess-load", "start by running /sess-load [n] (--sess-load, --sess-load=2, or --sess-load 2)")
+	sessUse := fs.String("sess-use", "", "start by running /sess-use <pattern>")
+	var ctxFiles stringList
+	fs.Var(&ctxFiles, "ctx", "also read this file first (repeatable)")
+	finish := fs.String("finish", "", "when the work is done: none|commit|push|wrap")
+	var reviews stringList
+	fs.Var(&reviews, "review", "run this review skill first (repeatable): code-review, security-review, simplify")
+	release := fs.Bool("release", false, "cut a release once the work is done")
+
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [prompt...]")
+		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [session options] [prompt...]")
 		fmt.Fprintln(os.Stderr, "  the prompt is the remaining args joined; with none it is read from a piped stdin")
+		fmt.Fprintln(os.Stderr, "  session options: --model --effort --perm --clear --sess-load[=n] --sess-use --ctx")
+		fmt.Fprintln(os.Stderr, "                   --finish --review --release")
 		fs.PrintDefaults()
 	}
-	_ = fs.Parse(args) // ExitOnError: a bad flag prints usage and exits
+	// ExitOnError: a bad flag prints usage and exits. The rewrite has to happen
+	// first — see expandSessLoad, which is what lets `--sess-load 2` mean what
+	// it looks like it means.
+	_ = fs.Parse(expandSessLoad(args))
+
+	opts := sessionFromFlags(*model, *effort, *perm, *clear, sessLoad.set, sessLoad.value, *sessUse,
+		ctxFiles, *finish, reviews, *release)
 
 	prompt := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if prompt == "" {
@@ -83,7 +113,11 @@ func addFromCLI(args []string) {
 	if err != nil {
 		errExit("could not attach image:", err)
 	}
-	if err := st.add(Todo{ID: id, Title: t, Prompt: prompt, Images: attached, Created: time.Now()}); err != nil {
+	if err := st.add(Todo{
+		ID: id, Title: t, Prompt: prompt, Images: attached,
+		Session: sessionPtr(opts),
+		Created: time.Now(),
+	}); err != nil {
 		// The copies are already on disk but no todo will ever reference them.
 		st.removeImages(id)
 		errExit("could not save:", err)
@@ -96,6 +130,107 @@ func addFromCLI(args []string) {
 		note = fmt.Sprintf(" with %d images", n)
 	}
 	fmt.Printf("added%s to the %s backlog (%s)\n", note, strings.ToLower(st.scope.String()), st.path)
+	// Echoed on its own line, and only when there is something to echo: the
+	// options are the part of this command that is easiest to get subtly wrong
+	// (a folded spelling, a --sess-load count that landed as a count rather than
+	// as the first word of the prompt), and one line is what makes that visible
+	// at the moment it happened.
+	if s := opts.summary(); s != "" {
+		fmt.Println("  ⚙ " + s)
+	}
+}
+
+// sessionFromFlags builds the record the add flags describe, exiting with the
+// same message the TUI would show for a value that cannot be normalized.
+//
+// --sess-load and --sess-use are mutually exclusive: they are two answers to one
+// question ("what prior context"), and a record holding both would have to pick
+// one silently.
+func sessionFromFlags(model, effort, perm string, clear, loadSet bool, loadArg, use string,
+	files stringList, finish string, reviews stringList, release bool) SessionOpts {
+
+	var o SessionOpts
+	var err error
+	if o.Model, err = normalizeModel(model); err != nil {
+		errExit(err)
+	}
+	if o.Effort, err = normalizeEffort(effort); err != nil {
+		errExit(err)
+	}
+	if o.Permission, err = normalizePermission(perm); err != nil {
+		errExit(err)
+	}
+	if o.Finish, err = normalizeFinish(finish); err != nil {
+		errExit(err)
+	}
+	o.Clear = clear
+	o.Release = release
+	o.Files = files
+
+	if loadSet && strings.TrimSpace(use) != "" {
+		errExit("--sess-load and --sess-use both name the prior context to start from — pick one")
+	}
+	switch {
+	case loadSet:
+		o.Context, o.ContextArg = ctxLoad, strings.TrimSpace(loadArg)
+	case strings.TrimSpace(use) != "":
+		o.Context, o.ContextArg = ctxUse, strings.TrimSpace(use)
+	}
+
+	for _, r := range reviews {
+		v, err := normalizeReview(r)
+		if err != nil {
+			errExit(err)
+		}
+		if v != "" {
+			o.Reviews = append(o.Reviews, v)
+		}
+	}
+	return o
+}
+
+// expandSessLoad rewrites `--sess-load 2` into `--sess-load=2` before parsing,
+// which is what lets the flag's optional argument work at all.
+//
+// The flag package can only express an optional value as a boolean-shaped flag
+// (see optString), and a boolean flag never consumes the following word. Two
+// things then go wrong with the spelling everyone actually types: the count
+// becomes the first word of the prompt, and — because parsing stops dead at the
+// first non-flag argument — every flag after it does too. Joining the pair up
+// front fixes both, and leaves the rest of the command line to the flag package.
+//
+// Only a token of nothing but digits is claimed, and only immediately after the
+// flag. No prompt worth saving starts with a lone number, and the "⚙" line
+// printed after the add says which reading was taken.
+func expandSessLoad(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		// The flag terminator: everything past it is the prompt, and a number
+		// there is the user's word, not ours.
+		if a == "--" {
+			return append(out, args[i:]...)
+		}
+		if (a == "--sess-load" || a == "-sess-load") && i+1 < len(args) && isAllDigits(args[i+1]) {
+			out = append(out, a+"="+args[i+1])
+			i++
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // stringList collects a repeatable string flag (-i one.png -i two.png) in the
@@ -106,6 +241,32 @@ func (l *stringList) String() string { return strings.Join(*l, ", ") }
 
 func (l *stringList) Set(v string) error {
 	*l = append(*l, v)
+	return nil
+}
+
+// optString is a flag whose value may be left off: `--sess-load` means "the
+// default" and `--sess-load=2` means two. IsBoolFlag is what the flag package
+// offers for that — it makes the value optional — at the cost of never
+// consuming the *following* word, which expandSessLoad puts back.
+//
+// set is kept separately from value because "given, with no argument" and "not
+// given" are different answers here and both look like "".
+type optString struct {
+	set   bool
+	value string
+}
+
+func (o *optString) String() string { return o.value }
+
+func (o *optString) IsBoolFlag() bool { return true }
+
+func (o *optString) Set(v string) error {
+	o.set = true
+	// The bare form arrives as "true" — that is the flag package saying "no
+	// argument was given", not a value anybody typed.
+	if v != "true" {
+		o.value = v
+	}
 	return nil
 }
 

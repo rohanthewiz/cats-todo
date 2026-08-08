@@ -17,9 +17,25 @@ func performDrop(client *catsClient, act pendingAction) error {
 	if client == nil {
 		return errors.New("cats control socket unavailable")
 	}
-	prompt := composePrompt(act.todo.Prompt, act.images)
+	prompt := composePrompt(act.todo.Prompt, act.images, act.todo.Session)
 	switch act.target.kind {
 	case targetExistingPane:
+		// "Clear first" is delivered as its own submitted message, because
+		// /clear is a built-in of the agent's input rather than anything this
+		// prompt could carry: pasted at the top of a body it would be text.
+		//
+		// A failed /clear aborts the drop rather than typing the prompt anyway.
+		// The user asked for a session with nothing behind it; delivering into
+		// whatever state the pane is actually in — half-cleared, or a modal
+		// waiting on an answer — is the one outcome they ruled out.
+		if act.todo.Session != nil && act.todo.Session.Clear {
+			if err := client.sendInput(act.target.pane, "/clear", true); err != nil {
+				return fmt.Errorf("clearing the pane first: %w", err)
+			}
+			// The agent has to finish handling /clear before it will read the
+			// next keystrokes; typing into the gap loses the head of the prompt.
+			time.Sleep(clearSettle)
+		}
 		if err := client.sendInput(act.target.pane, prompt, act.mode == dropRun); err != nil {
 			return err
 		}
@@ -40,32 +56,67 @@ func performDrop(client *catsClient, act pendingAction) error {
 // there to be opened.
 const imageBlockHeader = "Attached images — read these files:"
 
+// clearSettle is how long a drop waits after submitting /clear before typing
+// the prompt. Long enough for the agent to swap its conversation out, short
+// enough that a drop still feels like one action; there is nothing on the wire
+// to wait *for*, since /clear produces no output pane.wait_for_output could
+// match on.
+const clearSettle = 400 * time.Millisecond
+
 // composePrompt is the text actually delivered to an agent: the prompt body,
-// plus one absolute path per attachment.
+// wrapped in whatever the todo's session options ask for and followed by one
+// absolute path per attachment.
 //
-// This is the whole of image "support" on the wire. pane.send_input types
-// keystrokes, so the bytes of an image can never cross it; the path can, and
-// the agent reads the file itself. Paths are given one per line and bare — no
-// "@" prefix, which Claude Code's input treats as the start of a file-picker
-// mention and would rewrite mid-paste.
+// The blocks, in delivery order:
+//
+//	preamble    what to load before reading the prompt (/sess-load, extra files)
+//	the body    the prompt as written
+//	images      one absolute path per attachment
+//	postamble   what to do once the work is done (reviews, commit, release)
+//
+// Every block is omitted entirely when it has nothing to say, and the separator
+// between two blocks is a blank line — so a todo with no options and no images
+// still composes to exactly its own prompt text, byte for byte. That is the
+// compatibility contract SessionOpts carries, and TestComposePrompt is what
+// holds us to it.
+//
+// The image block stays where it has always been, between the body and anything
+// that follows: it is part of the request, and a wrap-up instruction reads as
+// the last word only if nothing comes after it.
+//
+// Paths are given one per line and bare — no "@" prefix, which Claude Code's
+// input treats as the start of a file-picker mention and would rewrite
+// mid-paste. This is the whole of image "support" on the wire: pane.send_input
+// types keystrokes, so the bytes of an image can never cross it; the path can,
+// and the agent reads the file itself.
 //
 // The result never ends in a newline: sendInput's contract is that a trailing
 // newline in the text would be inserted literally by the line editor rather
 // than submitting (submission is the separate Enter that dropRun sends).
-func composePrompt(prompt string, images []string) string {
-	if len(images) == 0 {
-		return prompt
-	}
+func composePrompt(prompt string, images []string, opts *SessionOpts) string {
 	var b strings.Builder
-	if prompt != "" {
-		b.WriteString(prompt)
-		b.WriteString("\n\n")
+	block := func(s string) {
+		if s == "" {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(s)
 	}
-	b.WriteString(imageBlockHeader)
-	for _, p := range images {
-		b.WriteString("\n")
-		b.WriteString(p)
+
+	block(opts.preamble())
+	block(prompt)
+	if len(images) > 0 {
+		var img strings.Builder
+		img.WriteString(imageBlockHeader)
+		for _, p := range images {
+			img.WriteString("\n")
+			img.WriteString(p)
+		}
+		block(img.String())
 	}
+	block(opts.postamble())
 	return b.String()
 }
 
@@ -144,8 +195,14 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) er
 	}
 
 	// Fields, not a shell: the command is an agent name (possibly with flags),
-	// and tab.create execs the argv directly.
-	_, pane, err := client.tabCreate(cwd, label, strings.Fields(command))
+	// and tab.create execs the argv directly. The todo's session flags go last,
+	// after anything the target's own command carried — claude takes the last
+	// spelling of a repeated flag, so the prompt's explicit choice outranks the
+	// picker row's default, which is the right way round. launchArgs yields
+	// nothing for a non-claude agent (see its comment), which is what keeps this
+	// one line right for every row in the picker.
+	argv := append(strings.Fields(command), act.todo.Session.launchArgs(command)...)
+	_, pane, err := client.tabCreate(cwd, label, argv)
 	if err != nil {
 		return err
 	}

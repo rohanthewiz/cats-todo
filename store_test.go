@@ -902,3 +902,78 @@ func TestFreeze(t *testing.T) {
 		}
 	})
 }
+
+// TestSetAndClearSession mirrors TestSetAndClearSchedule for the other nullable
+// field: the options round-trip through the file, a backlog without them
+// mentions nothing, and — the part that matters — an ordinary text edit leaves
+// them alone. update() is text-only by design (see its comment), so a caller
+// that knows nothing about session options cannot blank them.
+func TestSetAndClearSession(t *testing.T) {
+	s := tempStore(t)
+	if err := s.add(Todo{ID: "a1", Title: "t", Prompt: "p"}); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "session") {
+		t.Fatalf("a backlog with no options mentions sessions:\n%s", raw)
+	}
+
+	opts := &SessionOpts{
+		Model: "sonnet", Effort: effortHigh, Permission: permAcceptEdits,
+		Clear: true, Context: ctxLoad, ContextArg: "2",
+		Files: []string{"ai_docs/design.md"}, Finish: finishWrap,
+		Reviews: []string{reviewCode}, Release: true,
+	}
+	if err := s.setSession("a1", opts); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded := &store{scope: scopeProject, path: s.path}
+	if err := reloaded.load(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := reloaded.find("a1")
+	if got.Session == nil {
+		t.Fatal("the options did not survive the round trip")
+	}
+	if got.Session.Model != "sonnet" || got.Session.Effort != effortHigh ||
+		!got.Session.Clear || got.Session.ContextArg != "2" ||
+		len(got.Session.Files) != 1 || got.Session.Finish != finishWrap ||
+		len(got.Session.Reviews) != 1 || !got.Session.Release {
+		t.Fatalf("round-tripped options = %+v, want them all back", got.Session)
+	}
+
+	// The guarantee: editing the text does not touch the options.
+	if err := s.update(Todo{ID: "a1", Title: "new title", Prompt: "new prompt"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reloaded.load(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = reloaded.find("a1")
+	if got.Prompt != "new prompt" {
+		t.Errorf("prompt = %q, want the edit saved", got.Prompt)
+	}
+	if got.Session == nil || got.Session.Model != "sonnet" {
+		t.Fatalf("a text edit blanked the session options: %+v", got.Session)
+	}
+
+	if err := s.setSession("a1", nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = os.ReadFile(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "session") {
+		t.Fatalf("cleared options left their key behind:\n%s", raw)
+	}
+
+	if err := s.setSession("ghost", opts); err != errTodoNotFound {
+		t.Errorf("setSession of unknown id = %v, want errTodoNotFound", err)
+	}
+}

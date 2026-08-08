@@ -58,6 +58,58 @@ var addCompletions = []completion{
 	{"--global", "add to the global backlog instead of this project's"},
 	{"--title", "short title (derived from the prompt's first line when blank)"},
 	{"--image", "attach an image file (repeatable); copied into the backlog"},
+	// The session options (see session.go). They are offered here rather than
+	// left to the manual for the reason the flags exist at all: the whole point
+	// of recording them on the prompt is not having to remember the setup, and a
+	// menu is where the spellings get learned.
+	{"--model", "model for a new claude session (sonnet, opus, claude-opus-5, …)"},
+	{"--effort", "effort for a new claude session (low|medium|high|xhigh|max)"},
+	{"--perm", "permission mode for a new claude session (acceptEdits, plan, …)"},
+	{"--clear", "send /clear before the prompt when dropping into an existing pane"},
+	{"--sess-load", "start by running /sess-load [n]"},
+	{"--sess-use", "start by running /sess-use <pattern>"},
+	{"--ctx", "also read this file first (repeatable)"},
+	{"--finish", "when the work is done: none|commit|push|wrap"},
+	{"--review", "run this review skill first (repeatable)"},
+	{"--release", "cut a release once the work is done"},
+}
+
+// The values the enum-valued session flags accept, keyed by flag. A flag that
+// takes one of a closed set is the case a completion menu earns its keep on —
+// these are exactly the spellings normalize* will accept without folding.
+var sessionValueCompletions = map[string][]completion{
+	"--model": {
+		{"opus", "the most capable model"},
+		{"sonnet", "the balanced default"},
+		{"haiku", "the fastest"},
+		{"fable", "the latest Fable model"},
+	},
+	"--effort": {
+		{"low", "shallow reasoning, fastest"},
+		{"medium", "the default"},
+		{"high", "deeper reasoning"},
+		{"xhigh", "deeper still"},
+		{"max", "as deep as it goes"},
+	},
+	"--perm": {
+		{"acceptEdits", "accept file edits without asking"},
+		{"auto", "decide per action"},
+		{"plan", "plan first, change nothing"},
+		{"manual", "ask for everything"},
+		{"dontAsk", "don't prompt for permission"},
+		{"bypassPermissions", "skip every permission check"},
+	},
+	"--finish": {
+		{"none", "stop when the work is done"},
+		{"commit", "commit the work"},
+		{"push", "commit and push"},
+		{"wrap", "run /sess-wrap — session doc, commit, push"},
+	},
+	"--review": {
+		{"code-review", "review the diff for correctness"},
+		{"security-review", "review the diff for security"},
+		{"simplify", "clean up the changed code"},
+	},
 }
 
 var initCompletions = []completion{
@@ -75,13 +127,20 @@ func completeFromCLI(args []string) {
 	prior := args[:len(args)-1]
 
 	// A flag that takes a value, immediately before the cursor: the flag decides
-	// what the word is, and there is no cats-todo vocabulary left to offer.
+	// what the word is, and there is no cats-todo vocabulary left to offer —
+	// except where the value is one of a closed set, which is the one case a
+	// menu can answer outright.
 	if len(prior) > 0 {
-		switch prior[len(prior)-1] {
-		case "-i", "--image":
+		last := prior[len(prior)-1]
+		if vals, ok := sessionValueCompletions[last]; ok {
+			emitCompletions(filterCompletions(vals, cur), completeNoFiles)
+			return
+		}
+		switch last {
+		case "-i", "--image", "--ctx":
 			emitCompletions(nil, completeFiles)
 			return
-		case "-t", "--title":
+		case "-t", "--title", "--sess-use":
 			emitCompletions(nil, completeNoFiles)
 			return
 		}

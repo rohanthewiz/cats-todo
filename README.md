@@ -14,6 +14,7 @@ cats-todo -g                           # open it on the global backlog only
 cats-todo add fix the flaky reconnect  # quick-capture to the project backlog
 git log -p | cats-todo add -g -t "review this diff"   # capture piped stdin, global backlog
 cats-todo add -i ~/Desktop/shot.png this layout is wrong   # attach an image
+cats-todo add --model sonnet --finish wrap "say hi"        # …and how to run it
 cats-todo init                         # give this project a backlog of its own
 ```
 
@@ -222,6 +223,79 @@ kitty keyboard protocol — cats speaks it, but a terminal that does not will
 send the two identically, so the footers advertise `alt+enter` (which every
 terminal encodes as `ESC CR`) until the terminal answers the protocol
 handshake.
+
+## Session options
+
+A drop used to deliver one thing: the prompt. *How* the receiving agent ran —
+which model, at what effort, starting from what prior context, and what to do
+once the work was finished — was whatever the default was, and had to be
+arranged by hand every single time. Session options make those choices a
+property of the prompt instead. They are stored with it in `todos.json`, so they
+travel with the repo and a drop reproduces the whole setup — whether you pressed
+the key or a schedule fired it at 3am.
+
+In the editor, `ctrl+e` opens the ⚙ panel (or click the **Session** chip).
+`↑`/`↓` walk the rows, `←`/`→` (or `space`) change the one under the cursor, and
+`esc` goes back to the prompt. The form shows what is set on its `⚙` line, the
+list marks a configured prompt with `⚙`, and nothing is written until you save
+the prompt itself.
+
+| Row | What it does |
+|---|---|
+| Model, Effort, Permission | `--model`, `--effort`, `--permission-mode` on the launch |
+| Clear first | sends `/clear` as its own message before the prompt |
+| Context | starts with `/sess-load [n]` or `/sess-use <pattern>` |
+| Files | "also read these files" ahead of the prompt |
+| Finish | commit · commit and push · run `/sess-wrap` |
+| Reviews | `/code-review`, `/security-review`, `/simplify` before finishing |
+| Release | cut a release once the work is done |
+
+Three different mechanisms carry them, and which one an option rides is forced
+by what the receiving end can accept. The three launch flags go on the agent's
+own command line, so they only apply to a **new** session — and only to
+`claude`, whose flags they are; the picker says so on any other agent's row, and
+the prompt still goes. `/clear` has to be its own submitted message, because
+pasted at the top of a prompt it would just be text — so it applies to a drop
+into an **existing** pane. Everything else is text wrapped around the prompt
+body, which works everywhere:
+
+```
+First, load prior context: run /sess-load 2
+Also read these files: ai_docs/design.md
+
+<your prompt>
+
+When the work is done and the tests pass:
+- run /code-review
+- run /sess-wrap (saves a session doc, commits, and pushes)
+```
+
+A prompt with no options set delivers exactly its own text, byte for byte, as it
+always did — every option's unset value means "inherit the default", and an
+unconfigured prompt writes no `session` key at all.
+
+The context rows call the `sess-*` slash commands (`~/.claude/commands/`). Where
+they are not installed the panel greys those rows and says so, but still saves
+them: the backlog travels, and the machine that writes a prompt is often not the
+machine that runs it. Exiting the agent is deliberately not offered as a
+finishing step — the transcript is the one thing worth having after an
+unattended run.
+
+The same options from a shell, where they are also what `add` records:
+
+```bash
+cats-todo add --model sonnet --effort low --finish wrap "say hi"
+cats-todo add --sess-load 2 --review code-review --release "finish the drop panel"
+cats-todo add --sess-use drops --ctx ai_docs/design.md --perm accept-edits "wire it up"
+```
+
+`--perm` takes the readable spellings too (`accept-edits` → `acceptEdits`,
+`bypass` → `bypassPermissions`), and a value neither the TUI nor the CLI
+recognises is refused with the same message in both. `--ctx` and `--review`
+repeat; `--sess-load` and `--sess-use` are two answers to one question and can't
+both be given. `--sess-load`'s count is optional — `--sess-load`, `--sess-load 2`
+and `--sess-load=2` all work — and the `⚙` line printed after the add echoes
+what was recorded.
 
 The manager wears cats' own muted green: the palette in `styles.go` is cats'
 `defaultColors` (`internal/config`) — the same values the served page sets as

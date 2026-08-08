@@ -43,6 +43,12 @@ type Todo struct {
 	// an older binary ignores it. (An older binary that saves the backlog
 	// drops the key — the same accepted limitation attachments carry.)
 	Schedule *Schedule `json:"schedule,omitempty"`
+	// Session is how the agent receiving this prompt should be set up — model,
+	// effort, prior context, wrap-up — nil when it takes the defaults (see
+	// session.go). Same compat contract as Images and Schedule: omitted when
+	// absent, so a backlog of plain prompts reads exactly as it did before the
+	// field existed, and an older binary ignores it rather than choking.
+	Session *SessionOpts `json:"session,omitempty"`
 }
 
 // Schedule is a one-shot auto-drop waiting to fire: at time At, the todo's
@@ -301,6 +307,24 @@ func (s *store) setImages(id string, images []string) error {
 	for i := range s.todos {
 		if s.todos[i].ID == id {
 			s.todos[i].Images = images
+			return s.save()
+		}
+	}
+	return errTodoNotFound
+}
+
+// setSession replaces the session options of the todo with id and persists;
+// nil clears them. Separate from update for the same stated reason setImages
+// is: update stays a text-only operation, so a caller that knows nothing about
+// session options — an older code path, a future one — cannot blank them by
+// saving a title and a prompt.
+func (s *store) setSession(id string, o *SessionOpts) error {
+	if err := s.reload(); err != nil {
+		return err
+	}
+	for i := range s.todos {
+		if s.todos[i].ID == id {
+			s.todos[i].Session = o
 			return s.save()
 		}
 	}
