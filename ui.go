@@ -2325,6 +2325,14 @@ func headerChip(withVersion bool) string {
 // headerGap is the breath between the header line's segments.
 const headerGap = 2
 
+// searchLead is the wider breath in front of the query box. The header's left
+// half — chip, version, scope note — reads as one block of identity; at a plain
+// headerGap the search glyph sat close enough to the note to read as its tail
+// rather than as its own control. Being pure whitespace it is also the cheapest
+// thing on the line, so it is the first concession the ladder makes when the
+// pane narrows (see headerLayout).
+const searchLead = 6
+
 // searchGlyph fronts the inline query input on the header line. With the
 // boxed field's rails gone from this view, the glyph carries the focus
 // affordance: accent-bold when the box holds the keys, faint when a button
@@ -2338,11 +2346,14 @@ const searchGlyph = "🔍 "
 // off-screen.
 const inputCursorPad = 1
 
-// The query input's sizes as the header narrows: full, squeezed (still wide
-// enough to read a typed word), and the floor below which the segment is
-// dropped from the line rather than rendered as a slot nothing fits in.
+// The query input's sizes as the header narrows: full, roomy (a size a typed
+// query still reads comfortably in — the box gives back this much before the
+// lead spacing concedes anything), squeezed (still wide enough to read a typed
+// word), and the floor below which the segment is dropped from the line rather
+// than rendered as a slot nothing fits in.
 // Type-to-filter keeps working with the segment gone — only the echo is lost.
 const (
+	searchFieldRoomy    = 24
 	searchFieldSqueezed = 12
 	searchFieldMin      = 6
 )
@@ -2352,6 +2363,7 @@ const (
 type headerLayout struct {
 	withVersion bool
 	note        string // budgeted scope note (done-hidden tag included); "" = dropped
+	searchLead  int    // cells of whitespace in front of the query glyph
 	searchW     int    // the query input's SetWidth; 0 = segment dropped
 	count       string // "matched/total"
 	countW      int    // cells reserved for count — total's digits, so typing doesn't shift the line
@@ -2365,8 +2377,9 @@ type headerLayout struct {
 // When the pane is too narrow for everything, the segments concede in a fixed
 // order, cheapest first:
 //
-//	ws label → done-hidden tag → search shrinks → version → search floors,
-//	then drops → project name truncates (inside scopeNote) → count last
+//	ws label → search lead narrows → done-hidden tag → search shrinks →
+//	version → search floors, then drops → project name truncates (inside
+//	scopeNote) → count last
 //
 // The version goes before any of the project name does: the name is the fact
 // that decides what an edit touches, the version is a footnote.
@@ -2374,6 +2387,7 @@ func (m model) headerLayout() headerLayout {
 	matched, total := m.list.counts()
 	hl := headerLayout{
 		withVersion: true,
+		searchLead:  searchLead,
 		searchW:     searchFieldWidth,
 		count:       fmt.Sprintf("%d/%d", matched, total),
 	}
@@ -2392,7 +2406,7 @@ func (m model) headerLayout() headerLayout {
 	room := func() int {
 		r := m.width - lipgloss.Width(headerChip(hl.withVersion)) - headerGap - hl.countW
 		if hl.searchW > 0 {
-			r -= headerGap + lipgloss.Width(searchGlyph) + hl.searchW + inputCursorPad
+			r -= hl.searchLead + lipgloss.Width(searchGlyph) + hl.searchW + inputCursorPad
 		}
 		return r - headerGap
 	}
@@ -2411,6 +2425,17 @@ func (m model) headerLayout() headerLayout {
 	// Each rung runs only while the line still overflows with the core intact.
 	if core+runew(hidden) > room() {
 		hidden = ""
+	}
+	// The box gives back its slack down to a still-comfortable width before the
+	// lead spacing pays anything: a query box a few cells narrower reads the
+	// same, whereas the header's two halves running together does not.
+	if over := core + runew(hidden) - room(); over > 0 && hl.searchW > searchFieldRoomy {
+		hl.searchW -= min(over, hl.searchW-searchFieldRoomy)
+	}
+	// Then the lead, one cell at a time — a pane a couple of columns short keeps
+	// most of the spacing instead of snapping shut to the plain gap.
+	if over := core + runew(hidden) - room(); over > 0 && hl.searchLead > headerGap {
+		hl.searchLead -= min(over, hl.searchLead-headerGap)
 	}
 	if over := core + runew(hidden) - room(); over > 0 && hl.searchW > searchFieldSqueezed {
 		hl.searchW -= min(over, hl.searchW-searchFieldSqueezed)
@@ -2542,7 +2567,7 @@ func (m model) headerLine() string {
 		b.WriteString(descStyle.Render(hl.note))
 	}
 	if hl.searchW > 0 {
-		b.WriteString("  ")
+		b.WriteString(strings.Repeat(" ", hl.searchLead))
 		glyph := searchGlyphOffStyle
 		if m.list.input.Focused() {
 			glyph = promptStyle

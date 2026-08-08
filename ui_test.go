@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1005,6 +1006,33 @@ func TestHeaderLineFits(t *testing.T) {
 			t.Fatalf("input width %d, headerLayout budget %d", got, want)
 		}
 	})
+}
+
+// ansiSeq matches the SGR escapes lipgloss wraps styled text in, so a test can
+// assert on the characters a user sees rather than on the styling around them.
+var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansiSeq.ReplaceAllString(s, "") }
+
+// TestHeaderSearchLead pins the breath in front of the query box: at any width
+// a real pane has, the search glyph must stand clear of the scope note rather
+// than reading as its tail. The box concedes its own slack first, so the lead
+// survives well below the widths where the field is still full size.
+func TestHeaderSearchLead(t *testing.T) {
+	for _, width := range []int{80, 100, 120, 200} {
+		m := withTodo("ship it")
+		m.width = width
+		m.applySizes()
+		if got := m.headerLayout().searchLead; got != searchLead {
+			t.Fatalf("width %d: search lead %d cells, want %d", width, got, searchLead)
+		}
+		// The gap is whitespace on the rendered line, not just a budget number.
+		// The glyph is styled, so the escape codes come off before matching.
+		if !strings.Contains(stripANSI(m.headerLine()), strings.Repeat(" ", searchLead)+searchGlyph) {
+			t.Fatalf("width %d: header does not render the lead before the glyph:\n%q",
+				width, m.headerLine())
+		}
+	}
 }
 
 // TestHeaderSearchShowsFocus pins the inline affordance that replaced the
