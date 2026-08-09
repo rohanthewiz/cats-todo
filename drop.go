@@ -63,6 +63,23 @@ const imageBlockHeader = "Attached images — read these files:"
 // match on.
 const clearSettle = 400 * time.Millisecond
 
+// newSessionSettle is an extra pause between "the agent looks ready" and the
+// first keystroke of a dropped prompt.
+//
+// waitForAgentReady already waits on the wire — a banner probe for claude, first
+// output for anything else — but a banner is drawn well before the agent is
+// actually listening: there is still a TUI to lay out, a terminal to put into
+// raw mode, and (for claude) a session to restore. Keystrokes typed into that
+// window are read by whatever owns the tty at the time and are simply lost,
+// which shows up as a prompt arriving with its head bitten off, or not at all.
+//
+// Two seconds is deliberately generous rather than tuned. It is paid once per
+// new-session drop, against an agent run that lasts minutes; a drop that lands
+// intact two seconds later beats a fast drop that has to be retyped. This is
+// only on the new-session path — an existing pane's agent has been up for a
+// while and needs no such grace.
+const newSessionSettle = 2 * time.Second
+
 // composePrompt is the text actually delivered to an agent: the prompt body,
 // wrapped in whatever the todo's session options ask for and followed by one
 // absolute path per attachment.
@@ -207,6 +224,10 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) er
 		return err
 	}
 	client.waitForAgentReady(pane, command)
+	// Unconditional, including after a probe timeout: the timeout case is the one
+	// where we know least about the agent's state, so it is the last place to
+	// start typing early.
+	time.Sleep(newSessionSettle)
 	return client.sendInput(pane, prompt, act.mode == dropRun)
 }
 
