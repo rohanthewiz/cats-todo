@@ -187,8 +187,10 @@ func TestActionBarEscape(t *testing.T) {
 	}
 }
 
-// TestActionBarRender checks what the bar shows: every label, the key hints
-// when the pane is wide enough for them, and labels alone when it is not.
+// TestActionBarRender checks what the bar shows as the pane narrows: every label
+// with its key hint when there is room, labels alone when there is not, and the
+// glyphs alone when even those don't fit. A button is never dropped — the bar is
+// where two of these actions are learned at all.
 func TestActionBarRender(t *testing.T) {
 	m := withTodo("ship it")
 
@@ -203,8 +205,11 @@ func TestActionBarRender(t *testing.T) {
 		}
 	}
 
-	m.width = 30
+	m.width = 45
 	narrow := m.actionBar()
+	if got := m.barTier(); got != tierLabels {
+		t.Fatalf("a 45-column bar is at tier %d, want labels alone", got)
+	}
 	for _, a := range m.listActions() {
 		if !strings.Contains(narrow, a.label) {
 			t.Fatalf("narrow bar %q dropped the label %q", narrow, a.label)
@@ -212,6 +217,25 @@ func TestActionBarRender(t *testing.T) {
 	}
 	if strings.Contains(narrow, "ctrl+a") {
 		t.Fatalf("narrow bar %q should drop the hints, not wrap", narrow)
+	}
+
+	m.width = 30
+	tiny := m.actionBar()
+	if got := m.barTier(); got != tierIcons {
+		t.Fatalf("a 30-column bar is at tier %d, want the glyphs alone", got)
+	}
+	for _, a := range m.listActions() {
+		if !strings.Contains(tiny, a.icon()) {
+			t.Fatalf("tiny bar %q dropped the %q button entirely", tiny, a.label)
+		}
+	}
+	// The words are what a 30-column pane cannot afford; a bar that kept them
+	// would wrap, and a wrapped chip is one the pointer can no longer find.
+	if strings.Contains(tiny, "Add") {
+		t.Fatalf("tiny bar %q kept its labels — it will wrap", tiny)
+	}
+	if w := lipgloss.Width(tiny); w > 30 {
+		t.Fatalf("tiny bar is %d cells wide in a 30-cell pane: %q", w, tiny)
 	}
 }
 
@@ -1441,6 +1465,47 @@ func TestScheduleTick(t *testing.T) {
 			t.Fatal("nothing may be left armed on a completed todo")
 		}
 	})
+}
+
+// TestRowDescMarks covers the flags that lead a row's description: the order
+// they are drawn in, and the attachment count carrying the app's cyan while the
+// other two stay in the description's grey. The count is a mark of its own
+// rather than text on the front of desc precisely so it can hold a color — see
+// descMark — so a regression here reads as "📎2 went grey again".
+func TestRowDescMarks(t *testing.T) {
+	m := newTestModel()
+	m.project.todos = []Todo{{
+		ID: "t1", Title: "ship it", Prompt: "do the thing",
+		Images:  []string{"a.png", "b.png"},
+		Session: &SessionOpts{Model: "sonnet"},
+	}}
+	m.rebuildList()
+
+	marks := m.list.items[0].descMarks
+	var texts []string
+	for _, mk := range marks {
+		texts = append(texts, mk.text)
+	}
+	// ⚙ before 📎, and both after the prompt's own flags — the order the row is
+	// read in, least specific first.
+	if got, want := strings.Join(texts, " "), "⚙ 📎2"; got != want {
+		t.Fatalf("marks = %q, want %q", got, want)
+	}
+	// Styles are compared by what they draw: lipgloss.Style holds slices and is
+	// not comparable, and what matters here is the escape sequence that reaches
+	// the terminal anyway.
+	const probe = "x"
+	if got, want := marks[1].style.Render(probe), attachStyle.Render(probe); got != want {
+		t.Errorf("the 📎 mark renders %q, want the attachment cyan %q", got, want)
+	}
+	if got, want := marks[0].style.Render(probe), descStyle.Render(probe); got != want {
+		t.Errorf("the ⚙ mark renders %q — only the attachment count carries a hue (%q)", got, want)
+	}
+	// And it survives the trip to the screen, still ahead of the prompt text.
+	view := m.viewList()
+	if i, j := strings.Index(view, "📎2"), strings.Index(view, "do the thing"); i < 0 || i > j {
+		t.Fatalf("📎2 is at %d and the prompt at %d — the count must lead it:\n%s", i, j, view)
+	}
 }
 
 // TestScheduledRowShowsItself pins the row's schedule marks: the ◷ badge and

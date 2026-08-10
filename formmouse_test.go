@@ -221,6 +221,45 @@ func TestFormBarClick(t *testing.T) {
 		}
 	})
 
+	t.Run("Send saves the prompt and opens the picker on it", func(t *testing.T) {
+		m := build(t)
+		m.project = &store{scope: scopeProject, path: filepath.Join(t.TempDir(), "todos.json")}
+		// A client with no reachable socket: buildTargets' pane scan fails and the
+		// picker degrades to its new-session rows, which is enough to prove the
+		// send reached the picker rather than the list.
+		m.client = &catsClient{}
+		chips := m.formChips()
+		got := clickForm(m, chips[formActionSend].start+1, m.formBarRow())
+		if got.stage != stageTarget {
+			t.Fatalf("stage = %v, want the target picker", got.stage)
+		}
+		if len(got.project.todos) != 1 || got.project.todos[0].Prompt != "the prompt" {
+			t.Fatalf("project backlog = %+v, want the prompt saved before it was sent", got.project.todos)
+		}
+		// The picker must be aimed at the todo this form just wrote — an id from
+		// anywhere else would send whatever the list happened to be highlighting.
+		if want := (todoRef{scope: scopeProject, id: got.project.todos[0].ID}); got.dropTodo != want {
+			t.Errorf("dropTodo = %+v, want the todo the form saved %+v", got.dropTodo, want)
+		}
+	})
+
+	t.Run("Send refuses an empty prompt", func(t *testing.T) {
+		m := withForm(t, "", "   ", 120, 40)
+		m.project = &store{scope: scopeProject, path: filepath.Join(t.TempDir(), "todos.json")}
+		m.client = &catsClient{}
+		chips := m.formChips()
+		got := clickForm(m, chips[formActionSend].start+1, m.formBarRow())
+		if got.stage != stageForm {
+			t.Fatalf("stage = %v, want to stay on the form", got.stage)
+		}
+		if got.formErr == "" {
+			t.Error("an empty prompt was refused silently, with no error on the form")
+		}
+		if len(got.project.todos) != 0 {
+			t.Errorf("backlog = %+v, want nothing written", got.project.todos)
+		}
+	})
+
 	t.Run("Cancel drops the edit", func(t *testing.T) {
 		m := build(t)
 		chips := m.formChips()
@@ -256,6 +295,83 @@ func TestFormBarIconsAreOneCell(t *testing.T) {
 		if w := lipgloss.Width(icon); w != 1 {
 			t.Errorf("%q icon %q is %d cells wide, want a one-cell dingbat", a.label, icon, w)
 		}
+	}
+}
+
+// TestFormSendIsClickOnly holds ✉ Send to the pointer. Handing a prompt to a live
+// agent is the one thing the form does that leaves the program, so the button
+// carries no chord at all — and the two spellings of the list's own drop chord,
+// the keys most likely to be pressed out of habit while the form is open, must
+// edit the prompt rather than send it.
+func TestFormSendIsClickOnly(t *testing.T) {
+	m := withForm(t, "", "the prompt", 120, 40)
+	m.client = &catsClient{}
+
+	send := m.formActions()[formActionSend]
+	if send.hint != "" {
+		t.Errorf("Send advertises the chord %q — it is meant to have none", send.hint)
+	}
+	// A hintless chip is label-only even on a bar wide enough for hints: a
+	// trailing pad would hang a live column of button off the right of it.
+	if got, want := m.formChips()[formActionSend].text, send.label; got != want {
+		t.Errorf("Send chip renders %q, want the bare label %q", got, want)
+	}
+
+	for _, key := range []tea.KeyPressMsg{
+		{Code: tea.KeyEnter, Mod: tea.ModShift},
+		{Code: tea.KeyEnter, Mod: tea.ModAlt},
+	} {
+		next, _ := m.updateForm(key)
+		if got := next.(model).stage; got == stageTarget {
+			t.Errorf("%v sent the prompt from the form — stage = %v", key, got)
+		}
+	}
+}
+
+// TestFormBarTiers walks the toolbar down a narrowing pane. Six buttons cannot
+// keep their words much under 63 columns, and a bar that kept them would wrap —
+// which costs the pointer the chips on the second line, since every click is
+// hit-tested against the one row the bar is supposed to occupy. So the chips give
+// up their chords, then their labels, and never the button itself.
+func TestFormBarTiers(t *testing.T) {
+	for _, tc := range []struct {
+		width int
+		tier  chipTier
+	}{{120, tierHints}, {70, tierLabels}, {40, tierIcons}, {24, tierIcons}} {
+		m := withForm(t, "", "body", tc.width, 40)
+		if got := m.formBarTier(); got != tc.tier {
+			t.Errorf("at %d columns the toolbar is at tier %d, want %d", tc.width, got, tc.tier)
+		}
+		bar := m.formBar()
+		if w := lipgloss.Width(bar); w > tc.width {
+			t.Errorf("at %d columns the toolbar is %d cells wide — it will wrap: %q", tc.width, w, bar)
+		}
+		// Whatever the tier, every button is still on the row and still clickable.
+		for i, a := range m.formActions() {
+			if !strings.Contains(bar, a.icon()) {
+				t.Errorf("at %d columns the toolbar dropped %q entirely: %q", tc.width, a.label, bar)
+			}
+			if c := m.formChips()[i]; c.end <= c.start {
+				t.Errorf("at %d columns %q has no span to click", tc.width, a.label)
+			}
+		}
+	}
+
+	// Down to glyphs, the ✉ is the one chip no chord teaches, so the footer has
+	// to say how it works — and say it where a narrowing pane won't trim it.
+	icons := withForm(t, "", "body", 40, 40)
+	first, _, _ := strings.Cut(icons.formFooter(), "\n")
+	if !strings.Contains(first, "click sends") {
+		t.Errorf("icon-only footer %q never says how ✉ is pressed", first)
+	}
+
+	// An icon-only bar is still a live bar: the Send chip's span sends.
+	icons.project = &store{scope: scopeProject, path: filepath.Join(t.TempDir(), "todos.json")}
+	icons.client = &catsClient{}
+	icons.promptArea.SetValue("the prompt")
+	got := clickForm(icons, icons.formChips()[formActionSend].start+1, icons.formBarRow())
+	if got.stage != stageTarget {
+		t.Errorf("a click on the ✉ glyph gave stage %v, want the target picker", got.stage)
 	}
 }
 

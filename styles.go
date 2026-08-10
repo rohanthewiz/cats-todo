@@ -26,7 +26,7 @@ const (
 	colOk     = "#6ac47a"
 	colWarn   = "#e0b64e"
 	colErr    = "#e57373"
-	// The action bar's two extra hues. colInfo is the one cool color in a warm
+	// The action bars' extra hues. colInfo is the coolest color in a warm
 	// green palette, mixed to sit at colOk and colErr's brightness so the bar's
 	// tints read as one set rather than four unrelated colors that happen to be
 	// adjacent.
@@ -41,7 +41,17 @@ const (
 	// In HSL it is 45° 52% 86%: warmed five degrees toward red from where it
 	// started, which leaves it a hair off colWarn's 43° so the two stay separable
 	// by hue and not only by paleness.
-	colInfo  = "#6ea9d8"
+	colInfo = "#6ea9d8"
+	// The attachment hue, and the app's answer to "which color means images"
+	// wherever that question comes up (today: the form toolbar's ❐ Images chip).
+	// It is colInfo's sibling by construction — same lightness (64%) and the same
+	// saturation (58%), 31° round the wheel from it (176° against colInfo's 207°)
+	// — because the two now sit next to each other on the form's toolbar, one on
+	// what the prompt carries and one on how it will run. Matching everything but
+	// hue is what lets a glance separate them by color alone while the row still
+	// reads as one set; a cyan picked freehand would have differed in brightness
+	// too, and brightness is the bar's grammar for live-versus-inert.
+	colCyan  = "#6ed8d0"
 	colStraw = "#eee5c9"
 	// The row cursor. It sits outside the palette on purpose: the mark saying
 	// "here" has to be findable at a glance in a pane full of green, and a green
@@ -197,6 +207,17 @@ var (
 	// row's own greys already say "inactive", so a grey badge would repeat the
 	// name's tier instead of naming which kind of inactive it is.
 	frozenBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colInfo))
+	// A row's 📎N attachment count, in the app's attachment cyan — the same hue
+	// the editor's ❐ Images chip carries, so the two screens answer "images" with
+	// one color. It is the only one of a row's description marks with a hue of its
+	// own: ⏰ and ⚙ say something about a prompt that its own words also say, while
+	// an attachment is the one thing on the row that is not in the text anywhere.
+	//
+	// Not a badge and not on the badge's ramp: the badge column holds the row's
+	// state (done, frozen, scheduled) and there is only one of those at a time,
+	// where the marks are a list that leads the description. Sharing the badge's
+	// styles would have made a picture look like a state.
+	attachStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colCyan))
 
 	// Action-bar buttons. Each chip is rendered by exactly one of these styles —
 	// label and key hint together — because nesting a second style inside a

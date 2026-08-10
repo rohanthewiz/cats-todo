@@ -60,6 +60,17 @@ pastes the prompt staged for review and `shift+enter` submits it to run (and
 marks the todo done). Inside the editor `enter` saves and `shift+enter` inserts
 a newline. Outside cats it still manages backlogs; only drops need the socket.
 
+The editor has its own row of buttons — **Save**, **Newline**, **Images**,
+**Session**, **Send**, **Cancel** — and **Send** is the one way to hand a prompt
+straight to an agent without going back to the list: it saves what you have
+typed and opens the target picker on it, so a prompt written from scratch
+reaches a session in one gesture. It is the only button on the row with no
+chord, and that is deliberate — it is click-only, because the editor is a screen
+you are typing into and a key one slip from the caret is how a half-written
+prompt gets sent. An empty prompt is refused there exactly as **Save** refuses
+it, and everything the picker itself refuses (no socket, a drop already in
+flight, a frozen prompt) still leaves your edit saved.
+
 The picker's own list is every place the prompt could land: a new Claude Code
 session, a new **GitHub Copilot** session when `copilot` is on your `PATH`, a
 new session for any other agent cats currently has running somewhere, then the
@@ -104,6 +115,12 @@ the row, `enter` presses, `esc` returns to the filter); `↑`/`↓` keep moving 
 row highlight the whole time, so you can pick a prompt and then press the button
 that acts on it. Typing anything hands the focus straight back to the filter. A
 button that needs a highlighted prompt is greyed out until there is one.
+
+Both button rows shrink rather than wrap as the pane narrows: the chips give up
+their chords first, then their words, down to a row of bare glyphs — `✔ ↵ ❐ ⚙ ✉
+✖` in the editor — and the footer names every chord the chips stopped teaching.
+No button is ever dropped, however narrow the pane; a control that vanishes is
+one you cannot learn is there.
 
 The pointer works too, and the same way round: a click on a button presses it, a
 click on a prompt selects it (which is what makes the buttons useful with the
@@ -205,7 +222,9 @@ cats-todo add -i ~/Desktop/shot.png -i ~/Desktop/other.png the header wraps wron
 Either way the file is *copied* into the backlog
 (`.cats-todo/images/<todo-id>/`, or the config dir for a global todo), so you can
 attach a screenshot and then clear it off your Desktop. The list marks an
-attachment-carrying prompt with `📎n`, and `ctrl+v` lists the files.
+attachment-carrying prompt with `📎n` — in cyan, the same hue the editor's
+**Images** chip carries, so "this one has a picture" is answered by a glance down
+the list rather than by reading each row — and `ctrl+v` lists the files.
 
 `ctrl+r` scans `~/Desktop` and `~/Downloads`; set `CATS_TODO_IMAGE_DIR` to point
 it somewhere else (macOS can be told to save screenshots anywhere, and cats-todo

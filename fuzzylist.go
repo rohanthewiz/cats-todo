@@ -39,9 +39,17 @@ import (
 // there to say what a row is: a heading is a separator row, and separators are
 // dropped while a query filters — so a fact that must survive filtering has to
 // ride the row itself.
+// descMarks are the small flags that lead the description — the fire time, the
+// session cog, the attachment count — each drawn in its own hue and in the order
+// given, ahead of the description text itself. They are separate from desc for
+// the same reason badge is separate from name: a mark that carries a color has
+// to reach the row as text plus a style, because the highlighted row puts its
+// field behind every segment it draws and a segment that already ends in a reset
+// cannot be given a background without nesting one style inside another.
 type listItem struct {
 	name       string
 	desc       string
+	descMarks  []descMark
 	search     string // when set, replaces desc in the fuzzy-match haystack
 	badge      string
 	badgeStyle lipgloss.Style
@@ -50,6 +58,12 @@ type listItem struct {
 	dim        bool
 	selectable bool
 	ref        int
+}
+
+// descMark is one such flag: what to print, and the style to print it in.
+type descMark struct {
+	text  string
+	style lipgloss.Style
 }
 
 // scoredItem is a listItem that survived the current query filter, carrying the
@@ -369,6 +383,12 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 			// the faint tier plus the dot are what keep it from reading as the
 			// description's first word.
 			r.WriteString(onRow(tagStyle, selected).Render(" · " + it.tag))
+		}
+		// Each mark is its own segment, two columns off whatever precedes it —
+		// one style per segment, so the highlighted row's field survives all of
+		// them (see descMark).
+		for _, mk := range it.descMarks {
+			r.WriteString(onRow(mk.style, selected).Render("  " + mk.text))
 		}
 		if it.desc != "" {
 			r.WriteString(onRow(descStyle, selected).Render("  " + it.desc))

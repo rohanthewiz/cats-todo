@@ -847,6 +847,81 @@ type listAction struct {
 	needsSel bool
 }
 
+// chipTier is how much of a button a bar has room to print. A narrowing pane
+// walks down the list, and each step gives up the least useful thing left: the
+// chord first (the footer names every chord the chips stop teaching), then the
+// word (an icon still points at something, and the footer is still naming the
+// chords for it), never the button itself.
+//
+// Dropping a button was the alternative and is the wrong trade: a control that
+// vanishes below some width is a control the user cannot learn is there, and the
+// bars are the only place two of these actions exist at all — the form's ✉ Send
+// has no chord anywhere, so a bar that dropped it would take the feature with it.
+//
+// The tiers are ordered widest-first so they can be compared: a tier at or below
+// tierLabels is one that still prints words.
+type chipTier int
+
+const (
+	tierHints  chipTier = iota // label and chord — "✔ Save enter"
+	tierLabels                 // label alone — "✔ Save"
+	tierIcons                  // the leading dingbat alone — "✔"
+)
+
+// chipText is what a button prints at a given tier. Every bar goes through here,
+// drawing and measuring alike, so a chip's hit-test span cannot disagree with the
+// glyphs the eye sees.
+//
+// An action with no chord at all — the form's ✉ Send, which is click-only on
+// purpose — is label-only even at tierHints. Joining an empty hint on would pad
+// the chip with a trailing space, and that pad would become a live column of
+// button hanging off the right of the label.
+func (a listAction) chipText(tier chipTier) string {
+	switch {
+	case tier <= tierHints && a.hint != "":
+		return a.label + " " + a.hint
+	case tier <= tierLabels:
+		return a.label
+	}
+	return a.icon()
+}
+
+// icon is the chip's leading dingbat — the whole of the button at tierIcons.
+// Every label is written "<glyph> <word>" and every glyph is one cell wide
+// (TestFormBarIconsAreOneCell and its list counterpart hold that), so the first
+// rune is the icon and an icon chip is exactly three columns with its padding.
+func (a listAction) icon() string {
+	runes := []rune(a.label)
+	if len(runes) == 0 {
+		return ""
+	}
+	return string(runes[0])
+}
+
+// barTier picks the widest tier whose chips fit width, given the columns the bar
+// is indented by. Zero width means "not sized yet" — the first frame renders
+// before the terminal reports its size — and takes the full tier rather than
+// guessing a narrow one and flickering wider a frame later.
+//
+// The gap after the last chip is counted too. It is one column of slack, and
+// slack is the right side to err on: a bar measured exactly to the pane wraps
+// its last chip onto the next line, where the pointer no longer finds it.
+func barTier(acts []listAction, width, indent int) chipTier {
+	if width <= 0 {
+		return tierHints
+	}
+	for _, tier := range []chipTier{tierHints, tierLabels} {
+		w := indent
+		for _, a := range acts {
+			w += lipgloss.Width(btnStyle.Render(a.chipText(tier))) + 1
+		}
+		if w <= width {
+			return tier
+		}
+	}
+	return tierIcons
+}
+
 // Indexes into listActions — used by runAction to name what it is dispatching.
 const (
 	actionAdd = iota
@@ -1116,21 +1191,11 @@ func (m *model) rebuildList() {
 			if name == "" {
 				name = firstLine(t.Prompt, 60)
 			}
-			// Attachments lead the description: a prompt written about a
-			// screenshot usually reads as a fragment without it ("this is
-			// wrong"), so the fact that one is carried is what makes the row
-			// make sense.
 			desc := firstLine(t.Prompt, 70)
-			if n := len(t.Images); n > 0 {
-				desc = fmt.Sprintf("📎%d  %s", n, desc)
-			}
-			// Session options get a bare ⚙ rather than their summary: the row
-			// has one line, the summary can be six segments long, and what the
-			// row has to answer is "does this prompt carry a setup" — the
-			// answer to "which one" is one keystroke away in the form.
-			if t.Session.configured() {
-				desc = "⚙ " + desc
-			}
+			// The flags that lead the description, appended in the order they
+			// are drawn — see descMark for why they are segments of their own
+			// rather than text pasted onto the front of desc.
+			var marks []descMark
 			// The fire time leads even the attachments: of everything on the
 			// row it is the one fact that changes on its own — and "missed"
 			// is the row asking for a hand.
@@ -1139,15 +1204,33 @@ func (m *model) rebuildList() {
 				if sc.Missed {
 					when = "missed " + when
 				}
-				desc = fmt.Sprintf("⏰ %s  %s", when, desc)
+				marks = append(marks, descMark{text: "⏰ " + when, style: descStyle})
+			}
+			// Session options get a bare ⚙ rather than their summary: the row
+			// has one line, the summary can be six segments long, and what the
+			// row has to answer is "does this prompt carry a setup" — the
+			// answer to "which one" is one keystroke away in the form.
+			if t.Session.configured() {
+				marks = append(marks, descMark{text: "⚙", style: descStyle})
+			}
+			// Attachments lead the prompt text: a prompt written about a
+			// screenshot usually reads as a fragment without it ("this is
+			// wrong"), so the fact that one is carried is what makes the row
+			// make sense. It is the one mark with a hue — the app's attachment
+			// cyan, the same color the editor's ❐ Images chip carries — so
+			// "this one has a picture" is answered by a glance down the list
+			// rather than by reading each row's greys.
+			if n := len(t.Images); n > 0 {
+				marks = append(marks, descMark{text: fmt.Sprintf("📎%d", n), style: attachStyle})
 			}
 			tag := ""
 			if tagGlobal && s.scope == scopeGlobal {
 				tag = "global"
 			}
 			items = append(items, listItem{
-				name: name,
-				desc: desc,
+				name:      name,
+				desc:      desc,
+				descMarks: marks,
 				// Match against the whole prompt (flattened to one line), not
 				// just the rendered first-line preview, so a filter can hit
 				// text buried deep in a multi-line prompt.
@@ -2041,12 +2124,58 @@ func (m model) imageCountNote() string {
 	return fmt.Sprintf("%d images", len(m.formImages))
 }
 
+// saveForm is ✔ Save (and enter, and ctrl+s): write the prompt and go back to
+// the list. The write itself is persistForm's, so this path and ✉ Send's cannot
+// drift into saving different things.
 func (m model) saveForm() (tea.Model, tea.Cmd) {
+	m, _, _ = m.persistForm()
+	return m, nil
+}
+
+// sendForm is the toolbar's ✉ Send: write the prompt, then open the drop picker
+// on the todo that was just written, so a prompt can go from the editor to an
+// agent without a round trip through the list.
+//
+// Saving first is what makes the send unsurprising in both directions. The agent
+// is handed the text that is on disk rather than a buffer the backlog never saw,
+// and a send the picker then refuses (no control socket, a drop already in
+// flight, a frozen prompt) still leaves the edit kept — the refusal costs the
+// send, never the typing.
+//
+// An empty prompt never reaches the picker: persistForm refuses it with the same
+// message ✔ Save gives, and ok=false stops us here with the form still open.
+//
+// There is deliberately no chord for this. Every other button on the row is
+// recoverable — a save can be edited again, a cancel loses one edit — but a
+// prompt handed to a live agent has left the program, and this stage is one the
+// user is typing into with both hands. A chord one slip from the caret is
+// exactly how a half-written prompt gets sent, so the pointer is the only way in.
+func (m model) sendForm() (tea.Model, tea.Cmd) {
+	m, ref, ok := m.persistForm()
+	if !ok {
+		return m, nil
+	}
+	// startDrop is the list's own entry point, so a send from here lands the
+	// prompt through exactly the path shift+enter does — same guards, same
+	// picker, same performDropCmd behind it.
+	return m.startDrop(ref)
+}
+
+// persistForm writes the form to its backlog and reports where the prompt
+// landed, so a caller that has something to do with the saved todo — ✉ Send,
+// which needs its identity for the picker — can find it without re-deriving the
+// id the add path mints internally.
+//
+// A failure leaves the form open with formErr set and reports ok=false; the
+// caller hands the model straight back rather than deciding again what went
+// wrong. On success the stage is already back on the list, which is where a
+// plain save ends and where every one of startDrop's own refusals wants to be.
+func (m model) persistForm() (model, todoRef, bool) {
 	title := strings.TrimSpace(m.titleInput.Value())
 	prompt := strings.TrimSpace(m.promptArea.Value())
 	if prompt == "" {
 		m.formErr = "The prompt can't be empty."
-		return m, nil
+		return m, todoRef{}, false
 	}
 	if title == "" {
 		title = firstLine(prompt, 60)
@@ -2058,12 +2187,17 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 	// than report a save that wrote nothing.
 	if !st.available() {
 		m.formErr = "no " + strings.ToLower(m.formScope.String()) + " backlog is available here"
-		return m, nil
+		return m, todoRef{}, false
 	}
 	note := ""
 	if n := m.imageCountNote(); n != "" {
 		note = " · " + n
 	}
+
+	// Where the prompt ended up. Both branches fill it, because a caller that
+	// wants to act on the saved todo (see sendForm) must not have to guess which
+	// of the two wrote it.
+	saved := todoRef{scope: m.formScope}
 
 	if m.formMode == formAdd {
 		// The id has to exist before the copy — it names the attachment
@@ -2072,7 +2206,7 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 		added, err := st.attachImages(id, m.pendingSources())
 		if err != nil {
 			m.formErr = "attach failed: " + err.Error()
-			return m, nil
+			return m, todoRef{}, false
 		}
 		if err := st.add(Todo{
 			ID: id, Title: title, Prompt: prompt, Images: added,
@@ -2084,8 +2218,9 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 			// The copies are on disk but no todo will ever reference them.
 			st.removeImages(id)
 			m.formErr = "save failed: " + err.Error()
-			return m, nil
+			return m, todoRef{}, false
 		}
+		saved.id = id
 		m.setStatus("added to "+m.formScope.String()+" backlog"+note, false)
 	} else {
 		// Copy first, then record, then delete: every step leaves the todo
@@ -2094,17 +2229,17 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 		added, err := st.attachImages(m.editID, m.pendingSources())
 		if err != nil {
 			m.formErr = "attach failed: " + err.Error()
-			return m, nil
+			return m, todoRef{}, false
 		}
 		if err := st.update(Todo{ID: m.editID, Title: title, Prompt: prompt}); err != nil {
 			st.removeImageFiles(m.editID, added)
 			m.formErr = "save failed: " + err.Error()
-			return m, nil
+			return m, todoRef{}, false
 		}
 		if err := st.setImages(m.editID, append(m.keptRels(), added...)); err != nil {
 			st.removeImageFiles(m.editID, added)
 			m.formErr = "save failed: " + err.Error()
-			return m, nil
+			return m, todoRef{}, false
 		}
 		// Same "record it explicitly" split as the images above: update() is
 		// text-only, so the options are their own write (see setSession). No
@@ -2113,10 +2248,11 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 		// more honest than un-attaching files the todo now references.
 		if err := st.setSession(m.editID, sessionPtr(m.formSession)); err != nil {
 			m.formErr = "save failed: " + err.Error()
-			return m, nil
+			return m, todoRef{}, false
 		}
 		// Only now does the record no longer mention them.
 		st.removeImageFiles(m.editID, m.droppedRels())
+		saved.id = m.editID
 		m.setStatus("updated"+note, false)
 	}
 	// The backlog holds its own copies now, so the captures' temp files have
@@ -2124,7 +2260,7 @@ func (m model) saveForm() (tea.Model, tea.Cmd) {
 	m.discardClipboardCaptures()
 	m.rebuildList()
 	m.backToList()
-	return m, nil
+	return m, saved, true
 }
 
 // --- Delete confirm -----------------------------------------------------------
@@ -3319,13 +3455,13 @@ type actionChip struct {
 	start, end int
 }
 
-// actionChips lays the bar out: the chip contents (label, plus the key hint
-// when the whole row fits with them) and where each one lands. The three button
+// actionChips lays the bar out: the chip contents (as much of each button as the
+// pane has room for — see chipTier) and where each one lands. The three button
 // styles share one padding, so widths don't depend on which is picked at render
 // time and btnStyle can measure for all of them.
 func (m model) actionChips() []actionChip {
 	acts := m.listActions()
-	withHints := m.barShowsHints()
+	tier := m.barTier()
 
 	chips := make([]actionChip, 0, len(acts))
 	x := indentWidth
@@ -3333,10 +3469,7 @@ func (m model) actionChips() []actionChip {
 		if i > 0 {
 			x++ // the space between chips
 		}
-		text := a.label
-		if withHints {
-			text = a.label + " " + a.hint
-		}
+		text := a.chipText(tier)
 		w := lipgloss.Width(btnStyle.Render(text))
 		chips = append(chips, actionChip{text: text, start: x, end: x + w})
 		x += w
@@ -3344,19 +3477,17 @@ func (m model) actionChips() []actionChip {
 	return chips
 }
 
+// barTier is how much of each button the list's bar is printing.
+func (m model) barTier() chipTier {
+	return barTier(m.listActions(), m.width, indentWidth)
+}
+
 // barShowsHints reports whether the action bar is wide enough for every chip
 // to carry its key hint. The footer keys off the same answer — chords the
 // chips teach stay off it, and the moment the bar goes quiet the footer names
 // everything again — so the two can't both drop a chord at once.
 func (m model) barShowsHints() bool {
-	if m.width <= 0 {
-		return true
-	}
-	w := indentWidth
-	for _, a := range m.listActions() {
-		w += lipgloss.Width(btnStyle.Render(a.label+" "+a.hint)) + 1
-	}
-	return w <= m.width
+	return m.barTier() == tierHints
 }
 
 // indentWidth is the left margin the list's rows sit at (the two columns
@@ -3468,34 +3599,52 @@ func (m model) viewForm() string {
 // has something to act on.
 //
 // The order is the order a prompt's editing session ends: keep it, break the line
-// you are on, attach to it, throw it away. Save takes the accent because it is the
-// one button that writes to disk; Cancel keeps red as the only warning on the row.
+// you are on, attach to it, say how it should run, hand it to an agent, throw it
+// away. Send takes the accent for the reason listActions spends green on the
+// list's Send — it is the one button on this screen that reaches out of the
+// program — so Save gives the accent up and takes plain white instead: it is the
+// row's default, and a default reads better as the one chip with no hue at all.
+// Cancel keeps red as the only warning on the row.
+//
+// Send sits between Session and Cancel rather than beside Save. The two writes
+// are not neighbours on purpose: Save is the button the hand goes to without
+// looking, and a send is not undoable once an agent has the text, so the two
+// worst mis-clicks to make adjacent are exactly those. Where it does sit reads
+// as a sentence — set how it runs, then run it — and Cancel stays last, where a
+// row of buttons is read from; nobody scans past the exit.
+//
+// Send is also the row's one chip with no chord (see sendForm): the hint column
+// is empty rather than holding a key, so nothing typed into the form can fire it.
+//
+// Images is the palette's cyan and Session its blue, a pair chosen together (see
+// colCyan): the two chips are the same gesture — "something else this prompt
+// carries" — so they get neighbouring hues at one brightness rather than one
+// tint each from opposite ends of the bar's set.
 //
 // Every icon is a one-cell text dingbat, for the reason listActions gives: the
 // emoji forms measure as two columns but get drawn clipped at a cell edge, and no
 // layout width fixes a terminal's own rasteriser. ❐ is the dingbat squares' pick
-// for "images" — same font family as ✔ ✖, so the row stays one set.
+// for "images" — same font family as ✔ ✖, so the row stays one set. ✉ is the
+// list bar's own Send glyph: the same act from a different screen, so it is the
+// same chip.
 func (m model) formActions() []listAction {
 	return []listAction{
-		{label: "✔ Save", hint: "enter", tint: colAccent},
+		{label: "✔ Save", hint: "enter", tint: colFgHi},
 		{label: "↵ Newline", hint: m.modEnter(), tint: colStraw},
-		{label: "❐ Images", hint: "ctrl+o", tint: colInfo},
-		{label: "⚙ Session", hint: "ctrl+r", tint: colStraw},
+		{label: "❐ Images", hint: "ctrl+o", tint: colCyan},
+		{label: "⚙ Session", hint: "ctrl+r", tint: colInfo},
+		{label: "✉ Send", tint: colAccent},
 		{label: "✖ Cancel", hint: "esc", tint: colErr},
 	}
 }
 
 // Indexes into formActions — used by clickFormBar to name what it is dispatching.
-//
-// Session goes between Images and Cancel rather than on the end: the two chips
-// are the same gesture ("something else this prompt carries"), and Cancel is the
-// row's one red button, which has to stay at the end where a row of buttons is
-// read from — nobody scans past the exit.
 const (
 	formActionSave = iota
 	formActionNewline
 	formActionImages
 	formActionSession
+	formActionSend
 	formActionCancel
 )
 
@@ -3506,7 +3655,7 @@ const (
 // clear its cursor gutter, and the form has none.
 func (m model) formChips() []actionChip {
 	acts := m.formActions()
-	withHints := m.formBarShowsHints()
+	tier := m.formBarTier()
 
 	chips := make([]actionChip, 0, len(acts))
 	x := 0
@@ -3514,10 +3663,7 @@ func (m model) formChips() []actionChip {
 		if i > 0 {
 			x++ // the space between chips
 		}
-		text := a.label
-		if withHints {
-			text = a.label + " " + a.hint
-		}
+		text := a.chipText(tier)
 		w := lipgloss.Width(btnStyle.Render(text))
 		chips = append(chips, actionChip{text: text, start: x, end: x + w})
 		x += w
@@ -3525,18 +3671,23 @@ func (m model) formChips() []actionChip {
 	return chips
 }
 
+// formBarTier is how much of each button the form's toolbar is printing. The
+// toolbar sits at column 0 — the form has no cursor gutter to clear — so it is
+// measured with no indent.
+//
+// It reaches tierIcons sooner than the list's bar does, having six buttons to
+// the list's four: a six-chip row needs about 63 columns for its labels and 23
+// for its glyphs, so between those two widths the toolbar is ✔ ↵ ❐ ⚙ ✉ ✖ and
+// the footer is what names them.
+func (m model) formBarTier() chipTier {
+	return barTier(m.formActions(), m.width, 0)
+}
+
 // formBarShowsHints reports whether the toolbar is wide enough for every chip to
 // carry its chord. The footer keys off the same answer — chords the chips teach
 // stay off it, and the moment the chips go quiet the footer names them again.
 func (m model) formBarShowsHints() bool {
-	if m.width <= 0 {
-		return true
-	}
-	w := 0
-	for _, a := range m.formActions() {
-		w += lipgloss.Width(btnStyle.Render(a.label+" "+a.hint)) + 1
-	}
-	return w <= m.width
+	return m.formBarTier() == tierHints
 }
 
 // formBar renders the toolbar. Every chip is live — unlike the list's bar there
@@ -3580,6 +3731,8 @@ func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			return m.beginImages()
 		case formActionSession:
 			return m.beginSession()
+		case formActionSend:
+			return m.sendForm()
 		case formActionCancel:
 			return m.cancelForm()
 		}
@@ -3598,10 +3751,20 @@ func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // chip hints the footer is the only teacher left, so it names them again.
 func (m model) formFooter() string {
 	var lines []string
-	if !m.formBarShowsHints() {
-		lines = append(lines, m.fitFooter([]string{
+	if tier := m.formBarTier(); tier != tierHints {
+		chords := []string{
 			"enter save", m.modEnter() + " newline", "ctrl+o images", "ctrl+r session", "esc cancel",
-		}))
+		}
+		if tier == tierIcons {
+			// Down to glyphs, ✉ is the one chip no chord on this line stands for
+			// — Send is click-only — so it leads rather than rides at the end,
+			// which is the end fitFooter drops segments from. The pane that
+			// squeezed the labels off the bar is exactly the pane that will drop
+			// the tail of this line, and the thing nothing else can teach must not
+			// be what goes first.
+			chords = append([]string{"✉ click sends"}, chords...)
+		}
+		lines = append(lines, m.fitFooter(chords))
 	}
 	// In the order they must survive a narrowing pane, which is the order they
 	// are worth knowing: the pointer, then the two chords that move the caret
