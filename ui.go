@@ -3069,25 +3069,27 @@ func (m model) renderStage() string {
 	}
 }
 
-// listTitle is the fixed heading of the manager's list view. Everything else
-// on the header line — the scope note, the query box, the match count — is
-// budgeted around it by headerLayout, since the five of them share one
-// terminal line.
-const listTitle = "📝 Cats Todo"
-
-// headerChip renders the title chip, with the binary's version trailing the
-// name when the line has room for the footnote — dimmed inside the same field
-// so it reads as an aside to the title rather than a second thing on the line.
-// The label drops its right padding so the version sits one space after it and
-// the chip keeps one padded edge.
-func headerChip(withVersion bool) string {
-	if !withVersion {
-		return titleStyle.Render(listTitle)
+// headerTitle styles the header line's leading segment. The tool's own name
+// and version used to sit here in a chip, which spent the pane's most valuable
+// column on a fact the terminal tab already carries ("todo: …") and that never
+// changes between frames. With the chip gone the backlog's own name is the
+// heading, so it takes the bright weight and everything the note adds after
+// it — the scope suffix, the ws label, the hidden tag — stays tertiary, the
+// same hierarchy the chip and its trailing note used to draw.
+//
+// The split point is found rather than threaded through: scopeNote builds the
+// note as "<project><suffix>[ · ws:x]" with suffix one of " + global" / " only"
+// (see scopeNote), so the first occurrence of either ends the name — including
+// when the name itself has been truncated to "long-nam…". The no-project notes
+// ("no backlog here") have no such suffix and simply stay dim; "global only"
+// splits on " only" and reads correctly as a name plus its scope.
+func headerTitle(note string) string {
+	for _, suffix := range []string{" + global", " only"} {
+		if i := strings.Index(note, suffix); i > 0 {
+			return headerNameStyle.Render(note[:i]) + descStyle.Render(note[i:])
+		}
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		titleStyle.PaddingRight(0).Render(listTitle),
-		titleVerStyle.Render(" v"+version),
-	)
+	return descStyle.Render(note)
 }
 
 // headerGap is the breath between the header line's segments.
@@ -3127,37 +3129,36 @@ const (
 )
 
 // headerLayout is what survives on the header line at the current width. The
-// zero value means "everything": version shown, full-size search, whole note.
+// zero value means "everything": full-size search, whole note.
 type headerLayout struct {
-	withVersion bool
-	note        string // budgeted scope note (done-hidden tag included); "" = dropped
-	searchLead  int    // cells of whitespace in front of the query glyph
-	searchW     int    // the query input's SetWidth; 0 = segment dropped
-	count       string // "matched/total"
-	countW      int    // cells reserved for count — total's digits, so typing doesn't shift the line
+	note       string // budgeted scope note (done-hidden tag included); "" = dropped
+	searchLead int    // cells of whitespace in front of the query glyph
+	searchW    int    // the query input's SetWidth; 0 = segment dropped
+	count      string // "matched/total"
+	countW     int    // cells reserved for count — total's digits, so typing doesn't shift the line
 }
 
-// headerLayout budgets the header's one line: title chip, scope note, query
-// box, match count. The line must never exceed m.width — every row below it
-// is hit-tested against a constant (see actionBarRow), and a wrapped header
-// silently moves all of them out from under the mouse.
+// headerLayout budgets the header's one line: scope note (the heading now that
+// the tool's chip is gone), query box, match count. The line must never exceed
+// m.width — every row below it is hit-tested against a constant (see
+// actionBarRow), and a wrapped header silently moves all of them out from
+// under the mouse.
 //
 // When the pane is too narrow for everything, the segments concede in a fixed
 // order, cheapest first:
 //
 //	ws label → search lead narrows → done-hidden tag → search shrinks →
-//	version → search floors, then drops → project name truncates (inside
-//	scopeNote) → count last
+//	search floors, then drops → project name truncates (inside scopeNote) →
+//	count last
 //
-// The version goes before any of the project name does: the name is the fact
-// that decides what an edit touches, the version is a footnote.
+// The project name is the last thing on the line to give up any width: it is
+// the fact that decides what an edit touches.
 func (m model) headerLayout() headerLayout {
 	matched, total := m.list.counts()
 	hl := headerLayout{
-		withVersion: true,
-		searchLead:  searchLead,
-		searchW:     searchFieldWidth,
-		count:       fmt.Sprintf("%d/%d", matched, total),
+		searchLead: searchLead,
+		searchW:    searchFieldWidth,
+		count:      fmt.Sprintf("%d/%d", matched, total),
 	}
 	hl.countW = len(fmt.Sprintf("%d/%d", total, total))
 
@@ -3168,15 +3169,17 @@ func (m model) headerLayout() headerLayout {
 		return hl
 	}
 
-	// Room left for the note at the current concessions. The input is counted
-	// one cell wider than its SetWidth (inputCursorPad); rune counts stand in
-	// for cell width on the note itself — it is plain prose.
+	// Room left for the note at the current concessions. The note leads the line
+	// now, so the only fixed cost in front of the count is the gap before it —
+	// the chip and the gap that separated it from the note are both gone. The
+	// input is counted one cell wider than its SetWidth (inputCursorPad); rune
+	// counts stand in for cell width on the note itself — it is plain prose.
 	room := func() int {
-		r := m.width - lipgloss.Width(headerChip(hl.withVersion)) - headerGap - hl.countW
+		r := m.width - hl.countW - headerGap
 		if hl.searchW > 0 {
 			r -= hl.searchLead + lipgloss.Width(searchGlyph) + hl.searchW + inputCursorPad
 		}
-		return r - headerGap
+		return r
 	}
 
 	runew := func(s string) int { return len([]rune(s)) }
@@ -3207,9 +3210,6 @@ func (m model) headerLayout() headerLayout {
 	}
 	if over := core + runew(hidden) - room(); over > 0 && hl.searchW > searchFieldSqueezed {
 		hl.searchW -= min(over, hl.searchW-searchFieldSqueezed)
-	}
-	if core+runew(hidden) > room() {
-		hl.withVersion = false
 	}
 	if core+runew(hidden) > room() && hl.searchW > searchFieldMin {
 		hl.searchW = searchFieldMin
@@ -3322,17 +3322,17 @@ func (m model) hiddenNote() string {
 }
 
 // headerLine renders the list view's single top line from the current budget:
-// chip, scope note, inline query box, match count. The glyph in front of the
+// scope note, inline query box, match count. The glyph in front of the
 // input is the focus affordance the boxed field's rails used to be: lit when
 // the box holds the keys, faint when a button does. The input's own focus is
 // the truth here, same as the picker's rails — setActionFocus moves both.
 func (m model) headerLine() string {
 	hl := m.headerLayout()
 	var b strings.Builder
-	b.WriteString(headerChip(hl.withVersion))
+	// The note starts at column 0 — the pane's first column names the backlog
+	// being edited rather than the program doing the editing.
 	if hl.note != "" {
-		b.WriteString("  ")
-		b.WriteString(descStyle.Render(hl.note))
+		b.WriteString(headerTitle(hl.note))
 	}
 	if hl.searchW > 0 {
 		b.WriteString(strings.Repeat(" ", hl.searchLead))

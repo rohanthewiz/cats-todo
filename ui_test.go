@@ -962,6 +962,44 @@ func TestScopeNote(t *testing.T) {
 	})
 }
 
+// TestHeaderLeadsWithTheBacklogName pins what the header's first column spends
+// itself on. The tool's own name and version used to open the line in a chip,
+// which outranked the one fact on it that changes — which backlog is being
+// edited — and duplicated what the terminal tab already says. The backlog's
+// name must lead, and the program's name and version must be nowhere on the
+// line at any width.
+func TestHeaderLeadsWithTheBacklogName(t *testing.T) {
+	for _, width := range []int{40, 60, 80, 120, 200} {
+		m := withTodo("ship it")
+		m.width = width
+		m.applySizes()
+		line := stripANSI(m.headerLine())
+		if !strings.HasPrefix(line, "project") {
+			t.Fatalf("width %d: header does not lead with the backlog name: %q", width, line)
+		}
+		if strings.Contains(line, "Cats") || strings.Contains(line, "v"+version) {
+			t.Fatalf("width %d: header still carries the tool's name/version: %q", width, line)
+		}
+	}
+}
+
+// TestHeaderTitleWeightsTheName pins the hierarchy headerTitle draws: the
+// backlog name renders in its own style and the scope tail keeps the dim one,
+// so dropping the chip's filled field did not flatten the line into one tone.
+func TestHeaderTitleWeightsTheName(t *testing.T) {
+	got := headerTitle("project + global · ws:pers")
+	if want := headerNameStyle.Render("project"); !strings.Contains(got, want) {
+		t.Fatalf("headerTitle did not weight the project name:\n got %q\nwant %q inside", got, want)
+	}
+	if want := descStyle.Render(" + global · ws:pers"); !strings.Contains(got, want) {
+		t.Fatalf("headerTitle did not dim the scope tail:\n got %q\nwant %q inside", got, want)
+	}
+	// A note with no scope suffix has no name to weight — all of it is prose.
+	if got, want := headerTitle("no backlog here"), descStyle.Render("no backlog here"); got != want {
+		t.Fatalf("headerTitle(%q) = %q, want it left dim", "no backlog here", got)
+	}
+}
+
 // TestHeaderLineFits pins the header budget: the line must never exceed the
 // pane's width, whatever is competing for it. The bug this guards against —
 // the query input used to be sized to width-4, blowing the line to ~width+8 —

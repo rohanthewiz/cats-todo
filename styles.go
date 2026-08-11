@@ -125,14 +125,16 @@ var (
 			Background(lipgloss.Color(colTitle)).
 			Padding(0, 1)
 
-	// The version rides inside the title chip, so it carries the chip's field and
-	// only the foreground changes: colDim against colTitle keeps it readable but
-	// clearly secondary to the name it trails. It owns the chip's right padding
-	// because the label gives that padding up to sit flush against it.
-	titleVerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colDim)).
-			Background(lipgloss.Color(colTitle)).
-			Padding(0, 1, 0, 0)
+	// The backlog's name where it leads the list header (see headerTitle). It is
+	// the heading of that line now that the tool's chip is gone from it, but it
+	// is also a name that changes with the pane, so it stays flat text rather
+	// than taking the chip's field: a filled block reads as chrome, and chrome
+	// is exactly what the header was carrying too much of. Weight plus the
+	// brightest foreground is enough to sit a step above the dim remainder of
+	// the note that trails it.
+	headerNameStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colFgHi)).
+			Bold(true)
 
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
 	countStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
