@@ -80,6 +80,20 @@ const (
 	// colFgHi on top of it still clears 10:1, so nothing on the row loses
 	// contrast to gain the field.
 	colSel = "#3b5245"
+	// The field under selected text in the prompt editor. Same green family as
+	// colSel and chosen the same way, but a full step brighter — about 2.5:1
+	// against the page where the row highlight is 1.9:1.
+	//
+	// The extra step is not decoration. colSel marks a whole row, edge to edge,
+	// and a wide band of color is legible at a contrast a few characters in the
+	// middle of a paragraph are not; a selection has to be findable when it is
+	// three letters long. It also has to be told apart from the editor's own
+	// cursor-line field, which the row highlight never has to compete with.
+	//
+	// colFg on top of it still clears 4.5:1, so selected text is no harder to
+	// read than the text around it — which matters here more than on a list row,
+	// because the reason to select something is to read it before copying it.
+	colTextSel = "#4a6656"
 )
 
 // onRow puts st on the highlighted row's field, and returns it untouched
@@ -251,4 +265,15 @@ var (
 	btnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Background(lipgloss.Color(colChrome)).Padding(0, 1)
 	btnFocusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colBg)).Background(lipgloss.Color(colAccent)).Padding(0, 1)
 	btnOffStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim)).Background(lipgloss.Color(colPanel)).Padding(0, 1)
+
+	// The prompt editor's selection. The foreground is set as well as the field
+	// because the text under a selection may have been drawn in any of the
+	// textarea's own tones, and a highlight that inherited them would come out a
+	// different brightness on the caret's line than on the lines above it.
+	promptSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi)).Background(lipgloss.Color(colTextSel))
+	// The caret, redrawn when a selection covers the cells around it (see
+	// paintPromptSelection). Reverse rather than a color pair so it matches the
+	// block the textarea draws for itself the rest of the time, whatever the
+	// terminal resolves that to.
+	promptCaretStyle = lipgloss.NewStyle().Reverse(true)
 )

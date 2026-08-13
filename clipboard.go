@@ -24,6 +24,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // clipboardTimeout bounds an osascript call. The read is normally a few
@@ -42,6 +44,42 @@ const clipboardImageName = "clipboard.png"
 // clipboard image at all. It gates the editor's key and its footer hint, so the
 // UI never advertises something that cannot work here.
 func clipboardImageSupported() bool { return runtime.GOOS == "darwin" }
+
+// copyTextToClipboard hands text to the system clipboard, from wherever this
+// program happens to be running.
+//
+// Two mechanisms, on purpose, because neither one covers the ground alone:
+//
+//   - OSC 52, the escape sequence that asks the terminal to set its own
+//     clipboard. It is the only one that works when the manager is running on
+//     the far side of an ssh session or inside a multiplexer, since it travels
+//     the same channel the drawing does. Not every terminal honours it, and
+//     several that do have it off by default.
+//   - pbcopy, which is unconditional but only exists — and only means the right
+//     clipboard — when the process is on the same machine as the user's Mac.
+//     The same reasoning that put osascript in this file applies: the pasteboard
+//     is the system's, and there is no portable way to reach it.
+//
+// Both carry the same bytes, so the two racing is harmless: whichever lands
+// second writes what the first one already wrote.
+func copyTextToClipboard(text string) tea.Cmd {
+	osc := tea.SetClipboard(text)
+	if runtime.GOOS != "darwin" {
+		return osc
+	}
+	return tea.Batch(osc, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), clipboardTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "pbcopy")
+		cmd.Stdin = strings.NewReader(text)
+		// Best effort by design. OSC 52 has already been asked for, the user has
+		// been told the copy happened, and there is no second thing to try — a
+		// failure here is a message about plumbing in place of the text they
+		// wanted, which is worse than the copy the other path probably made.
+		_ = cmd.Run()
+		return nil
+	})
+}
 
 // clipboardImageOffer is what the pasteboard is currently offering, which is
 // what ctrl+v has to decide between: capture an image, explain why it cannot, or

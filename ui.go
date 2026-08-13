@@ -212,6 +212,20 @@ type model struct {
 	promptArea textarea.Model
 	formFocus  int // 0 = title, 1 = prompt
 	formErr    string
+	// formNote is the form's one non-error message, drawn on the same line
+	// formErr uses and yielding to it when both are set. Today it says a
+	// selection was copied. It is not folded into formErr because a save failure
+	// and a successful copy must not look alike, which is the same split the
+	// attachment editor draws between imgStatus and imgStatusErr.
+	formNote string
+	// The prompt editor's text selection: the anchor a shift+motion or a drag
+	// started from (see promptsel.go), and whether the pointer is still down on
+	// a selection drag. promptSelDrag is separate from the list's dragging flag
+	// because the two gestures live on different stages and mean different
+	// things — one reorders a backlog, the other sweeps a highlight — and one
+	// flag serving both would let a release meant for one end the other.
+	promptSel     promptSel
+	promptSelDrag bool
 
 	// Attachment editor (a sub-stage of the form, so its state lives and dies
 	// with the form's).
@@ -385,15 +399,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMotionMsg:
 		// Motion only arrives while a button is held (MouseModeCellMotion — see
 		// View), so this is a drag by definition. It is answered only when the
-		// button went down on a todo row; anything else falls through to the
-		// active input below, which is where these messages went before drag
-		// existed.
+		// button went down on a todo row, or inside the prompt editor; anything
+		// else falls through to the active input below, which is where these
+		// messages went before drag existed.
 		if m.dragging {
 			return m.dragOver(msg)
+		}
+		if m.promptSelDrag {
+			return m.promptSelOver(msg)
 		}
 	case tea.MouseReleaseMsg:
 		if m.dragging {
 			return m.endDrag()
+		}
+		if m.promptSelDrag {
+			// The anchor stays behind: the sweep is over, but what it selected is
+			// still selected, which is the only reason to have swept.
+			m.promptSelDrag = false
+			return m, nil
 		}
 	case tea.KeyPressMsg:
 		switch m.stage {
@@ -770,12 +793,24 @@ func (m model) clickTarget(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // keys — and the caret — where it landed, a click on a label focuses that field
 // without disturbing its caret, and a click on the toolbar presses a button.
 //
-// The form is the one screen where the pointer earns the terminal's own
-// click-drag selection (see View): every other stage is a list, where the
-// gesture is "pick a thing", but a prompt being written is a body of text whose
-// caret has to be placeable at a word in the middle of it without walking there
-// one key at a time.
+// The form asks for mouse reporting (see View), which costs it the terminal's
+// own click-drag selection: while the program is being told about the pointer,
+// the pane is not selecting text with it. Every other stage can pay that
+// without noticing, because a list is a place to pick a thing. A prompt being
+// written is a body of text, and text the pointer cannot sweep is text that
+// cannot be copied out — so the editor gives the gesture back itself, in
+// promptsel.go, and this is where a sweep begins.
+//
+// A press is not yet a selection: it places the caret and drops an anchor there,
+// and only motion with the button still down turns the pair into a highlight
+// (see promptSelOver). That is what keeps an ordinary click on a word from
+// leaving a stray selection behind it.
 func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	// A press anywhere on the form ends the last selection: the pointer is
+	// about to say where the caret goes next, and a highlight that outlived the
+	// click that moved away from it would misreport what ctrl+c copies.
+	m.clearPromptSel()
+	m.formNote = ""
 	switch {
 	case msg.Y == formTitleLabelRow:
 		return m, m.focusForm(formFieldTitle)
@@ -788,10 +823,27 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	case msg.Y >= formPromptRow && msg.Y < formPromptRow+m.promptArea.Height():
 		cmd := m.focusForm(formFieldPrompt)
 		m.placePromptCursor(msg.X, msg.Y-formPromptRow)
+		m.anchorPromptSel()
+		m.promptSelDrag = true
 		return m, cmd
 	case msg.Y == m.formBarRow():
 		return m.clickFormBar(msg)
 	}
+	return m, nil
+}
+
+// promptSelOver is the pointer sweeping across the editor with the button still
+// down: the caret follows it and the anchor stays where the press put it, so the
+// span between them grows and shrinks with the hand.
+//
+// The row is clamped into the editor's box rather than ignored when it leaves
+// it. A sweep that runs off the bottom of the prompt on its way to the toolbar
+// means "everything down to here", and dropping those messages would freeze the
+// highlight partway while the button is plainly still moving. Clamping is also
+// what makes a sweep off the top select back to the first visible line.
+func (m model) promptSelOver(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	row := min(max(msg.Y-formPromptRow, 0), m.promptArea.Height()-1)
+	m.placePromptCursor(msg.X, row)
 	return m, nil
 }
 
@@ -1162,6 +1214,10 @@ func (m *model) moveActionFocus(delta int) tea.Cmd {
 // its own, and the box still shows a steady cursor.
 func (m *model) backToList() {
 	m.stage = stageList
+	// Nothing on the list stage reads the editor's selection, but leaving a drag
+	// flag set would hand the next stray motion message to a handler that expects
+	// to be on the form.
+	m.clearPromptSel()
 	// Every path back through here clears the picker's schedule flavor: the
 	// flag may only live for one list → schedule → picker traversal, or an
 	// esc out of the picker would leave the next manual drop scheduling.
@@ -1521,7 +1577,11 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	m.discardClipboardCaptures()
 	// Start in the prompt — that's the point of an entry.
 	cmd := m.focusForm(formFieldPrompt)
-	m.formErr = ""
+	m.formErr, m.formNote = "", ""
+	// The anchor is an offset into the value this form is replacing, so it means
+	// nothing here. Both entry points clear it rather than trusting cancelForm to
+	// have, because a form can also be reached from a stage that never had one.
+	m.clearPromptSel()
 	m.stage = stageForm
 	return m, cmd
 }
@@ -1556,7 +1616,8 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	}
 	m.discardClipboardCaptures()
 	cmd := m.focusForm(formFieldPrompt)
-	m.formErr = ""
+	m.formErr, m.formNote = "", ""
+	m.clearPromptSel() // see beginAdd
 	m.stage = stageForm
 	return m, cmd
 }
@@ -1609,6 +1670,28 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 }
 
 func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Selection first, because both of its keys are spellings of something this
+	// switch already claims: shift+← would otherwise reach the editor as a plain
+	// ←, and ctrl+c is the quit chord two lines down.
+	if m.formFocus == formFieldPrompt {
+		if plain, ok := promptSelectionKey(msg); ok {
+			// Anchor before the motion, so the span runs from where the caret was
+			// when shift was first held rather than from where it ends up.
+			m.anchorPromptSel()
+			return m.forwardForm(plain)
+		}
+		if msg.String() == "ctrl+c" && m.selectedPromptText() != "" {
+			return m.copyPromptSelection()
+		}
+	}
+	// Anything else ends the selection. This is on the way in rather than spread
+	// across the handlers below because the rule is about the gesture, not about
+	// any one key: a selection lasts exactly as long as the run of keys building
+	// it, and the first key that isn't part of that run ends it. The copy note
+	// goes with it: it reports on a selection, so it must not outlive one.
+	m.clearPromptSel()
+	m.formNote = ""
+
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
@@ -1660,6 +1743,35 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.forwardForm(msg)
+}
+
+// copyPromptSelection puts the highlighted run of the prompt on the system
+// clipboard. It is ctrl+c, and only while something is selected: with nothing
+// highlighted that chord still quits, which is what it does on every other
+// screen and what a hand reaching for it expects.
+//
+// Overloading the quit key is the one liberty this feature takes, and it is the
+// right one. ctrl+c is what every other program on the machine copies with, and
+// a selection that had to be copied with some other chord would be a selection
+// nobody uses. The guard is the selection itself: the only way to reach the copy
+// is to have deliberately swept or shift-walked over some text, and the way back
+// to quitting is the same esc that already backs out of the form.
+//
+// The selection survives the copy. Copying is not a gesture that ends anything —
+// the run is still highlighted, still visible, and can be copied again or
+// extended.
+func (m model) copyPromptSelection() (tea.Model, tea.Cmd) {
+	text := m.selectedPromptText()
+	if text == "" {
+		return m, nil
+	}
+	n := len([]rune(text))
+	unit := "characters"
+	if n == 1 {
+		unit = "character"
+	}
+	m.formNote = fmt.Sprintf("copied %d %s", n, unit)
+	return m, copyTextToClipboard(text)
 }
 
 // cancelForm leaves the form without saving — esc, and the toolbar's ✖ Cancel.
@@ -3187,6 +3299,11 @@ func (m model) View() tea.View {
 	// being written; the prompt view — the one screen whose whole point is text
 	// worth copying out — keeps its selection.
 	//
+	// The form is the one stage where losing the terminal's selection would have
+	// cost something real, since a prompt is text worth copying too. It doesn't:
+	// the editor draws and copies its own selection instead (see promptsel.go),
+	// which is what these mouse messages are also being spent on.
+	//
 	// Cell motion is also exactly the mode a drag needs: it reports motion only
 	// while a button is held, so the manager hears the gesture without paying for
 	// a message on every idle sweep of the pointer across the pane.
@@ -3708,7 +3825,11 @@ func (m model) viewForm() string {
 
 	b.WriteString(promptStyle.Render("Prompt"))
 	b.WriteString("\n")
-	b.WriteString(m.promptArea.View())
+	// The editor's own view with the selection painted over it. It renders
+	// exactly the same number of lines either way (see promptEditorView), which
+	// is what the toolbar's row depends on — a highlight must not move the
+	// buttons out from under the pointer.
+	b.WriteString(m.promptEditorView())
 	b.WriteString("\n")
 
 	// The attachment line is always shown, empty or not: an attachment editor
@@ -3735,8 +3856,13 @@ func (m model) viewForm() string {
 	b.WriteString(m.formBar())
 	b.WriteString("\n")
 
+	// One line for both, with the error winning: the two never arise from the
+	// same keystroke, and a save that failed is the more urgent thing to read.
 	if m.formErr != "" {
 		b.WriteString(errStyle.Render(m.formErr))
+		b.WriteString("\n")
+	} else if m.formNote != "" {
+		b.WriteString(descStyle.Render(m.formNote))
 		b.WriteString("\n")
 	}
 
@@ -3919,13 +4045,20 @@ func (m model) formFooter() string {
 		lines = append(lines, m.fitFooter(chords))
 	}
 	// In the order they must survive a narrowing pane, which is the order they
-	// are worth knowing: the pointer, then the two chords that move the caret
-	// furthest per keystroke, then field switching. ↑/↓ and ←/→ are not on the
-	// line at all — a text box's arrow keys are the one thing nobody has to be
-	// told, and the segments that go without saying are what buy room for the
-	// ones that don't.
+	// are worth knowing: the pointer, then selecting and copying, then the two
+	// chords that move the caret furthest per keystroke, then field switching.
+	// ↑/↓ and ←/→ are not on the line at all — a text box's arrow keys are the
+	// one thing nobody has to be told, and the segments that go without saying
+	// are what buy room for the ones that don't.
+	//
+	// Dragging to select is left out for that same reason, and it is the reason
+	// rather than an omission: a line that already says the pointer places the
+	// caret has said that the pointer works here, and sweeping one is what a hand
+	// tries next without being asked. The shift chord is the half of the gesture
+	// nobody guesses, so it is the half that gets the ink.
 	segs := []string{
-		"click places the caret", "ctrl+a/e line start/end", "alt+←/→ word", "tab switch field",
+		"click places the caret", "shift+←/→ selects", "ctrl+c copies",
+		"ctrl+a/e line start/end", "alt+←/→ word", "tab switch field",
 	}
 	// Advertise the scope toggle only when it works (see the ctrl+g handler): an
 	// only-mode launch pins the scope, so the hint would be a lie there. It goes
