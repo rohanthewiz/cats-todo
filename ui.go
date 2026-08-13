@@ -188,6 +188,21 @@ type model struct {
 	// detection, since the terminal reports every click as a first one.
 	lastClickRow int
 	lastClickAt  time.Time
+	// Drag-to-reorder. drag is the todo the button went down on and dragging says
+	// it is still down, so the motion the terminal reports between the two is
+	// known to belong to that row rather than to whatever it happens to be over.
+	// dragMoved records that a reorder actually happened during the gesture,
+	// which is what stops a drag from also counting as half of a double-click:
+	// press, move, release is one gesture, and pairing its click with the next
+	// one would open a form the user never pointed at.
+	//
+	// The state is deliberately not a copy of the todo. A drag saves to disk on
+	// every step, so the row under the hand is re-read from the store each time;
+	// holding a stale copy of it would be a way to write back a prompt another
+	// pane had edited mid-gesture.
+	drag      todoRef
+	dragging  bool
+	dragMoved bool
 
 	// Form stage.
 	formMode   formMode
@@ -367,6 +382,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.MouseClickMsg:
 		return m.updateMouse(msg)
+	case tea.MouseMotionMsg:
+		// Motion only arrives while a button is held (MouseModeCellMotion — see
+		// View), so this is a drag by definition. It is answered only when the
+		// button went down on a todo row; anything else falls through to the
+		// active input below, which is where these messages went before drag
+		// existed.
+		if m.dragging {
+			return m.dragOver(msg)
+		}
+	case tea.MouseReleaseMsg:
+		if m.dragging {
+			return m.endDrag()
+		}
 	case tea.KeyPressMsg:
 		switch m.stage {
 		case stageList:
@@ -413,6 +441,14 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 // --- List stage ---------------------------------------------------------------
 
 func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// A keystroke ends any drag still thought to be in progress. The release
+	// that should have ended it can genuinely go missing — a button let go
+	// outside the pane, a terminal that reports presses but not releases — and
+	// the hand is demonstrably on the keyboard now, so a grip left drawn in the
+	// gutter would be a lie nothing else was going to correct.
+	if m.dragging {
+		m.releaseDrag()
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
@@ -528,6 +564,11 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if msg.Button != tea.MouseLeft {
 		return m, nil
 	}
+	// A fresh press ends whatever the last one was holding, for the same reason
+	// a keystroke does (see updateList): the release may never have arrived, and
+	// a button going down is proof the one before it came up. clickRow re-arms
+	// from here when the press lands on a row.
+	m.releaseDrag()
 	switch m.stage {
 	case stageList:
 		switch msg.Y {
@@ -565,7 +606,9 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // deliberateness is the point.
 //
 // Selecting also hands the bar's focus back to the list, so the pointer and the
-// keyboard agree on what the next enter acts on.
+// keyboard agree on what the next enter acts on. And it takes hold of the row
+// for a possible drag — the third thing a press on a row can turn out to be, and
+// the only one that is not decided until the button comes up (see dragOver).
 func (m model) clickRow(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	i, ok := m.list.rowAtLine(msg.Y - listRowsRow)
 	if !ok || !m.list.focusRow(i) {
@@ -577,7 +620,112 @@ func (m model) clickRow(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.beginEdit()
 	}
 	m.lastClickRow, m.lastClickAt = i, time.Now()
+	// The button is down on a prompt, so take hold of it: if the pointer moves
+	// before it comes up, that motion reorders the backlog (see dragOver). The
+	// hold is taken on every press rather than after some threshold of movement —
+	// a press that never moves releases with nothing done, and the grip drawn in
+	// the gutter is what tells the user the gesture is available at all.
+	if ref, ok := m.selectedRef(); ok {
+		m.drag, m.dragging, m.dragMoved = ref, true, false
+		// The grip is only honest where the drag can act: under a filter the
+		// rows are in match order and reordering is refused (see canReorder), so
+		// the row shows the ordinary cursor and the refusal is said in words on
+		// the first motion.
+		m.list.grab = m.canReorder()
+	}
 	return m, blink
+}
+
+// canReorder reports whether the list is showing the backlog's own order, which
+// is the only state a drag can honestly act on.
+//
+// A query does not merely hide rows: fuzzy.Find returns its matches best-score
+// first (see fuzzyList.filter), so a filtered list is in relevance order and the
+// row above another on screen may be anywhere in the backlog. "Put this one
+// there" has no meaning against that — the position the user pointed at is not a
+// position the file has — so a drag under a filter is refused in words rather
+// than guessing at an array slot.
+func (m model) canReorder() bool {
+	return strings.TrimSpace(m.list.input.Value()) == ""
+}
+
+// dragOver is the pointer moving with the button still down: the held prompt is
+// moved to whatever row it is now over, one store write per row crossed.
+//
+// The reorder is expressed as a destination rather than as a direction (see
+// store.reorder), so a pointer moved faster than the terminal reports motion —
+// three rows in one message — lands where it actually is instead of one step
+// along. The highlight is re-parked on the held todo after every move, so the
+// cursor rides with the row and the keyboard resumes from it when the drag ends.
+//
+// The drop is refused, quietly, for anything the list cannot honestly express:
+// another backlog (project rows and global rows are separate files, and a drag
+// is a reordering gesture, not a move-between-backlogs one) and another render
+// group (store.reorder's own check). In both cases the row stays put under the
+// pointer, which is the feedback.
+func (m model) dragOver(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	if m.stage != stageList {
+		// The screen changed under the gesture — a key opened a form while the
+		// button was still down. Let go rather than reorder a list nobody is
+		// looking at.
+		m.releaseDrag()
+		return m, nil
+	}
+	i, ok := m.list.rowAtLine(msg.Y - listRowsRow)
+	if !ok {
+		return m, nil // a heading, a spacer, or the chrome above and below the rows
+	}
+	idx, ok := m.list.refAt(i)
+	if !ok || idx < 0 || idx >= len(m.rows) {
+		return m, nil
+	}
+	over := m.rows[idx]
+	if over == m.drag {
+		return m, nil // still on the row it is already occupying: nothing to do
+	}
+	if !m.canReorder() {
+		m.setStatus("clear the filter to reorder — a filtered list is in match order, not backlog order", true)
+		return m, nil
+	}
+	if over.scope != m.drag.scope {
+		return m, nil
+	}
+	moved, err := m.storeFor(m.drag.scope).reorder(m.drag.id, over.id)
+	if err != nil {
+		m.setStatus("move failed: "+err.Error(), true)
+		m.releaseDrag()
+		return m, nil
+	}
+	if !moved {
+		return m, nil // refused by the store: another render group
+	}
+	m.dragMoved = true
+	m.rebuildList()
+	m.selectRow(m.drag)
+	return m, nil
+}
+
+// endDrag lets go of the dragged row when the button comes up.
+func (m model) endDrag() (tea.Model, tea.Cmd) {
+	moved := m.dragMoved && m.stage == stageList
+	m.releaseDrag()
+	if !moved {
+		return m, nil
+	}
+	// The press that started this drag is not the first half of a double-click:
+	// it was a grab, and the pointer left the row it landed on. Forgetting it
+	// keeps the next click on that row from opening the edit form.
+	m.lastClickAt = time.Time{}
+	m.setStatus("moved", false)
+	return m, nil
+}
+
+// releaseDrag drops the hold on the dragged row, including the grip drawn in its
+// gutter. Every way a drag can end goes through here so none of them can leave
+// the list looking held when it isn't.
+func (m *model) releaseDrag() {
+	m.dragging, m.dragMoved = false, false
+	m.list.grab = false
 }
 
 // doubleClickWindow is how close together two clicks on one row have to be to
@@ -3034,10 +3182,14 @@ func (m model) View() tea.View {
 	// Mouse reporting is asked for only where there is something to click. It
 	// isn't free: while it is on, a drag belongs to this program rather than to
 	// the terminal, so the pane's own click-to-select stops working. The list
-	// stage pays that for the action bar, the picker for its target rows, and the
-	// form for placing the caret in a prompt being written; the prompt view — the
-	// one screen whose whole point is text worth copying out — keeps its
-	// selection.
+	// stage pays that for the action bar and for dragging rows into order, the
+	// picker for its target rows, and the form for placing the caret in a prompt
+	// being written; the prompt view — the one screen whose whole point is text
+	// worth copying out — keeps its selection.
+	//
+	// Cell motion is also exactly the mode a drag needs: it reports motion only
+	// while a button is held, so the manager hears the gesture without paying for
+	// a message on every idle sweep of the pointer across the pane.
 	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
@@ -3393,14 +3545,14 @@ func (m model) listFooter() string {
 		// double-click is a guess worth confirming, not one worth making blind.
 		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+x delete") +
 			"\n" +
-			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ move · ctrl+d hide/show closed · ctrl+w clear done · esc quit")
+			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · ctrl+d hide/show closed · ctrl+w clear done · esc quit")
 	}
 	// Freeze rides directly after done: the two are the ways a prompt leaves the
 	// open list, and reading them side by side is what teaches that they are
 	// different claims. It also puts the pair ahead of the concessions the loop
 	// below makes from the right, so a narrow pane keeps them.
 	segs := []string{
-		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze", "ctrl+↑/↓ move",
+		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze", "ctrl+↑/↓ or drag move",
 		"ctrl+d hide closed", "ctrl+w clear done", "esc quit",
 	}
 	line := strings.Join(segs, " · ")

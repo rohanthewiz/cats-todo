@@ -113,6 +113,13 @@ func onRow(st lipgloss.Style, selected bool) lipgloss.Style {
 // draws double would push every row a column right of the action bar).
 const cursorGlyph = "❯ "
 
+// grabGlyph replaces the arrow on a row the pointer has hold of, for the length
+// of a drag (see fuzzyList.grab). The braille block is the drag handle every
+// list on the web draws, so it reads as "this row is in your hand" without a
+// legend — and it occupies the same single column the arrow does, so the names
+// beside it do not shift by a cell the moment the button goes down.
+const grabGlyph = "⠿ "
+
 // Palette — a small, cohesive set of styles for a clean dark-terminal look,
 // shared by the fuzzyList component and the manager views.
 var (

@@ -124,14 +124,26 @@ one you cannot learn is there.
 
 The pointer works too, and the same way round: a click on a button presses it, a
 click on a prompt selects it (which is what makes the buttons useful with the
-mouse — they act on the highlight), and a **double-click** on a prompt opens it
-for editing. To send one, click the prompt and then the **Send** button, which
-opens the drop picker, where a click on a target hands the prompt over. So a
-prompt gets from the backlog into an agent without the keyboard — but never on
-one stray gesture, and nothing is *sent* by clicking either: the picker still
-asks where, and pastes without running. Submitting stays on `shift+enter`. Mouse
-reporting is only asked for on the two screens with something to click; the
+mouse — they act on the highlight), a **double-click** on a prompt opens it for
+editing, and holding the button down and moving **drags the prompt into a new
+place in the list** (below). To send one, click the prompt and then the **Send**
+button, which opens the drop picker, where a click on a target hands the prompt
+over. So a prompt gets from the backlog into an agent without the keyboard — but
+never on one stray gesture, and nothing is *sent* by clicking either: the picker
+still asks where, and pastes without running. Submitting stays on `shift+enter`.
+Mouse reporting is only asked for on the screens with something to click; the
 prompt view leaves the terminal's own text selection alone.
+
+The list's order is the backlog's own priority order, and it is yours to set:
+**drag a prompt** with the mouse to put it where it belongs — the row takes a
+`⠿` grip while you hold it, and the rest of the list parts around it — or nudge
+it a step at a time with `ctrl+↑`/`ctrl+↓`. Both stay inside one backlog and one
+group: a prompt reorders among its own project's or global's open prompts, and
+dropping one on a finished or frozen row does nothing, since those are drawn as
+separate groups and the row would land somewhere you can't see. Dragging is also
+refused while a filter is on, and says so — a filtered list is in best-match
+order, not backlog order, so "put it here" would name a place the file hasn't
+got. Clear the filter and the order is real again.
 
 Completed prompts collect below the open ones, newest first, so what you just
 finished is at the top of the pile rather than the bottom. `ctrl+d` folds them

@@ -79,6 +79,13 @@ type fuzzyList struct {
 	items    []listItem
 	filtered []scoredItem
 	cursor   int
+	// grab marks the highlighted row as held by the pointer: it swaps the cursor
+	// arrow for a grip while a drag is under way (see grabGlyph). It lives on the
+	// list rather than being passed to rowsView because the two callers of that
+	// method render very different chrome around it, and only one of them has a
+	// pointer to answer for — a parameter would make the other declare a state it
+	// can never be in.
+	grab bool
 }
 
 // searchFieldWidth is how many columns the query box holds. Wide enough for the
@@ -260,6 +267,17 @@ func (l fuzzyList) rowAtLine(n int) (int, bool) {
 	return -1, false
 }
 
+// refAt returns the caller's ref for the filtered row at index i — the other
+// half of the lookup rowAtLine starts, so a hit-tested screen line can be turned
+// all the way back into the thing the caller put in the list. A row that isn't
+// there or isn't selectable answers false, the same as focusRow.
+func (l fuzzyList) refAt(i int) (int, bool) {
+	if i < 0 || i >= len(l.filtered) || !l.filtered[i].item.selectable {
+		return -1, false
+	}
+	return l.filtered[i].item.ref, true
+}
+
 // selectedIndex returns the ref of the highlighted selectable row, or -1 when
 // nothing is selectable (empty list, or all matches filtered away).
 func (l *fuzzyList) selectedIndex() int {
@@ -369,7 +387,15 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 		// highlighting a row rather than its name.
 		var r strings.Builder
 		if selected {
-			r.WriteString(onRow(cursorStyle, true).Render(cursorGlyph))
+			// The grip replaces the arrow only on the row being dragged, which is
+			// always the highlighted one: the drag starts by selecting what it
+			// picked up and re-parks the highlight after every reorder, so the
+			// mark that says "here" and the row in the hand are the same row.
+			glyph := cursorGlyph
+			if l.grab {
+				glyph = grabGlyph
+			}
+			r.WriteString(onRow(cursorStyle, true).Render(glyph))
 		} else {
 			r.WriteString("  ")
 		}

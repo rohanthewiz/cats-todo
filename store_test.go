@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -308,6 +309,106 @@ func TestMove(t *testing.T) {
 	if reloaded.todos[0].ID != "a" || reloaded.todos[1].ID != "b" {
 		t.Errorf("disk order = %v, want the moved order persisted", reloaded.todos)
 	}
+}
+
+// TestReorder covers the drag's store primitive: a todo lands exactly on the
+// slot its target held, in either direction, everything in between slides along
+// keeping its own order, and a target in another render group is refused
+// silently rather than moving the row somewhere the list cannot draw it.
+func TestReorder(t *testing.T) {
+	build := func(t *testing.T) *store {
+		t.Helper()
+		s := tempStore(t)
+		for _, td := range []Todo{
+			{ID: "a", Prompt: "a"},
+			{ID: "b", Prompt: "b"},
+			{ID: "done1", Prompt: "d", Done: true},
+			{ID: "c", Prompt: "c"},
+			{ID: "e", Prompt: "e"},
+		} {
+			if err := s.add(td); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return s
+	}
+	order := func(s *store) []string {
+		ids := make([]string, len(s.todos))
+		for i, td := range s.todos {
+			ids[i] = td.ID
+		}
+		return ids
+	}
+
+	t.Run("dragged down, it takes the target's slot", func(t *testing.T) {
+		s := build(t)
+		// a is dragged onto e, three rows down: everything it passed — the done
+		// todo caught in the middle included — slides up one and keeps its order.
+		moved, err := s.reorder("a", "e")
+		if err != nil || !moved {
+			t.Fatalf("reorder = (%v, %v), want it moved", moved, err)
+		}
+		if got := order(s); !slices.Equal(got, []string{"b", "done1", "c", "e", "a"}) {
+			t.Fatalf("order = %v, want a landed where e was", got)
+		}
+	})
+
+	t.Run("dragged up, it takes the target's slot", func(t *testing.T) {
+		s := build(t)
+		moved, err := s.reorder("e", "a")
+		if err != nil || !moved {
+			t.Fatalf("reorder = (%v, %v), want it moved", moved, err)
+		}
+		if got := order(s); !slices.Equal(got, []string{"e", "a", "b", "done1", "c"}) {
+			t.Fatalf("order = %v, want e landed where a was", got)
+		}
+	})
+
+	t.Run("a target in another group is a quiet no-op", func(t *testing.T) {
+		s := build(t)
+		// Silent, but it must not claim to have moved anything: the caller
+		// reports the result, and the user is looking at the row that didn't go.
+		moved, err := s.reorder("a", "done1")
+		if err != nil {
+			t.Fatalf("cross-group reorder = %v, want a silent no-op", err)
+		}
+		if moved {
+			t.Error("cross-group reorder reported a move it did not make")
+		}
+		if got := order(s); !slices.Equal(got, []string{"a", "b", "done1", "c", "e"}) {
+			t.Fatalf("order = %v, want it untouched", got)
+		}
+	})
+
+	t.Run("onto itself, and onto nothing", func(t *testing.T) {
+		s := build(t)
+		if moved, err := s.reorder("a", "a"); err != nil || moved {
+			t.Errorf("reorder onto itself = (%v, %v), want a no-op", moved, err)
+		}
+		if _, err := s.reorder("a", "ghost"); err != errTodoNotFound {
+			t.Errorf("reorder onto an unknown id = %v, want errTodoNotFound", err)
+		}
+		if _, err := s.reorder("ghost", "a"); err != errTodoNotFound {
+			t.Errorf("reorder of an unknown id = %v, want errTodoNotFound", err)
+		}
+		if got := order(s); !slices.Equal(got, []string{"a", "b", "done1", "c", "e"}) {
+			t.Fatalf("order = %v, want it untouched", got)
+		}
+	})
+
+	t.Run("the new order is on disk", func(t *testing.T) {
+		s := build(t)
+		if _, err := s.reorder("a", "c"); err != nil {
+			t.Fatal(err)
+		}
+		reloaded := &store{scope: s.scope, path: s.path}
+		if err := reloaded.load(); err != nil {
+			t.Fatal(err)
+		}
+		if got := order(reloaded); !slices.Equal(got, []string{"b", "done1", "c", "a", "e"}) {
+			t.Errorf("disk order = %v, want the dragged order persisted", got)
+		}
+	})
 }
 
 // TestCompletionOrder pins the done pile as newest-first: completing a prompt

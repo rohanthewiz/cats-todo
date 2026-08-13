@@ -576,6 +576,67 @@ func (s *store) move(id string, delta int) error {
 	return nil
 }
 
+// reorder lifts the todo with id out of the backlog and drops it back in at the
+// slot targetID occupies, persisting the result. It is move's absolute form —
+// where move steps one neighbor at a time, this lands on a named destination —
+// and it exists for the pointer: a drag says "put this row here", and walking
+// there in single steps would mean one save per row crossed and a reorder that
+// depends on how fast the mouse was moved.
+//
+//	before        from=3, to=1        after
+//	  0 a            a                  0 a
+//	  1 b     ─┐     b ─┐               1 d   ← the dragged todo
+//	  2 c      │     c  │ slide down    2 b
+//	  3 d ─────┘     d ─┘               3 c
+//
+// The todos between the two slots slide along by one and keep their order among
+// themselves, so nothing but the dragged prompt changes place — including any
+// todo of another group caught in the middle, whose own group order is what the
+// list renders.
+//
+// A target in a different render group is a quiet no-op rather than an error:
+// the list draws open, frozen and done in separate passes, so dropping an open
+// prompt onto a done one would move the row somewhere the user cannot see it.
+// Same reasoning as move's group check, and the same silence — the row simply
+// stays where it is, which is the feedback.
+//
+// Whether anything moved is returned rather than left for the caller to infer
+// from a nil error, because the two silent outcomes — landed, and refused —
+// have to be told apart by a caller that reports the result. A drag that
+// announced "moved" after a refusal would be describing a list the user is
+// looking straight at and can see did not change.
+func (s *store) reorder(id, targetID string) (bool, error) {
+	if id == targetID {
+		return false, nil
+	}
+	if err := s.reload(); err != nil {
+		return false, err
+	}
+	from, to := -1, -1
+	for i := range s.todos {
+		switch s.todos[i].ID {
+		case id:
+			from = i
+		case targetID:
+			to = i
+		}
+	}
+	if from < 0 || to < 0 {
+		return false, errTodoNotFound
+	}
+	if s.todos[from].group() != s.todos[to].group() {
+		return false, nil
+	}
+	td := s.todos[from]
+	if from < to {
+		copy(s.todos[from:to], s.todos[from+1:to+1])
+	} else {
+		copy(s.todos[to+1:from+1], s.todos[to:from])
+	}
+	s.todos[to] = td
+	return true, s.save()
+}
+
 // clearDone removes every done todo and persists, returning how many were
 // removed. Zero removals skip the save.
 //
