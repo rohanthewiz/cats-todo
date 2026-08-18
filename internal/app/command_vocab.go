@@ -611,6 +611,7 @@ type WorkspaceInfo struct {
 	Active bool   `json:"active"`
 	Tabs   int    `json:"tabs"`             // tab count
 	Locked bool   `json:"locked,omitempty"` // closed to automation (workspace.lock)
+	Host   string `json:"host,omitempty"`   // cathost id new panes spawn on; "" = the default host
 }
 
 // WorkspaceListResult is CmdResult.Data for workspace.list.

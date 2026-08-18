@@ -32,7 +32,8 @@ const (
 	stageImages                  // attach / detach the form's images
 	stageSchedule                // set (or clear) a prompt's auto-drop time
 	stageSession                 // edit the form's per-todo session options
-	stageFiles                   // browse the file system for an @mention in the prompt
+	stageFiles                   // browse the file system for an @mention in the prompt, or a folder to export to
+	stageExport                  // pick another project's backlog to copy / move the chosen prompt into
 )
 
 // confirmKind distinguishes what the confirm stage is about to do.
@@ -296,6 +297,13 @@ type model struct {
 	// esc out of the picker can never leave the next manual drop scheduling.
 	pickForSchedule bool
 
+	// Export stage (see export.go). exportRef is the todo being sent, and the
+	// list is rebuilt on every open — which projects are open, and what their
+	// backlogs hold, are facts read fresh each time.
+	exportRef     todoRef
+	exportTargets []exportTarget
+	exportList    fuzzyList
+
 	// Schedule stage.
 	schedRef   todoRef
 	schedInput textinput.Model
@@ -444,6 +452,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSession(msg)
 		case stageFiles:
 			return m.updateFiles(msg)
+		case stageExport:
+			return m.updateExport(msg)
 		}
 	}
 	return m.forward(msg)
@@ -469,6 +479,8 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The blink and a paste both land here; edit is the one way into the
 		// picker's query, so a pasted path is normalized like a typed one.
 		cmd = m.files.edit(msg)
+	case stageExport:
+		cmd = m.exportList.editQuery(msg)
 	}
 	return m, cmd
 }
@@ -571,6 +583,8 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.beginSchedule()
 	case "ctrl+w":
 		return m.beginClearDone()
+	case "ctrl+o":
+		return m.beginExport()
 	case "ctrl+up":
 		return m.moveSelected(-1)
 	case "ctrl+down":
@@ -622,6 +636,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.clickForm(msg)
 	case stageFiles:
 		return m.clickFiles(msg)
+	case stageExport:
+		return m.clickExport(msg)
 	}
 	return m, nil
 }
@@ -1141,6 +1157,7 @@ const (
 	actionAdd = iota
 	actionEdit
 	actionSend
+	actionExport
 	actionDelete
 )
 
@@ -1158,15 +1175,18 @@ const (
 // inside the green instead of dropping four emoji palettes into it.
 func (m model) listActions() []listAction {
 	// The row runs cool to hot, left to right, in the order a prompt's life
-	// actually goes: make it, change it, send it, throw it away. Green is spent
-	// on Send rather than Add because it is the palette's color of consequence,
-	// and handing a prompt to a live agent is the one thing on this screen that
-	// reaches out of the program; Delete's red is the only warning the bar gives
-	// before the confirm asks.
+	// actually goes: make it, change it, send it, hand it to another project,
+	// throw it away. Green is spent on Send rather than Add because it is the
+	// palette's color of consequence, and handing a prompt to a live agent is
+	// the one thing on this screen that reaches out of the program; Delete's
+	// red is the only warning the bar gives before the confirm asks. Export
+	// sits between the two in the muted cyan of the form's Images chip — it
+	// touches another backlog, which is more than an edit and less than a send.
 	return []listAction{
 		{label: "✚ Add", hint: "ctrl+a", tint: colInfo},
 		{label: "✎ Edit", hint: "enter", tint: colStraw, needsSel: true},
 		{label: "✉ Send", hint: m.modEnter(), tint: colAccent, needsSel: true},
+		{label: "➦ Export", hint: "ctrl+o", tint: colCyan, needsSel: true},
 		{label: "✖ Delete", hint: "ctrl+x", tint: colErr, needsSel: true},
 	}
 }
@@ -1259,6 +1279,8 @@ func (m model) runAction(i int) (tea.Model, tea.Cmd) {
 		return m.beginEdit()
 	case actionSend:
 		return m.beginDrop()
+	case actionExport:
+		return m.beginExport()
 	case actionDelete:
 		return m.beginDelete()
 	}
@@ -3204,6 +3226,8 @@ func (m model) updateView(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.startDrop(m.viewRef)
 	case "ctrl+e":
 		return m.beginEditRef(m.viewRef)
+	case "ctrl+o":
+		return m.startExport(m.viewRef)
 	}
 	// Everything else (arrows, pgup/pgdn, mouse wheel) scrolls the body.
 	var cmd tea.Cmd
@@ -3335,7 +3359,7 @@ func (m model) View() tea.View {
 	// Cell motion is also exactly the mode a drag needs: it reports motion only
 	// while a button is held, so the manager hears the gesture without paying for
 	// a message on every idle sweep of the pointer across the pane.
-	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles {
+	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageExport {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -3363,6 +3387,8 @@ func (m model) renderStage() string {
 		return m.viewSession()
 	case stageFiles:
 		return m.viewFiles()
+	case stageExport:
+		return m.viewExport()
 	default:
 		return m.viewList()
 	}
@@ -3690,7 +3716,7 @@ func (m model) listFooter() string {
 	if !m.barShowsHints() {
 		// The pointer's gesture rides along with the chord it stands for — a
 		// double-click is a guess worth confirming, not one worth making blind.
-		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+x delete") +
+		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+o export · ctrl+x delete") +
 			"\n" +
 			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · ctrl+d hide/show closed · ctrl+w clear done · esc quit")
 	}
@@ -4493,7 +4519,7 @@ func (m model) viewPrompt() string {
 
 	b.WriteString(m.viewVP.View())
 	b.WriteString("\n\n")
-	b.WriteString(footerStyle.Render("↑/↓ scroll · enter edit · " + m.modEnter() + " drop · esc back"))
+	b.WriteString(footerStyle.Render("↑/↓ scroll · enter edit · " + m.modEnter() + " drop · ctrl+o export · esc back"))
 	return b.String()
 }
 
@@ -4549,6 +4575,8 @@ func (m *model) applySizes() {
 		m.sessInput.SetWidth(sessInputWidth(m.width))
 	case stageFiles:
 		m.files.resize(m.width, m.height)
+	case stageExport:
+		m.exportList.input.SetWidth(w)
 	case stageView:
 		m.viewVP.SetWidth(m.viewWidth())
 		m.viewVP.SetHeight(m.viewHeight())

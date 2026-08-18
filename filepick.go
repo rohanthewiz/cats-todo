@@ -48,12 +48,38 @@ type fileEntry struct {
 	dir  bool
 }
 
+// filePurpose is what the picker is open for, which decides where a choice
+// goes and where esc returns to. The browsing itself is the same either way —
+// that is the point of one picker — and only the three edges differ (see
+// chooseFile, closeFiles, viewFiles).
+type filePurpose int
+
+const (
+	// filesForPrompt inserts the chosen path into the prompt as an @mention.
+	filesForPrompt filePurpose = iota
+	// filesForExport names the folder a prompt is exported to (see export.go):
+	// folders only, with a "this folder" row so the directory being listed can
+	// be the choice, and the choice hands off to performExport.
+	filesForExport
+)
+
+// thisFolderRef is the ref of the "./" row a folders-only picker leads with —
+// the directory currently listed, offered as a choice in its own right. It is
+// negative so it can never collide with an entry's index, and so highlighted
+// (which answers false for it) reads as "nothing but the current directory".
+const thisFolderRef = -1
+
 // filePicker is the browsing state: where the walk started, where it is now,
 // what is there, and the list that shows it. entries keeps every entry the
 // directory holds, hidden ones included — which of them are on the list is the
 // query's call (see refresh), so hidden entries can appear and disappear as the
 // leading dot is typed and deleted without another read of the disk.
 type filePicker struct {
+	// purpose is who opened the picker and what a choice means (see filePurpose).
+	purpose filePurpose
+	// dirsOnly lists directories alone and leads with the "./" row: the shape a
+	// picker takes when the thing being chosen is a place rather than a file.
+	dirsOnly bool
 	// root is where browsing starts and what inserted paths are made relative
 	// to: the project directory when there is one (see beginFiles).
 	root string
@@ -107,7 +133,16 @@ func (p filePicker) query() string {
 // entries are listed only while it starts with a dot (cdx's rule — nobody wants
 // .git and .DS_Store in the way, and anyone who wants a dotfile types the dot).
 func (p *filePicker) refresh() {
-	p.list.setItems(fileListItems(p.entries, strings.HasPrefix(p.query(), ".")))
+	items := fileListItems(p.entries, strings.HasPrefix(p.query(), "."), p.dirsOnly)
+	if p.dirsOnly {
+		// The directory being listed, as the first row — the natural default:
+		// tab into a folder and enter chooses it, ↓ chooses one below it. Its
+		// search text is just the dot, so a query typed to find a subfolder
+		// does not keep matching this row through its description.
+		this := listItem{name: "./", desc: "this folder — " + baseName(p.dir), search: ".", selectable: true, ref: thisFolderRef}
+		items = append([]listItem{this}, items...)
+	}
+	p.list.setItems(items)
 }
 
 // edit feeds a message to the query box — a keystroke, a paste, the cursor
@@ -244,11 +279,15 @@ func readDirEntries(dir string) ([]fileEntry, error) {
 
 // fileListItems turns entries into list rows: the name (with a trailing slash
 // on a directory, as cdx draws them), selectable, ref = index into entries.
-// Dot-prefixed entries are dropped unless showHidden.
-func fileListItems(entries []fileEntry, showHidden bool) []listItem {
+// Dot-prefixed entries are dropped unless showHidden, and files are dropped
+// when dirsOnly — which is cdx's own listing exactly.
+func fileListItems(entries []fileEntry, showHidden, dirsOnly bool) []listItem {
 	items := make([]listItem, 0, len(entries))
 	for i, e := range entries {
 		if !showHidden && strings.HasPrefix(e.name, ".") {
+			continue
+		}
+		if dirsOnly && !e.dir {
 			continue
 		}
 		name := e.name
@@ -423,6 +462,20 @@ func (p filePicker) filesEmptyMessage() string {
 	return "nothing here matches"
 }
 
+// exportBrowseRoot is where the export browser starts: the parent of this
+// project, where its siblings live — the most likely destinations when nothing
+// the picker named was the one wanted — else the launch directory's parent,
+// else home. Never the filesystem root: a listing of /Users, /etc and /var is
+// no help to anyone choosing a project.
+func exportBrowseRoot(ctx RunContext) string {
+	if dir := ctx.projectDir(); dir != "" {
+		if parent := filepath.Dir(dir); !isFilesystemRoot(parent) {
+			return parent
+		}
+	}
+	return homeDir()
+}
+
 // headingDir is the directory as the heading shows it: home shortened, a
 // trailing slash, and cut from the front to fit width columns (a heading that
 // wrapped would push every row down a line and break filesRowsRow). A width of
@@ -461,11 +514,31 @@ func (m model) beginFiles() (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
-// closeFiles returns to the form, restoring focus to the field that had it. The
-// trigger only fires from the prompt field, so that is always the prompt — but
-// the check is kept, so the picker and the attachment editor close the same
-// way and neither can be the one that quietly breaks when that changes.
+// beginExportBrowse opens the picker over the export picker, in its
+// folders-only flavour, to name a directory the prompt goes to. Built fresh
+// like beginFiles, and for the same reason; it starts among this project's
+// siblings (see exportBrowseRoot). The export picker's own state is left as it
+// is, since esc comes back to it.
+func (m model) beginExportBrowse() (tea.Model, tea.Cmd) {
+	m.files = newFilePicker(exportBrowseRoot(m.ctx))
+	m.files.purpose = filesForExport
+	m.files.dirsOnly = true
+	m.files.refresh()
+	m.files.resize(m.width, m.height)
+	m.stage = stageFiles
+	return m, textinput.Blink
+}
+
+// closeFiles returns to whoever opened the picker: the export picker, or the
+// form — restoring focus to the field that had it. The '@' trigger only fires
+// from the prompt field, so that is always the prompt — but the check is kept,
+// so the picker and the attachment editor close the same way and neither can
+// be the one that quietly breaks when that changes.
 func (m model) closeFiles() (tea.Model, tea.Cmd) {
+	if m.files.purpose == filesForExport {
+		m.stage = stageExport
+		return m, textinput.Blink
+	}
 	m.stage = stageForm
 	if m.formFocus == formFieldTitle {
 		return m, m.titleInput.Focus()
@@ -480,6 +553,9 @@ func (m model) closeFiles() (tea.Model, tea.Cmd) {
 // makes. Nothing highlighted (an empty folder, a filter that matched nothing)
 // is a no-op rather than a close: the picker stays, so the filter can be fixed.
 func (m model) chooseFile() (tea.Model, tea.Cmd) {
+	if m.files.purpose == filesForExport {
+		return m.chooseExportFolder(false)
+	}
 	e, abs, ok := m.files.highlighted()
 	if !ok {
 		return m, nil
@@ -530,6 +606,13 @@ func (m model) updateFiles(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.chooseFile()
+	case "shift+enter", "alt+enter":
+		// The export browser keeps the export picker's split: enter copies,
+		// modifier+enter moves. For the '@' picker the chord means nothing
+		// and is left to fall through, as it always did.
+		if m.files.purpose == filesForExport {
+			return m.chooseExportFolder(true)
+		}
 	case "tab", "ctrl+i", "right":
 		m.files.descend()
 		return m, nil
@@ -576,6 +659,9 @@ func (m model) clickFiles(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // construction (headingDir cuts the path from the front to fit), because every
 // row constant below it depends on that.
 func (m model) viewFiles() string {
+	if m.files.purpose == filesForExport {
+		return m.viewExportBrowse()
+	}
 	var b strings.Builder
 	title := "Insert a path"
 	b.WriteString(titleStyle.Render(title))

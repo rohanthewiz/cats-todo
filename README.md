@@ -108,8 +108,8 @@ it stands at that moment.
 
 The filter rides on the header line — the 🔍 box next to the title, lit while
 it holds the keys — and typing from anywhere lands in it. Under the header sits
-a row of action buttons — **Add**, **Edit**, **Send**, **Delete** — each
-labelled with the chord it stands for. `tab` walks the focus
+a row of action buttons — **Add**, **Edit**, **Send**, **Export**, **Delete**
+— each labelled with the chord it stands for. `tab` walks the focus
 out of the filter and across them (`shift+tab` walks back, `←`/`→` move along
 the row, `enter` presses, `esc` returns to the filter); `↑`/`↓` keep moving the
 row highlight the whole time, so you can pick a prompt and then press the button
@@ -170,6 +170,51 @@ passed while the manager was closed — or whose pane has since disappeared — 
 marked **missed** on the row instead of firing late into a conversation that
 has moved on; send it by hand from there. `ctrl+s` on a scheduled prompt shows
 the time again, where enter on an emptied box clears it.
+
+### Exporting a prompt to another project
+
+A prompt does not always get captured in the right backlog — `cats-todo add`
+fired from a shell in one project while thinking about another, or a todo that
+turns out to be about the sibling repo. `ctrl+o` (or the bar's **➦ Export**
+chip, or `ctrl+o` on the prompt view) opens the **Export to…** picker on the
+highlighted prompt, and `enter` **copies** it into the chosen project's own
+`.cats-todo/todos.json` — `shift+enter` **moves** it there instead, the same
+"modifier does the more committing thing" split the drop picker uses. Both are
+done on the spot, and the status line says where it went.
+
+The picker's rows are the places the prompt could go, most likely first:
+
+- **Every workspace cats has open**, labelled with the workspace's name and
+  described by the project it is working in and what its backlog holds
+  (`3 open`, or `no backlog yet — will be created`). cats' `workspace.list`
+  names the workspaces but carries no directory, so where each one is working
+  comes from `pane.list` — every pane's live cwd, keyed back to its workspace by
+  the `w1:p3` handle. A workspace whose panes are in two different projects (a
+  shell cd'd into a sibling repo) gets a row for each. Outside cats these rows
+  are simply absent; export still works.
+- **The other backlog** of this manager — global for a project prompt, this
+  project for a global one — which is otherwise the one move there is no other
+  way to make.
+- **Recent projects**: directories [cdx](https://github.com/rohanthewiz/cdx)
+  has seen you `cd` into lately that already keep a backlog, best-first by its
+  own frecency ranking. cdx's state file is read directly, the way cats reads
+  it for its path picker; without cdx there is no block.
+- **Browse for a folder…**, which opens the same directory browser as `@` in
+  the editor, folders only, starting among this project's siblings. It leads
+  with a `./` row so the folder you have drilled into is the choice, `tab`/`→`
+  open a folder, `backspace` goes up, and `enter` copies / `shift+enter` moves
+  to the highlighted folder.
+
+A destination directory finds its backlog the way the manager's own launch
+directory does — the nearest ancestor with a `.cats-todo`, else the git root,
+else the directory itself — so pointing at a subdirectory reaches the project's
+one backlog, and pointing at a project with none yet creates it, exactly as
+`cats-todo add` there would. What travels: the title, the prompt, the
+attachments (copied into the destination's own `images/`), the session options,
+and the open/frozen/done state. What does not: a schedule, which names a pane
+and a launch directory of the project it was set in — the status line says so
+when one is left behind. A copy takes a fresh id; a move keeps its own. Exporting
+a prompt into the backlog it already lives in is refused rather than duplicated.
 
 ## Quick capture from a shell
 
@@ -425,8 +470,9 @@ instead and let catctl serve them.
 
 The manager talks to the cats server over the local control socket
 (`CATS_CONTROL_SOCKET`) — the same §7 command table `catctl` drives:
-`pane.list` to find agent panes, `tab.create` to open a new session already
-named and running the agent (no shell in between),
+`pane.list` to find agent panes (and, joined with `workspace.list`, where each
+open workspace is working — the export picker's rows), `tab.create` to open a
+new session already named and running the agent (no shell in between),
 `pane.wait_for_output` to pace launches, and `pane.send_input` to deliver the
 prompt. `internal/app` and `internal/ctlproto` are client-side copies of the
 cats wire vocabulary and control-socket client; the wire values are the

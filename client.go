@@ -82,16 +82,30 @@ func (c *catsClient) paneList() ([]app.PaneInfo, error) {
 	return out.Panes, nil
 }
 
-// workspaceLabels returns a map of public workspace id → display name, for
-// showing where a candidate pane lives (a pane's workspace id is the prefix of
-// its "w1:p3" handle).
-func (c *catsClient) workspaceLabels() (map[string]string, error) {
+// workspaceList returns every workspace cats has open, in the server's order —
+// the order the sidebar lists them in, which is what a picker that shows them
+// should keep. Note what is not here: a workspace's directory. The workspace
+// model has one (its identity cwd) but workspace.list does not put it on the
+// wire; pane.list's per-pane cwd is how a caller finds where a workspace is
+// working (see catsWorkspaceDirs in export.go).
+func (c *catsClient) workspaceList() ([]app.WorkspaceInfo, error) {
 	var out app.WorkspaceListResult
 	if err := c.call(app.CmdWorkspaceList, nil, &out, callTimeout); err != nil {
 		return nil, err
 	}
-	labels := make(map[string]string, len(out.Workspaces))
-	for _, ws := range out.Workspaces {
+	return out.Workspaces, nil
+}
+
+// workspaceLabels returns a map of public workspace id → display name, for
+// showing where a candidate pane lives (a pane's workspace id is the prefix of
+// its "w1:p3" handle).
+func (c *catsClient) workspaceLabels() (map[string]string, error) {
+	wss, err := c.workspaceList()
+	if err != nil {
+		return nil, err
+	}
+	labels := make(map[string]string, len(wss))
+	for _, ws := range wss {
 		labels[ws.ID] = ws.Name
 	}
 	return labels, nil
