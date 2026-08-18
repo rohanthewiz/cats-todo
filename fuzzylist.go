@@ -86,6 +86,33 @@ type fuzzyList struct {
 	// pointer to answer for — a parameter would make the other declare a state it
 	// can never be in.
 	grab bool
+	// maxRows, when set, caps how many filtered rows rowsView draws at once, and
+	// top is the index into filtered of the first row it draws — together the
+	// list's scroll window. Zero maxRows means no window: every caller before
+	// the file picker draws its whole list and lets the pane clip it, and they
+	// still do. The window is opt-in because it is only worth having where the
+	// list can plausibly outgrow the pane and the caller wants the highlight to
+	// stay on screen as it walks — a home directory of sixty entries, say —
+	// and because a windowed list has to reserve a line for the "… N more"
+	// marker, which the callers that never scroll should not pay for.
+	//
+	// The window is counted in filtered items, not screen lines: a separator
+	// row draws one or two lines of its own, so a windowed list that carries
+	// separators can overshoot the cap by a line or two. The picker has none, so
+	// item and line agree there; a future caller with headings can live with the
+	// slack or grow the cap by its heading count.
+	maxRows int
+	top     int
+	// prefixFirst, when set, ranks the rows whose name begins with the query
+	// (case-insensitively) ahead of the rest, in the order the caller listed
+	// them, and only then the remaining fuzzy matches by score. It is cdx's
+	// rule for completing a path segment, and it is here for the same job: a
+	// file picker's query is the start of a name far more often than a scatter
+	// of its letters, and a scorer that put init_test.go above internal/ for
+	// "int" — which the fuzzy scorer does — would make "int/" open the wrong
+	// thing. The todo list keeps pure fuzzy: its queries are words from
+	// anywhere in a prompt, where a prefix means nothing special.
+	prefixFirst bool
 }
 
 // searchFieldWidth is how many columns the query box holds. Wide enough for the
@@ -145,7 +172,23 @@ func (l *fuzzyList) filter() {
 		haystacks[i] = it.name + "  " + firstNonEmpty(it.search, it.desc)
 		nameLens[i] = len(it.name)
 	}
+	// With prefixFirst, the prefix matches lead in list order (the caller's
+	// order is the meaningful one there — folders before files, each sorted)
+	// and are struck from the fuzzy pass so no row appears twice.
+	taken := map[int]bool{}
+	if l.prefixFirst {
+		lq := strings.ToLower(q)
+		for i, it := range sel {
+			if strings.HasPrefix(strings.ToLower(it.name), lq) {
+				taken[i] = true
+				l.filtered = append(l.filtered, scoredItem{item: it, matched: prefixIndexes(it.name, q)})
+			}
+		}
+	}
 	for _, mt := range fuzzy.Find(q, haystacks) {
+		if taken[mt.Index] {
+			continue
+		}
 		var inName []int
 		for _, idx := range mt.MatchedIndexes {
 			if idx < nameLens[mt.Index] {
@@ -158,8 +201,30 @@ func (l *fuzzyList) filter() {
 	l.clampCursor()
 }
 
-// clampCursor keeps the cursor in range and parked on a selectable row.
+// prefixIndexes are the byte offsets of name's first len(q) bytes — the run a
+// prefix match highlights, in the units highlightName reads (it walks the name
+// with range, whose index is a byte offset, and filter's nameLens cut is bytes
+// too). A multibyte character in the query lights the same number of bytes it
+// occupies, so the two stay in step.
+func prefixIndexes(name, q string) []int {
+	n := min(len(q), len(name))
+	idx := make([]int, n)
+	for i := range idx {
+		idx[i] = i
+	}
+	return idx
+}
+
+// clampCursor keeps the cursor in range and parked on a selectable row, then
+// brings the scroll window along so the row it settles on is a drawn one.
 func (l *fuzzyList) clampCursor() {
+	l.parkCursor()
+	l.ensureVisible()
+}
+
+// parkCursor is clampCursor without the window step: the search for the nearest
+// selectable row, on its own.
+func (l *fuzzyList) parkCursor() {
 	if len(l.filtered) == 0 {
 		l.cursor = 0
 		return
@@ -192,18 +257,68 @@ func (l *fuzzyList) moveUp() {
 	for i := l.cursor - 1; i >= 0; i-- {
 		if l.filtered[i].item.selectable {
 			l.cursor = i
-			return
+			break
 		}
 	}
+	l.ensureVisible()
 }
 
 func (l *fuzzyList) moveDown() {
 	for i := l.cursor + 1; i < len(l.filtered); i++ {
 		if l.filtered[i].item.selectable {
 			l.cursor = i
-			return
+			break
 		}
 	}
+	l.ensureVisible()
+}
+
+// setMaxRows sets the scroll window's height in rows (see maxRows); zero
+// removes the window. The highlight is brought back on screen straight away,
+// which is what a resize needs: a window that shrank under the cursor must
+// scroll to it, not leave it drawn nowhere.
+func (l *fuzzyList) setMaxRows(n int) {
+	l.maxRows = max(n, 0)
+	l.ensureVisible()
+}
+
+// ensureVisible scrolls the window so the cursor's row is drawn: the least
+// movement that brings the row inside [top, top+maxRows), then a clamp so the
+// window never hangs off the end of the list (a filter that shrank the list
+// under a scrolled window would otherwise draw nothing). Every mutator that can
+// move the cursor or change the rows ends here, and the renderers — value
+// receivers, which cannot scroll — trust that they did.
+//
+// Adapted from cdx's ensureVisible; the difference is that cdx counts screen
+// lines and this counts filtered items (see maxRows).
+func (l *fuzzyList) ensureVisible() {
+	if l.maxRows <= 0 {
+		l.top = 0
+		return
+	}
+	if l.cursor < l.top {
+		l.top = l.cursor
+	}
+	if l.cursor >= l.top+l.maxRows {
+		l.top = l.cursor - l.maxRows + 1
+	}
+	if over := len(l.filtered) - l.maxRows; l.top > over {
+		l.top = max(over, 0)
+	}
+	if l.top < 0 {
+		l.top = 0
+	}
+}
+
+// window is the range of filtered indexes rowsView draws — the whole list when
+// there is no window, else the maxRows rows starting at top. rowAtLine walks the
+// same range, which is what keeps a click on a scrolled list landing on the row
+// that is actually under it.
+func (l fuzzyList) window() (lo, hi int) {
+	if l.maxRows <= 0 {
+		return 0, len(l.filtered)
+	}
+	return l.top, min(l.top+l.maxRows, len(l.filtered))
 }
 
 // selectRef parks the cursor on the visible selectable row carrying ref, so a
@@ -213,9 +328,10 @@ func (l *fuzzyList) selectRef(ref int) {
 	for i, s := range l.filtered {
 		if s.item.selectable && s.item.ref == ref {
 			l.cursor = i
-			return
+			break
 		}
 	}
+	l.ensureVisible()
 }
 
 // focusRow parks the cursor on the filtered row at index i — the pointer's way
@@ -226,6 +342,7 @@ func (l *fuzzyList) focusRow(i int) bool {
 		return false
 	}
 	l.cursor = i
+	l.ensureVisible()
 	return true
 }
 
@@ -251,7 +368,12 @@ func (l fuzzyList) rowAtLine(n int) (int, bool) {
 	if matched == 0 {
 		line++ // the empty-list message stands where the rows would
 	}
-	for i, s := range l.filtered {
+	// Only the drawn window is walked, and i stays an index into filtered
+	// rather than into the window, so the row this answers is the one focusRow
+	// and refAt understand.
+	lo, hi := l.window()
+	for i := lo; i < hi; i++ {
+		s := l.filtered[i]
 		if !s.item.selectable {
 			line++ // the blank spacer every separator opens with
 			if s.item.name != "" {
@@ -368,7 +490,9 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 		b.WriteString(descStyle.Render("  " + emptyMsg))
 		b.WriteString("\n")
 	}
-	for i, s := range l.filtered {
+	lo, hi := l.window()
+	for i := lo; i < hi; i++ {
+		s := l.filtered[i]
 		it := s.item
 		if !it.selectable {
 			b.WriteString("\n")
@@ -425,6 +549,16 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 		if pad := width - lipgloss.Width(row); selected && pad > 0 {
 			b.WriteString(onRow(lipgloss.NewStyle(), true).Render(strings.Repeat(" ", pad)))
 		}
+		b.WriteString("\n")
+	}
+	// A windowed list says how much lies below the fold, so a list that stops
+	// at the pane's edge reads as scrolled rather than short. It comes after the
+	// rows — never before them — so rowAtLine's line count stays untouched: a
+	// line past the window already answers "no row here". Nothing marks the rows
+	// above; the highlight sitting on the first drawn line, and the up arrow
+	// pulling more into view, say it.
+	if hidden := len(l.filtered) - hi; hidden > 0 {
+		b.WriteString(descStyle.Render(fmt.Sprintf("  … %d more", hidden)))
 		b.WriteString("\n")
 	}
 	return b.String()

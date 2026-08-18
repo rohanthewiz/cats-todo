@@ -32,6 +32,7 @@ const (
 	stageImages                  // attach / detach the form's images
 	stageSchedule                // set (or clear) a prompt's auto-drop time
 	stageSession                 // edit the form's per-todo session options
+	stageFiles                   // browse the file system for an @mention in the prompt
 )
 
 // confirmKind distinguishes what the confirm stage is about to do.
@@ -226,6 +227,11 @@ type model struct {
 	// flag serving both would let a release meant for one end the other.
 	promptSel     promptSel
 	promptSelDrag bool
+
+	// File picker — the form's third sub-stage, opened by '@' in the prompt
+	// (see filepick.go). Rebuilt on every open, so nothing here outlives the
+	// gesture that asked for it.
+	files filePicker
 
 	// Attachment editor (a sub-stage of the form, so its state lives and dies
 	// with the form's).
@@ -436,6 +442,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSchedule(msg)
 		case stageSession:
 			return m.updateSession(msg)
+		case stageFiles:
+			return m.updateFiles(msg)
 		}
 	}
 	return m.forward(msg)
@@ -457,6 +465,10 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.schedInput, cmd = m.schedInput.Update(msg)
 	case stageSession:
 		m.sessInput, cmd = m.sessInput.Update(msg)
+	case stageFiles:
+		// The blink and a paste both land here; edit is the one way into the
+		// picker's query, so a pasted path is normalized like a typed one.
+		cmd = m.files.edit(msg)
 	}
 	return m, cmd
 }
@@ -608,6 +620,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.clickTarget(msg)
 	case stageForm:
 		return m.clickForm(msg)
+	case stageFiles:
+		return m.clickFiles(msg)
 	}
 	return m, nil
 }
@@ -1741,6 +1755,20 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	}
+	// '@' at the start of a word opens the file picker (filepick.go). The
+	// character goes into the editor first, like any other key, and the picker
+	// opens after it: esc then leaves a plain '@' behind, which is what someone
+	// who wanted the character gets, and a choice appends its path right where
+	// the caret already is. Only the prompt field, and only at a word start —
+	// an '@' inside a word is an e-mail address, not a request. A paste never
+	// arrives here at all (it is a tea.PasteMsg, routed through forward), so a
+	// pasted address cannot open it either.
+	if m.formFocus == formFieldPrompt && msg.String() == "@" && promptAtWordStart(m.promptArea) {
+		next, cmd := m.forwardForm(msg)
+		m = next.(model)
+		opened, blink := m.beginFiles()
+		return opened, tea.Batch(cmd, blink)
 	}
 	return m.forwardForm(msg)
 }
@@ -3307,7 +3335,7 @@ func (m model) View() tea.View {
 	// Cell motion is also exactly the mode a drag needs: it reports motion only
 	// while a button is held, so the manager hears the gesture without paying for
 	// a message on every idle sweep of the pointer across the pane.
-	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm {
+	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -3333,6 +3361,8 @@ func (m model) renderStage() string {
 		return m.viewSchedule()
 	case stageSession:
 		return m.viewSession()
+	case stageFiles:
+		return m.viewFiles()
 	default:
 		return m.viewList()
 	}
@@ -4056,9 +4086,16 @@ func (m model) formFooter() string {
 	// caret has said that the pointer works here, and sweeping one is what a hand
 	// tries next without being asked. The shift chord is the half of the gesture
 	// nobody guesses, so it is the half that gets the ink.
+	//
+	// "@ file" rides this line rather than the chords line above it because it
+	// is not a chord: it is a character the editor already takes, given a
+	// second meaning at a word start (see updateForm). Two segments were
+	// tightened to make room for it in a 120-cell pane — "line ends" for "line
+	// start/end", "places caret" for "places the caret" — so the field switch
+	// at the end of the line still fits there.
 	segs := []string{
-		"click places the caret", "shift+←/→ selects", "ctrl+c copies",
-		"ctrl+a/e line start/end", "alt+←/→ word", "tab switch field",
+		"click places caret", "shift+←/→ selects", "ctrl+c copies", "@ file",
+		"ctrl+a/e line ends", "alt+←/→ word", "tab switch field",
 	}
 	// Advertise the scope toggle only when it works (see the ctrl+g handler): an
 	// only-mode launch pins the scope, so the hint would be a lie there. It goes
@@ -4510,6 +4547,8 @@ func (m *model) applySizes() {
 		m.schedInput.SetWidth(w)
 	case stageSession:
 		m.sessInput.SetWidth(sessInputWidth(m.width))
+	case stageFiles:
+		m.files.resize(m.width, m.height)
 	case stageView:
 		m.viewVP.SetWidth(m.viewWidth())
 		m.viewVP.SetHeight(m.viewHeight())

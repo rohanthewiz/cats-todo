@@ -168,3 +168,134 @@ func TestViewComposesRowsView(t *testing.T) {
 		t.Fatal("rowsView must not render a query line — the manager draws its own")
 	}
 }
+
+// flatItems is n plain selectable rows, "row 0" … "row n-1", ref = index — a
+// list with no headings, which is what the file picker builds.
+func flatItems(n int) []listItem {
+	items := make([]listItem, n)
+	for i := range items {
+		items[i] = listItem{name: "row " + strings.Repeat("x", i%3) + string(rune('a'+i)), selectable: true, ref: i}
+	}
+	return items
+}
+
+// drawnRows counts the "row …" lines in a rendered rows block.
+func drawnRows(view string) int {
+	return strings.Count(view, "row ")
+}
+
+func TestWindowFollowsTheCursor(t *testing.T) {
+	l := newFuzzyList("", flatItems(10))
+	l.setMaxRows(3)
+	if l.top != 0 {
+		t.Fatalf("top = %d at the start, want 0", l.top)
+	}
+	for range 5 {
+		l.moveDown()
+	}
+	if l.cursor != 5 || l.top != 3 {
+		t.Errorf("after 5 moves down: cursor %d top %d, want 5 and 3", l.cursor, l.top)
+	}
+	if n := drawnRows(l.rowsView("none", 40)); n != 3 {
+		t.Errorf("windowed rowsView drew %d rows, want 3", n)
+	}
+	if !strings.Contains(l.rowsView("none", 40), "4 more") {
+		t.Errorf("rowsView does not say what is below the fold:\n%s", l.rowsView("none", 40))
+	}
+	for range 5 {
+		l.moveUp()
+	}
+	if l.cursor != 0 || l.top != 0 {
+		t.Errorf("after walking back: cursor %d top %d, want 0 and 0", l.cursor, l.top)
+	}
+}
+
+func TestWindowedRowAtLineIsAbsolute(t *testing.T) {
+	l := newFuzzyList("", flatItems(10))
+	l.setMaxRows(3)
+	for range 5 {
+		l.moveDown()
+	}
+	// top is 3: the first drawn line is filtered row 3.
+	if i, ok := l.rowAtLine(0); !ok || i != 3 {
+		t.Errorf("rowAtLine(0) = %d,%v, want 3,true", i, ok)
+	}
+	if _, ok := l.rowAtLine(3); ok {
+		t.Error("rowAtLine(3) hit a row past the window")
+	}
+	// focusRow with the absolute index lands on the drawn row.
+	if !l.focusRow(4) || l.cursor != 4 || l.top != 3 {
+		t.Errorf("focusRow(4): cursor %d top %d", l.cursor, l.top)
+	}
+}
+
+func TestWindowClampsWhenTheListShrinks(t *testing.T) {
+	l := newFuzzyList("", flatItems(10))
+	l.setMaxRows(3)
+	for range 9 {
+		l.moveDown()
+	}
+	if l.top != 7 {
+		t.Fatalf("top = %d, want 7", l.top)
+	}
+	l.setItems(flatItems(2))
+	if l.top != 0 || l.cursor > 1 {
+		t.Errorf("after shrinking to 2 rows: top %d cursor %d", l.top, l.cursor)
+	}
+	// A window taller than the list draws it all, and says nothing about more.
+	if v := l.rowsView("none", 40); drawnRows(v) != 2 || strings.Contains(v, "more") {
+		t.Errorf("rowsView on a short list:\n%s", v)
+	}
+}
+
+func TestUnwindowedListDrawsEverything(t *testing.T) {
+	l := newFuzzyList("", flatItems(10))
+	for range 9 {
+		l.moveDown()
+	}
+	if l.top != 0 {
+		t.Errorf("an unwindowed list scrolled: top = %d", l.top)
+	}
+	if n := drawnRows(l.rowsView("none", 40)); n != 10 {
+		t.Errorf("unwindowed rowsView drew %d rows, want 10", n)
+	}
+	if i, ok := l.rowAtLine(9); !ok || i != 9 {
+		t.Errorf("rowAtLine(9) = %d,%v", i, ok)
+	}
+}
+
+func TestPrefixFirstLeadsWithNamesThatStartWithTheQuery(t *testing.T) {
+	items := []listItem{
+		{name: "init_test.go", selectable: true, ref: 0},
+		{name: "internal/", selectable: true, ref: 1},
+		{name: "cli.go", selectable: true, ref: 2},
+		{name: "Interfaces.md", selectable: true, ref: 3},
+	}
+	plain := newFuzzyList("", items)
+	setQuery(&plain, "int")
+	pf := newFuzzyList("", items)
+	pf.prefixFirst = true
+	setQuery(&pf, "int")
+
+	names := func(l fuzzyList) []string {
+		var out []string
+		for _, s := range l.filtered {
+			out = append(out, s.item.name)
+		}
+		return out
+	}
+	// The prefix hits lead, in list order and case-insensitively; the fuzzy
+	// hit that merely contains the letters follows; nothing is listed twice.
+	if got := strings.Join(names(pf), ","); got != "internal/,Interfaces.md,init_test.go" {
+		t.Errorf("prefixFirst order = %q", got)
+	}
+	// Without the flag the scorer's own order stands (whatever it is), and the
+	// same rows are present — the flag reorders, it never filters.
+	if len(names(plain)) != len(names(pf)) {
+		t.Errorf("prefixFirst changed the match set: %v vs %v", names(plain), names(pf))
+	}
+	// A prefix row highlights its prefix.
+	if m := pf.filtered[0].matched; len(m) != 3 || m[0] != 0 || m[2] != 2 {
+		t.Errorf("prefix highlight = %v, want [0 1 2]", m)
+	}
+}

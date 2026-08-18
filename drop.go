@@ -105,7 +105,11 @@ const newSessionSettle = 2 * time.Second
 // input treats as the start of a file-picker mention and would rewrite
 // mid-paste. This is the whole of image "support" on the wire: pane.send_input
 // types keystrokes, so the bytes of an image can never cross it; the path can,
-// and the agent reads the file itself.
+// and the agent reads the file itself. The prompt body is a different matter:
+// it goes over verbatim, and it may well carry "@path" mentions of its own —
+// the editor's file picker (filepick.go) writes exactly those, at the author's
+// request, and the whole point of them is that the agent reads them as
+// mentions. Only the block this program composes on its own stays bare.
 //
 // The result never ends in a newline: sendInput's contract is that a trailing
 // newline in the text would be inserted literally by the line editor rather
