@@ -300,6 +300,36 @@ send the two identically, so the footers advertise `alt+enter` (which every
 terminal encodes as `ESC CR`) until the terminal answers the protocol
 handshake.
 
+## Spell check
+
+The editor underlines, in red, words its dictionary does not know — a glance
+that catches `teh` before an agent is handed it. It is a checker, not a speller:
+there are no suggestions, and it never touches the text. `ctrl+l` turns it off
+and on again; the choice persists across launches (in
+`~/.config/cats-todo/settings.json`).
+
+It is built to be quiet on a prompt about code. Skipped, not checked: anything
+in backticks or a fenced block; tokens that start with `@`, `-`, `#`, `~`, `$`,
+`/`, `.`, `\`, `<` or `&` (an `@path` from the file picker, a `--flag`, a
+`#123`, `~/dir`, `.dotfile`, `<tag>`); anything holding a digit or a character
+other than letters, apostrophes and hyphens (paths, URLs, `snake_case`, `v2`);
+words with a capital after the first letter (`CamelCase`, `ALLCAPS`); words with
+letters outside ASCII (names, other languages — the list is English); and words
+of one or two letters (`db`, `ui`, `js`). The word under the caret is left alone
+until you move on from it, so nothing flickers while a word is half-typed.
+
+The dictionary is embedded — SCOWL's American English at size 60, plus the
+everyday vocabulary of software work (`json`, `rebase`, `goroutine`, `worktree`
+…) — so it behaves the same on every machine, and needs nothing installed. Add
+your own words one per line to either of:
+
+- `~/.config/cats-todo/dictionary.txt` — yours, everywhere;
+- `<project>/.cats-todo/dictionary.txt` — the project's jargon, committed
+  beside the backlog so a teammate's editor knows it too.
+
+`#` starts a comment; case does not matter. Both files are read when the
+editor first opens.
+
 ## Session options
 
 A drop used to deliver one thing: the prompt. *How* the receiving agent ran —

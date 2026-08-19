@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/rohanthewiz/cats-todo/internal/app"
+	"github.com/rohanthewiz/cats-todo/internal/spell"
 )
 
 // uiStage is which screen the manager is currently showing.
@@ -228,6 +229,13 @@ type model struct {
 	// flag serving both would let a release meant for one end the other.
 	promptSel     promptSel
 	promptSelDrag bool
+	// Spell check (see spell.go): whether it is on — a persisted preference,
+	// read at start-up and flipped by ctrl+l on the form — and the dictionary,
+	// nil until the first form opens with the check on. On the model rather
+	// than a package variable because the tests build many models against
+	// different config directories, and a dictionary is per-launch state.
+	spellOn   bool
+	spellDict *spell.Dictionary
 
 	// File picker — the form's third sub-stage, opened by '@' in the prompt
 	// (see filepick.go). Rebuilt on every open, so nothing here outlives the
@@ -345,6 +353,7 @@ func (m model) modEnter() string {
 // newModel builds the initial manager state showing the todo list.
 func newModel(ctx RunContext, project, global *store, client *catsClient) model {
 	m := model{ctx: ctx, project: project, global: global, client: client, stage: stageList}
+	m.spellOn = loadSettings().spellcheck
 	m.list = newFuzzyList("Type to filter prompts…", nil)
 	m.rebuildList()
 	return m
@@ -1606,6 +1615,7 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	}
 	m.editID = ""
 	m.titleInput, m.promptArea = m.newFormInputs("", "")
+	m.loadSpellDict()
 	m.formImages, m.formImagesOrig = nil, nil
 	// A new prompt starts on the defaults — the zero SessionOpts is exactly the
 	// behaviour a drop had before options existed.
@@ -1641,6 +1651,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.formScope = ref.scope
 	m.editID = ref.id
 	m.titleInput, m.promptArea = m.newFormInputs(td.Title, td.Prompt)
+	m.loadSpellDict()
 	m.formImages = m.newFormImages(ref.scope, td)
 	m.formImagesOrig = td.Images
 	// A copy, not the pointer: an abandoned form must leave the stored options
@@ -1765,6 +1776,16 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// delete, ctrl+f/b/n/p move, ctrl+s is save and ctrl+o is images. ctrl+r
 		// is free in both the textarea's keymap and the textinput's.
 		return m.beginSession()
+	case "ctrl+l":
+		// Spell check on/off (spell.go). Free in both the textarea's keymap and
+		// the textinput's — the survey the ctrl+r comment makes above holds
+		// here too — and, unlike ctrl+y or ctrl+z, bound to nothing a
+		// terminal or shell might take first. It works from either field
+		// since it is about the form, not the caret. The persisted-save error,
+		// when there is one, is already on the note line; nothing else to do
+		// with it here.
+		m, _ = m.toggleSpell()
+		return m, nil
 	case "ctrl+g":
 		// Toggling scope needs both stores: an only-mode launch (--project /
 		// --global) has one side unavailable, and switching to it would save
@@ -4086,8 +4107,11 @@ func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 func (m model) formFooter() string {
 	var lines []string
 	if tier := m.formBarTier(); tier != tierHints {
+		// ctrl+l (the spell toggle, spell.go) is on this line as well as the
+		// one below: a pane this narrow drops the tail of that line long before
+		// it reaches the toggle, and this line is what a narrow pane reads.
 		chords := []string{
-			"enter save", m.modEnter() + " newline", "ctrl+o images", "ctrl+r session", "esc cancel",
+			"enter save", m.modEnter() + " newline", "ctrl+o images", "ctrl+r session", "esc cancel", "ctrl+l spell",
 		}
 		if tier == tierIcons {
 			// Down to glyphs, ✉ is the one chip no chord on this line stands for
@@ -4129,6 +4153,13 @@ func (m model) formFooter() string {
 	if m.formMode == formAdd && m.project.available() && m.global.available() {
 		segs = append(segs, "ctrl+g scope")
 	}
+	// The spell toggle (spell.go) is on this line as well as the chords line,
+	// for the reason "@ file" is here at all: no chip on the toolbar stands for
+	// it, so a pane wide enough to silence the chords line would otherwise
+	// leave it unadvertised. Last, after scope, because it is the one segment
+	// that changes a preference rather than doing anything to this prompt —
+	// and so the first to go when the pane narrows.
+	segs = append(segs, "ctrl+l spell")
 	lines = append(lines, m.fitFooter(segs))
 
 	for i, ln := range lines {

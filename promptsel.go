@@ -311,18 +311,23 @@ func repeatPromptSpaces(n int) []rune { return []rune(strings.Repeat(" ", max(n,
 
 // --- Rendering ------------------------------------------------------------------
 
-// promptEditorView is the prompt editor as drawn, with the selection painted
-// over it. With nothing selected it is the textarea's own view, untouched.
+// promptEditorView is the prompt editor as drawn, with the selection and the
+// spell-check marks (spell.go) painted over it. With nothing selected and
+// nothing flagged it is the textarea's own view, untouched.
 //
 // The highlight is an overlay rather than a re-render. Only the lines the
 // selection actually touches are rebuilt, and each of those keeps the editor's
 // own output for every cell to the left of the highlight — so the gutter, the
 // cursor-line field and anything else the library draws there survive without
-// this file having to know they exist.
+// this file having to know they exist. The spell marks ride the same overlay:
+// a line with marks and no selection, or with both, goes through
+// paintPromptSpans, the many-run form of the same operation; a line with only
+// the selection on it takes the path below exactly as it always has.
 func (m model) promptEditorView() string {
 	view := m.promptArea.View()
 	lo, hi, ok := m.promptSelSpan()
-	if !ok {
+	marks := m.promptSpellSpans()
+	if !ok && len(marks) == 0 {
 		return view
 	}
 
@@ -352,22 +357,30 @@ func (m model) promptEditorView() string {
 			continue // padding past the end of the value: nothing to select there
 		}
 		dl := lines[d]
-		selLo, selHi := max(lo, dl.start), min(hi, dl.end())
-		if selLo >= selHi && !(hi > dl.end() && lo <= dl.end()) {
-			continue // this line is entirely outside the selection
-		}
 
-		// Rune offsets → screen cells. Widths are summed rather than counted so
-		// the highlight lands on the same characters the eye sees even on a line
-		// carrying double-width glyphs.
-		a := gutter + lipgloss.Width(string(runes[dl.start:max(selLo, dl.start)]))
-		b := gutter + lipgloss.Width(string(runes[dl.start:max(selHi, dl.start)]))
-		if hi > dl.end() {
-			// The selection runs off this line onto the next, so the line break
-			// itself is inside it. Painting to the right edge is what says so —
-			// a highlight that stopped at the last character would read as several
-			// separate selections stacked up rather than one block of text.
-			b = right
+		// The selection's cells on this line, if it has any. hasSel false means
+		// this line is entirely outside the selection (or there is none), and a
+		// and b are meaningless.
+		var a, b int
+		hasSel := false
+		if ok {
+			selLo, selHi := max(lo, dl.start), min(hi, dl.end())
+			hasSel = selLo < selHi || (hi > dl.end() && lo <= dl.end())
+			if hasSel {
+				// Rune offsets → screen cells. Widths are summed rather than
+				// counted so the highlight lands on the same characters the eye
+				// sees even on a line carrying double-width glyphs.
+				a = gutter + lipgloss.Width(string(runes[dl.start:max(selLo, dl.start)]))
+				b = gutter + lipgloss.Width(string(runes[dl.start:max(selHi, dl.start)]))
+				if hi > dl.end() {
+					// The selection runs off this line onto the next, so the line
+					// break itself is inside it. Painting to the right edge is what
+					// says so — a highlight that stopped at the last character
+					// would read as several separate selections stacked up rather
+					// than one block of text.
+					b = right
+				}
+			}
 		}
 
 		base := styles.Text
@@ -378,7 +391,20 @@ func (m model) promptEditorView() string {
 		if d == caretD && caretAt >= dl.start {
 			caretCell = gutter + lipgloss.Width(string(runes[dl.start:min(caretAt, len(runes))]))
 		}
-		drawn[y] = paintPromptSelection(line, a, b, caretCell, base)
+
+		paints := spellPaintsFor(marks, dl, runes, gutter, base, hasSel, a, b)
+		switch {
+		case len(paints) == 0 && !hasSel:
+			continue // nothing on this line to paint
+		case len(paints) == 0:
+			drawn[y] = paintPromptSelection(line, a, b, caretCell, base)
+		default:
+			if hasSel {
+				paints = append(paints, promptPaint{a: a, b: b, style: promptSelStyle})
+				sortPromptPaints(paints)
+			}
+			drawn[y] = paintPromptSpans(line, paints, caretCell, base)
+		}
 	}
 	return strings.Join(drawn, "\n")
 }
