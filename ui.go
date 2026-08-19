@@ -35,6 +35,7 @@ const (
 	stageSession                 // edit the form's per-todo session options
 	stageFiles                   // browse the file system for an @mention in the prompt, or a folder to export to
 	stageExport                  // pick another project's backlog to copy / move the chosen prompt into
+	stageSpell                   // correct, or accept, the misspelled word nearest the prompt's caret
 )
 
 // confirmKind distinguishes what the confirm stage is about to do.
@@ -236,6 +237,22 @@ type model struct {
 	// different config directories, and a dictionary is per-launch state.
 	spellOn   bool
 	spellDict *spell.Dictionary
+	// The Spelling panel — the form's fourth sub-stage, opened by ctrl+l (see
+	// spellpanel.go). spellSpan and spellWord are the flagged word it opened on,
+	// resolved once so the row that names a word and the text a correction
+	// replaces cannot come from two different reads of the value; spellChoices
+	// is what each row does, indexed by the row's ref. Rebuilt on every open,
+	// so nothing here outlives the panel.
+	spellList    fuzzyList
+	spellChoices []spellChoice
+	spellWord    string
+	spellSpan    spell.Span
+	// spellErr is the panel's own message line, for the one thing that can go
+	// wrong while it is up: a dictionary file that could not be written. It is
+	// not the form's formErr because the panel is what is on screen when it
+	// happens, and an error the user cannot see until they leave is one they
+	// will act on too late.
+	spellErr string
 
 	// File picker — the form's third sub-stage, opened by '@' in the prompt
 	// (see filepick.go). Rebuilt on every open, so nothing here outlives the
@@ -463,6 +480,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateFiles(msg)
 		case stageExport:
 			return m.updateExport(msg)
+		case stageSpell:
+			return m.updateSpell(msg)
 		}
 	}
 	return m.forward(msg)
@@ -490,6 +509,8 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = m.files.edit(msg)
 	case stageExport:
 		cmd = m.exportList.editQuery(msg)
+	case stageSpell:
+		cmd = m.spellList.editQuery(msg)
 	}
 	return m, cmd
 }
@@ -647,6 +668,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.clickFiles(msg)
 	case stageExport:
 		return m.clickExport(msg)
+	case stageSpell:
+		return m.clickSpell(msg)
 	}
 	return m, nil
 }
@@ -1123,6 +1146,29 @@ func (a listAction) chipText(tier chipTier) string {
 		return a.label
 	}
 	return a.icon()
+}
+
+// chipGap is the space a bar leaves between two chips. It is the last thing a
+// narrowing pane gives up, after the chords and after the labels: at tierIcons
+// the chips sit flush against each other, and what separates the glyphs is the
+// padding each chip carries inside its own field — two cells, which is as much
+// air as the gap was buying.
+//
+// It is worth giving up because the alternative is worse in both directions. A
+// bar that kept the gap and wrapped would put half its buttons on a line no
+// click is hit-tested against (see formBarRow); a bar that dropped a button to
+// stay on one line would hide a control the user cannot then learn exists. The
+// gap costs nothing but air — and flush chips make the row a continuous strip of
+// targets, so a click that lands between two glyphs presses one of them instead
+// of nothing.
+//
+// Both bars measure and draw through this, so the spans a click is tested
+// against cannot disagree with the glyphs the eye sees.
+func chipGap(tier chipTier) int {
+	if tier >= tierIcons {
+		return 0
+	}
+	return 1
 }
 
 // icon is the chip's leading dingbat — the whole of the button at tierIcons.
@@ -1777,15 +1823,21 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// is free in both the textarea's keymap and the textinput's.
 		return m.beginSession()
 	case "ctrl+l":
-		// Spell check on/off (spell.go). Free in both the textarea's keymap and
-		// the textinput's — the survey the ctrl+r comment makes above holds
-		// here too — and, unlike ctrl+y or ctrl+z, bound to nothing a
-		// terminal or shell might take first. It works from either field
-		// since it is about the form, not the caret. The persisted-save error,
-		// when there is one, is already on the note line; nothing else to do
-		// with it here.
-		m, _ = m.toggleSpell()
-		return m, nil
+		// The Spelling panel (spellpanel.go): the flagged word nearest the
+		// caret, what the dictionary thinks was meant by it, the two files it
+		// could be added to, and the on/off switch.
+		//
+		// ctrl+l is free in both the textarea's keymap and the textinput's —
+		// the survey the ctrl+r comment makes above holds here too — and,
+		// unlike ctrl+y or ctrl+z, bound to nothing a terminal or shell might
+		// take first. It is spent on the panel rather than on the toggle it
+		// used to fire because spelling is not done often enough to earn three
+		// chords: one key opens a screen that names everything the feature can
+		// do, and the screen is where the choice is made. The toggle keeps a
+		// one-press path of its own on the toolbar's ☑ Spell chip.
+		//
+		// It works from either field since it is about the form, not the caret.
+		return m.beginSpell()
 	case "ctrl+g":
 		// Toggling scope needs both stores: an only-mode launch (--project /
 		// --global) has one side unavailable, and switching to it would save
@@ -3380,7 +3432,7 @@ func (m model) View() tea.View {
 	// Cell motion is also exactly the mode a drag needs: it reports motion only
 	// while a button is held, so the manager hears the gesture without paying for
 	// a message on every idle sweep of the pointer across the pane.
-	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageExport {
+	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageExport || m.stage == stageSpell {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -3410,6 +3462,8 @@ func (m model) renderStage() string {
 		return m.viewFiles()
 	case stageExport:
 		return m.viewExport()
+	case stageSpell:
+		return m.viewSpell()
 	default:
 		return m.viewList()
 	}
@@ -3773,9 +3827,10 @@ func (m model) actionBar() string {
 
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", indentWidth))
+	gap := strings.Repeat(" ", chipGap(m.barTier()))
 	for i, c := range m.actionChips() {
 		if i > 0 {
-			b.WriteString(" ")
+			b.WriteString(gap)
 		}
 		// Derived, never nested: each chip is still one style, the hue dropped
 		// into it rather than wrapped around it.
@@ -3813,7 +3868,7 @@ func (m model) actionChips() []actionChip {
 	x := indentWidth
 	for i, a := range acts {
 		if i > 0 {
-			x++ // the space between chips
+			x += chipGap(tier) // the space between chips, if the pane can afford one
 		}
 		text := a.chipText(tier)
 		w := lipgloss.Width(btnStyle.Render(text))
@@ -3954,8 +4009,15 @@ func (m model) viewForm() string {
 // has something to act on.
 //
 // The order is the order a prompt's editing session ends: keep it, break the line
-// you are on, attach to it, say how it should run, hand it to an agent, throw it
-// away. Send takes the accent for the reason listActions spends green on the
+// you are on, mind how it is spelled, attach to it, say how it should run, hand
+// it to an agent, throw it away.
+//
+// ☑ Spell sits third, among the things that are about the text rather than about
+// what the prompt carries, and is the row's one checkbox: it shows the state of
+// the check and flips it on the spot rather than opening a screen. See
+// spellChipLabel for why that exception is the right one, and spellpanel.go for
+// where the rest of the feature lives — the chip is the toggle's whole
+// affordance, since ctrl+l now opens the panel instead of firing it. Send takes the accent for the reason listActions spends green on the
 // list's Send — it is the one button on this screen that reaches out of the
 // program — so Save gives the accent up and takes plain white instead: it is the
 // row's default, and a default reads better as the one chip with no hue at all.
@@ -3986,6 +4048,7 @@ func (m model) formActions() []listAction {
 	return []listAction{
 		{label: "✔ Save", hint: "enter", tint: colFgHi},
 		{label: "↵ Newline", hint: m.modEnter(), tint: colStraw},
+		{label: m.spellChipLabel(), tint: m.spellChipTint()},
 		{label: "❐ Images", hint: "ctrl+o", tint: colCyan},
 		{label: "⚙ Session", hint: "ctrl+r", tint: colInfo},
 		{label: "✉ Send", tint: colAccent},
@@ -3997,6 +4060,7 @@ func (m model) formActions() []listAction {
 const (
 	formActionSave = iota
 	formActionNewline
+	formActionSpell
 	formActionImages
 	formActionSession
 	formActionSend
@@ -4016,7 +4080,7 @@ func (m model) formChips() []actionChip {
 	x := 0
 	for i, a := range acts {
 		if i > 0 {
-			x++ // the space between chips
+			x += chipGap(tier) // the space between chips, if the pane can afford one
 		}
 		text := a.chipText(tier)
 		w := lipgloss.Width(btnStyle.Render(text))
@@ -4030,10 +4094,10 @@ func (m model) formChips() []actionChip {
 // toolbar sits at column 0 — the form has no cursor gutter to clear — so it is
 // measured with no indent.
 //
-// It reaches tierIcons sooner than the list's bar does, having six buttons to
-// the list's four: a six-chip row needs about 63 columns for its labels and 23
-// for its glyphs, so between those two widths the toolbar is ✔ ↵ ❐ ⚙ ✉ ✖ and
-// the footer is what names them.
+// It reaches tierIcons sooner than the list's bar does, having seven buttons to
+// the list's four: a seven-chip row needs about 108 columns to print its chords,
+// 74 for its labels alone and 28 for its glyphs, so between the last two widths
+// the toolbar is ✔ ↵ ☑ ❐ ⚙ ✉ ✖ and the footer is what names them.
 func (m model) formBarTier() chipTier {
 	return barTier(m.formActions(), m.width, 0)
 }
@@ -4055,10 +4119,11 @@ func (m model) formBarShowsHints() bool {
 // there. These are pointer targets that name their keys.
 func (m model) formBar() string {
 	acts := m.formActions()
+	gap := strings.Repeat(" ", chipGap(m.formBarTier()))
 	var b strings.Builder
 	for i, c := range m.formChips() {
 		if i > 0 {
-			b.WriteString(" ")
+			b.WriteString(gap)
 		}
 		b.WriteString(btnStyle.Foreground(lipgloss.Color(acts[i].tint)).Render(c.text))
 	}
@@ -4082,6 +4147,12 @@ func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			cmd := m.focusForm(formFieldPrompt)
 			m.promptArea.InsertString("\n")
 			return m, cmd
+		case formActionSpell:
+			// The one chip on either bar that changes something rather than
+			// opening something — see spellChipLabel for why the toggle is the
+			// pointer's business and the panel the keyboard's.
+			m, _ = m.toggleSpell()
+			return m, nil
 		case formActionImages:
 			return m.beginImages()
 		case formActionSession:
@@ -4107,11 +4178,12 @@ func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 func (m model) formFooter() string {
 	var lines []string
 	if tier := m.formBarTier(); tier != tierHints {
-		// ctrl+l (the spell toggle, spell.go) is on this line as well as the
-		// one below: a pane this narrow drops the tail of that line long before
-		// it reaches the toggle, and this line is what a narrow pane reads.
+		// ctrl+l (the Spelling panel, spellpanel.go) is on this line as well as
+		// the one below: a pane this narrow drops the tail of that line long
+		// before it reaches the panel, and this line is what a narrow pane
+		// reads.
 		chords := []string{
-			"enter save", m.modEnter() + " newline", "ctrl+o images", "ctrl+r session", "esc cancel", "ctrl+l spell",
+			"enter save", m.modEnter() + " newline", "ctrl+o images", "ctrl+r session", "esc cancel", "ctrl+l spelling",
 		}
 		if tier == tierIcons {
 			// Down to glyphs, ✉ is the one chip no chord on this line stands for
@@ -4153,13 +4225,14 @@ func (m model) formFooter() string {
 	if m.formMode == formAdd && m.project.available() && m.global.available() {
 		segs = append(segs, "ctrl+g scope")
 	}
-	// The spell toggle (spell.go) is on this line as well as the chords line,
-	// for the reason "@ file" is here at all: no chip on the toolbar stands for
-	// it, so a pane wide enough to silence the chords line would otherwise
-	// leave it unadvertised. Last, after scope, because it is the one segment
-	// that changes a preference rather than doing anything to this prompt —
-	// and so the first to go when the pane narrows.
-	segs = append(segs, "ctrl+l spell")
+	// The Spelling panel (spellpanel.go) is on this line as well as the chords
+	// line, for the reason "@ file" is here at all: no chip on the toolbar
+	// stands for it — ☑ Spell is the toggle, not the panel — so a pane wide
+	// enough to silence the chords line would otherwise leave the key
+	// unadvertised. Last, after scope, because it is the one segment that is
+	// about the editor rather than about this prompt, and so the first that can
+	// be given up when the pane narrows.
+	segs = append(segs, "ctrl+l spelling")
 	lines = append(lines, m.fitFooter(segs))
 
 	for i, ln := range lines {
@@ -4608,6 +4681,8 @@ func (m *model) applySizes() {
 		m.files.resize(m.width, m.height)
 	case stageExport:
 		m.exportList.input.SetWidth(w)
+	case stageSpell:
+		m.spellList.input.SetWidth(w)
 	case stageView:
 		m.viewVP.SetWidth(m.viewWidth())
 		m.viewVP.SetHeight(m.viewHeight())

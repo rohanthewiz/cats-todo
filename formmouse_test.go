@@ -328,16 +328,17 @@ func TestFormSendIsClickOnly(t *testing.T) {
 	}
 }
 
-// TestFormBarTiers walks the toolbar down a narrowing pane. Six buttons cannot
-// keep their words much under 63 columns, and a bar that kept them would wrap —
-// which costs the pointer the chips on the second line, since every click is
-// hit-tested against the one row the bar is supposed to occupy. So the chips give
-// up their chords, then their labels, and never the button itself.
+// TestFormBarTiers walks the toolbar down a narrowing pane. Seven buttons cannot
+// keep their chords much under 108 columns or their words much under 74, and a
+// bar that kept them would wrap — which costs the pointer the chips on the second
+// line, since every click is hit-tested against the one row the bar is supposed
+// to occupy. So the chips give up their chords, then their labels, then the gaps
+// between them, and never the button itself.
 func TestFormBarTiers(t *testing.T) {
 	for _, tc := range []struct {
 		width int
 		tier  chipTier
-	}{{120, tierHints}, {70, tierLabels}, {40, tierIcons}, {24, tierIcons}} {
+	}{{120, tierHints}, {80, tierLabels}, {40, tierIcons}, {24, tierIcons}} {
 		m := withForm(t, "", "body", tc.width, 40)
 		if got := m.formBarTier(); got != tc.tier {
 			t.Errorf("at %d columns the toolbar is at tier %d, want %d", tc.width, got, tc.tier)

@@ -1,16 +1,19 @@
 // Spell check in the prompt editor: words the dictionary does not know are
-// underlined in red as the prompt is typed. Nothing more — no suggestions, no
-// corrections, no popup — because the point is a glance that catches "teh"
-// before it is sent to an agent, and a glance is all a highlight costs.
+// underlined in red as the prompt is typed, and a panel one key away says what
+// to do about one. The underline is the whole of the passive feature and is
+// deliberately silent about everything else — the point is a glance that
+// catches "teh" before it is sent to an agent, and a glance is all a highlight
+// costs. Acting on it is opt-in, and lives in spellpanel.go.
 //
 // The checker itself is internal/spell; this file is what the editor does with
 // it. Three things live here:
 //
 //   - the dictionary's lifetime: loaded once, lazily, the first time a form
 //     opens with the check on, so a launch that never edits a prompt never
-//     pays for the 90k-word gunzip;
-//   - the toggle: ctrl+l on the form flips it and the choice persists (see
-//     settings.go), and the footer names the chord;
+//     pays for the 90k-word gunzip — and where the user's own word lists are
+//     read from and written to;
+//   - the toggle: the toolbar's ☑ Spell chip flips it, the choice persists
+//     (see settings.go), and the chip's glyph is what says which way it is;
 //   - the paint: turning the checker's rune spans into underlined cells on the
 //     editor's own rendered lines, by the same overlay technique the text
 //     selection uses (see promptsel.go, promptEditorView) — the editor is
@@ -42,15 +45,39 @@ import (
 // and so belongs in the repo with the backlog.
 const spellDictFileName = "dictionary.txt"
 
-// spellDictPaths is where the user's dictionaries would be if they exist. A
-// missing file is fine (spell.Load skips it); this only says where to look.
+// spellDictGlobalPath is the user's own word list, the one that applies
+// wherever they are, or "" when no config directory could be resolved (no home
+// directory) — in which case there is nowhere to put it and the panel does not
+// offer the row.
+func (m model) spellDictGlobalPath() string {
+	base, err := configBaseDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(base, spellDictFileName)
+}
+
+// spellDictProjectPath is this project's word list, or "" when the manager was
+// not launched inside a project. It lives beside the backlog so a product name
+// or an internal service — the kind of word a teammate is also typing — can be
+// committed with it.
+func (m model) spellDictProjectPath() string {
+	dir := m.ctx.projectDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, projectConfigDirName, spellDictFileName)
+}
+
+// spellDictPaths is where the user's dictionaries would be if they exist, in
+// the order Load reads them. A missing file is fine (spell.Load skips it); this
+// only says where to look.
 func (m model) spellDictPaths() []string {
 	var paths []string
-	if base, err := configBaseDir(); err == nil {
-		paths = append(paths, filepath.Join(base, spellDictFileName))
-	}
-	if dir := m.ctx.projectDir(); dir != "" {
-		paths = append(paths, filepath.Join(dir, projectConfigDirName, spellDictFileName))
+	for _, p := range []string{m.spellDictGlobalPath(), m.spellDictProjectPath()} {
+		if p != "" {
+			paths = append(paths, p)
+		}
 	}
 	return paths
 }
@@ -72,9 +99,48 @@ func (m *model) loadSpellDict() {
 	m.spellDict = d
 }
 
-// toggleSpell is ctrl+l on the form: flip the check, persist the choice, and
-// say what happened on the note line — the change is otherwise visible only
-// if the prompt happens to hold a misspelling.
+// spellChipLabel is the toolbar's ☑ Spell button, which says what the check is
+// doing as well as offering to change it: ☑ while words are being marked, ☐
+// while they are not. The glyph carries the state rather than the tint alone
+// because the bar narrows down to icons (see formBarTier), and at that width
+// the glyph is the whole button.
+//
+// The chip toggles on the spot instead of opening the panel ctrl+l opens, which
+// makes it the one button on either bar that changes something rather than
+// showing something. It earns the exception by being a checkbox: a hand that
+// clicks a box it can see the state of is asking for the other state, and
+// routing that through a screen to press a row would be a menu in front of a
+// switch. The keyboard's path is the panel's last row, where a chord it would
+// otherwise need is not worth spending (see spellpanel.go).
+func (m model) spellChipLabel() string {
+	if m.spellOn {
+		return "☑ Spell"
+	}
+	return "☐ Spell"
+}
+
+// spellChipTint is the chip's hue, and it is grey on purpose while every other
+// chip on the bar carries one. The bar's colors mean consequence — cyan and
+// blue for what a prompt carries, green for the send that reaches out of the
+// program, red for the throw-away — and this button does none of those things
+// to the prompt: it changes how the editor draws. A tint of its own would put
+// it in that vocabulary and claim a weight it does not have.
+//
+// So the two states are two greys, the brighter of which is the palette's
+// secondary text and the dimmer the one btnOffStyle already spends on an inert
+// button. The step between them says on and off a beat before the glyph is
+// read.
+func (m model) spellChipTint() string {
+	if m.spellOn {
+		return colMuted
+	}
+	return colDim
+}
+
+// toggleSpell flips the check, persists the choice, and says what happened on
+// the note line — the change is otherwise visible only if the prompt happens to
+// hold a misspelling. It is the toolbar's ☑ Spell chip and the Spelling panel's
+// last row; ctrl+l opens that panel rather than coming here (see beginSpell).
 func (m model) toggleSpell() (model, error) {
 	m.spellOn = !m.spellOn
 	m.loadSpellDict()

@@ -117,10 +117,10 @@ that acts on it. Typing anything hands the focus straight back to the filter. A
 button that needs a highlighted prompt is greyed out until there is one.
 
 Both button rows shrink rather than wrap as the pane narrows: the chips give up
-their chords first, then their words, down to a row of bare glyphs — `✔ ↵ ❐ ⚙ ✉
-✖` in the editor — and the footer names every chord the chips stopped teaching.
-No button is ever dropped, however narrow the pane; a control that vanishes is
-one you cannot learn is there.
+their chords first, then their words, then the gaps between them, down to a row
+of bare glyphs — `✔ ↵ ☑ ❐ ⚙ ✉ ✖` in the editor — and the footer names every chord
+the chips stopped teaching. No button is ever dropped, however narrow the pane;
+a control that vanishes is one you cannot learn is there.
 
 The pointer works too, and the same way round: a click on a button presses it, a
 click on a prompt selects it (which is what makes the buttons useful with the
@@ -303,10 +303,28 @@ handshake.
 ## Spell check
 
 The editor underlines, in red, words its dictionary does not know — a glance
-that catches `teh` before an agent is handed it. It is a checker, not a speller:
-there are no suggestions, and it never touches the text. `ctrl+l` turns it off
-and on again; the choice persists across launches (in
-`~/.config/cats-todo/settings.json`).
+that catches `teh` before an agent is handed it. The underline is all it does on
+its own; acting on one is opt-in, and lives one key away.
+
+`ctrl+l` opens the **Spelling** panel on the flagged word nearest the caret
+(the word being typed first, then the nearest one behind it). It offers the
+three answers there are to an underline:
+
+- **the spellings it might have been** — pick one and the word is replaced in
+  place, the caret left where it ends. The candidates are ranked by the kind of
+  mistake they imply rather than the number of them, so `teh` offers `the`
+  before `tea`, and `dont` offers `don't` before eight other words one edit
+  away;
+- **add it to a dictionary** — yours, or this project's (see below). The
+  underline goes at once, and the word is written to the file so the next launch
+  still knows it;
+- **turn the check off** — without leaving the panel.
+
+Type to filter the rows, `enter` presses one, `esc` or `ctrl+l` goes back.
+
+The **☑ Spell** chip on the toolbar is the toggle on its own: its box says
+whether the check is on, and clicking it flips it. Either way the choice
+persists across launches (in `~/.config/cats-todo/settings.json`).
 
 It is built to be quiet on a prompt about code. Skipped, not checked: anything
 in backticks or a fenced block; tokens that start with `@`, `-`, `#`, `~`, `$`,
@@ -327,8 +345,9 @@ your own words one per line to either of:
 - `<project>/.cats-todo/dictionary.txt` — the project's jargon, committed
   beside the backlog so a teammate's editor knows it too.
 
-`#` starts a comment; case does not matter. Both files are read when the
-editor first opens.
+`#` starts a comment; case does not matter. Both files are read when the editor
+first opens, and the panel's add rows write to them — creating the file, with a
+header explaining what it is, the first time.
 
 ## Session options
 

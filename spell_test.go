@@ -77,17 +77,35 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSpellToggle: ctrl+l on the form flips the check, says so, and the choice
-// survives into the next model built against the same config directory.
+// clickSpellChip presses the toolbar's ☑ Spell button, which is the toggle's
+// whole affordance now that ctrl+l opens the panel instead (see spellChipLabel).
+func clickSpellChip(t *testing.T, m model) model {
+	t.Helper()
+	c := m.formChips()[formActionSpell]
+	return clickForm(m, c.start, m.formBarRow())
+}
+
+// TestSpellToggle: the ☑ Spell chip flips the check, says so on the note line,
+// changes its own glyph to match, and the choice survives into the next model
+// built against the same config directory.
 func TestSpellToggle(t *testing.T) {
 	m := withSpellForm(t, "teh")
+	if got := m.spellChipLabel(); got != "☑ Spell" {
+		t.Errorf("chip reads %q with the check on, want the ticked box", got)
+	}
 
-	m = typeInForm(t, m, ctrlKey('l'))
+	m = clickSpellChip(t, m)
 	if m.spellOn {
-		t.Fatal("ctrl+l left spell check on")
+		t.Fatal("the Spell chip left spell check on")
 	}
 	if m.formNote != "spell check off" {
 		t.Errorf("form note is %q, want %q", m.formNote, "spell check off")
+	}
+	if got := m.spellChipLabel(); got != "☐ Spell" {
+		t.Errorf("chip reads %q with the check off, want the empty box", got)
+	}
+	if m.spellChipTint() == (model{spellOn: true}).spellChipTint() {
+		t.Error("the chip is the same hue off as on — the state is only in the glyph")
 	}
 	if loadSettings().spellcheck {
 		t.Error("the toggle was not persisted")
@@ -97,22 +115,12 @@ func TestSpellToggle(t *testing.T) {
 		t.Error("a new model came up with spell check on after it was turned off")
 	}
 
-	m = typeInForm(t, m, ctrlKey('l'))
+	m = clickSpellChip(t, m)
 	if !m.spellOn || m.formNote != "spell check on" {
-		t.Errorf("second ctrl+l: on=%v note=%q, want on with the note saying so", m.spellOn, m.formNote)
+		t.Errorf("second press: on=%v note=%q, want on with the note saying so", m.spellOn, m.formNote)
 	}
 	if !loadSettings().spellcheck {
 		t.Error("turning it back on was not persisted")
-	}
-
-	// It works from the title field too — the toggle is about the form.
-	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
-	if m.formFocus != formFieldTitle {
-		t.Fatalf("tab did not move focus to the title (focus=%d)", m.formFocus)
-	}
-	m = typeInForm(t, m, ctrlKey('l'))
-	if m.spellOn {
-		t.Error("ctrl+l from the title field did not toggle spell check")
 	}
 }
 
@@ -301,13 +309,14 @@ func TestSpellUserDictionary(t *testing.T) {
 
 // TestSpellFooterNamesTheChord: the form footer advertises ctrl+l — in a pane
 // wide enough for the whole caret line, and in one narrow enough that the
-// chords line is drawn but not so narrow that its tail is cut.
+// chords line is drawn but not so narrow that its tail is cut. No chip stands
+// for the panel (☑ Spell is the toggle), so the footer is its only teacher.
 func TestSpellFooterNamesTheChord(t *testing.T) {
 	m := withSpellForm(t, "")
 	for _, w := range []int{95, 160} {
 		m.width = w
-		if foot := m.formFooter(); !strings.Contains(foot, "ctrl+l spell") {
-			t.Errorf("footer at width %d does not name the spell toggle:\n%s", w, foot)
+		if foot := m.formFooter(); !strings.Contains(foot, "ctrl+l spelling") {
+			t.Errorf("footer at width %d does not name the spelling panel:\n%s", w, foot)
 		}
 	}
 }
