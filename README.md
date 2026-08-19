@@ -134,7 +134,7 @@ still asks where, and pastes without running. Submitting stays on `shift+enter`.
 Mouse reporting is only asked for on the screens with something to click; the
 prompt view leaves the terminal's own text selection alone.
 
-The list's order is the backlog's own priority order, and it is yours to set:
+The list's order is the backlog's own running order, and it is yours to set:
 **drag a prompt** with the mouse to put it where it belongs — the row takes a
 `⠿` grip while you hold it, and the rest of the list parts around it — or nudge
 it a step at a time with `ctrl+↑`/`ctrl+↓`. Both stay inside one backlog and one
@@ -155,7 +155,7 @@ and deleting it throws away the fact that the decision was made at all. A frozen
 prompt is drawn `❄` in the list, dimmed but *not* struck through, and sits in its
 own group between the open prompts and the completed ones. `ctrl+d` folds it away
 with them, `ctrl+w` leaves it alone, and `ctrl+f` again thaws it — back into the
-exact place it held, since freezing never cost it its priority. A frozen prompt
+exact place it held, since freezing never cost it its place. A frozen prompt
 also stops going anywhere: any pending auto-drop is cancelled the moment it
 freezes, and both `shift+enter` and `ctrl+s` refuse it until it is thawed, so a
 decision not to do the work can't be undone by a stray keystroke.
@@ -170,6 +170,80 @@ passed while the manager was closed — or whose pane has since disappeared — 
 marked **missed** on the row instead of firing late into a conversation that
 has moved on; send it by hand from there. `ctrl+s` on a scheduled prompt shows
 the time again, where enter on an emptied box clears it.
+
+### Priority
+
+The list's order says what to do next. It cannot say how much a prompt matters —
+once a critical bug and a nice-to-have sit next to each other, the only thing
+between them is the order, and every drag churns that. So a prompt also carries a
+**priority**, drawn as a colored dot in its own column at the head of every row:
+
+- **critical** — red
+- **standard** — a soft yellow, and the default
+- **low** — a muted brown
+
+It is set where the rest of a prompt's settings are: open the prompt, `ctrl+r`
+for the ⚙ panel, and **Priority** is its first row — `←`/`→` or `space` cycles
+it, exactly like the rows below. Nothing is written until the form is saved, so
+an abandoned edit leaves the level as it was. The ⚙ line on the form itself
+leads with the level whenever it is not standard, since the editor is the one
+screen the dot is not on.
+
+Priority is the first row of that panel and the only one that is not a launch
+flag: everything under it describes the session that will read the prompt, and
+this describes the prompt. It shares the panel because that is where a prompt's
+own settings are edited, and a second panel holding one row would be a worse
+answer than a first row that says what it is.
+
+Standard is the default, and it is stored as nothing at all — so a backlog nobody
+has ranked is byte-for-byte the file it was before this feature existed, and a
+teammate on an older build reads it unchanged.
+
+The standard dot's yellow is cats' own — the same `todo` hue the mux paints the
+paw print it counts your backlog with — so a row and the workspace badge that
+counts it are the same color by construction. Deliberately *not* the palette's
+amber, which belongs to the fuzzy-match highlight inside the row names a few
+columns to the right. The three dots are told apart by *lightness* as much as by
+hue — the ramp runs standard, critical, low, then the greys of the rows that have
+stopped being work — which is what makes them readable as single cells.
+
+
+Every row carries a dot, including the ones that are no longer work: a column
+with holes in it cannot be read down, and reading it down is the whole point. On
+a completed or frozen row the dot drops to that row's greys — priority is about
+what to do next, and finished work should not be arguing for attention. A
+*scheduled* prompt keeps its color, because it is still work outstanding.
+
+Priority does not move anything by itself. The backlog stays in the order you
+dragged it into, and the dot is a second axis to read it by rather than a
+rearrangement of it. When you do want the rearrangement, `ctrl+l` opens the
+**View** panel:
+
+```
+View  how this list is drawn — kept between launches
+
+❯ Priority order  off  critical first inside each group — dragging and ctrl+↑/↓ are off while it is on
+  Frozen prompts  on   the ❄ rows — work decided against, kept on the record
+```
+
+`←`/`→` or `space` flips the switch under the cursor, and both switches are
+remembered between launches. **Priority order** lifts the critical prompts to the
+top of each group, keeping the hand-set order among prompts of equal level — it
+is a lens over the file and never a rewrite of it, so turning it off gives back
+the exact order you had. It sorts *inside* each group and each backlog and never
+across them: a finished critical prompt does not climb above open work.
+
+While the lens is on, **dragging and `ctrl+↑/↓` are refused, in words** — the
+rows are in an order the file does not have, so "put this one there" names a slot
+that does not exist. It is the same refusal a filter already earns, and the
+message says which of the two is in the way.
+
+**Frozen prompts** is the other half of a fold that used to be one switch.
+`ctrl+d` still hides everything closed — completed and frozen together, the
+question being "show me what is left to do" — but hiding the ❄ rows for good is a
+standing decision about whether that record is worth its rows, which is a
+different question and now has its own switch. That one is remembered; the
+`ctrl+d` fold is still per-session.
 
 ### Exporting a prompt to another project
 
@@ -226,6 +300,7 @@ the same backlog either way; nothing about the entry marks where it came from.
 cats-todo add fix the flaky reconnect       # → this project's backlog
 cats-todo add -g clean up the dotfiles      # → the global one
 cats-todo add -t "flaky test" fix the …     # → an explicit title
+cats-todo add --priority critical fix the … # → marked critical
 git log -p | cats-todo add -t "review this diff"   # → the prompt from piped stdin
 ```
 
@@ -238,6 +313,17 @@ type — so `add` is safe to bind to a key or drop in a script.
 (trimmed to 60 characters), which is usually the right thing; it is worth
 setting when the prompt starts mid-thought, or when it arrives on stdin and its
 first line is a diff header.
+
+`--priority` sets the level the manager draws as a dot (`critical`, `standard`,
+`low` — see [Priority](#priority)), so a prompt captured mid-firefight arrives
+already marked rather than needing to be opened afterwards to say so. Spellings fold, so
+`urgent` and `high` reach critical and `minor` reaches low; anything outside the
+set is refused with the same words the manager would use. Left off, the prompt is
+standard, and nothing is written to the file — the flag has no effect on a
+backlog until someone actually ranks something. It is long-only on purpose: a
+bare `-p` beside `--perm` reads as an abbreviation of it, and a flag that looks
+like it means permissions while meaning priority is the kind of thing that gets
+found out at the wrong moment.
 
 Without `-g`, `add` writes to the project backlog rooted the way everything else
 here roots it — nearest `.cats-todo/`, else the repo root, else the current

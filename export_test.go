@@ -563,3 +563,39 @@ func TestExportFromViewAndBar(t *testing.T) {
 		t.Errorf("actionExport is %q", m.listActions()[actionExport].label)
 	}
 }
+
+// TestExportCarriesPriority pins what exportTodo's whole-struct copy gives for
+// free, so a later change that starts clearing fields on the way across has to
+// decide about this one deliberately. A prompt marked critical in one project is
+// still critical in the next; the schedule is the field that isn't portable, and
+// priority is not like the schedule.
+func TestExportCarriesPriority(t *testing.T) {
+	for _, move := range []bool{false, true} {
+		name := "copy"
+		if move {
+			name = "move"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			src := &store{scope: scopeProject, path: filepath.Join(dir, "src", "todos.json")}
+			dst := &store{scope: scopeProject, path: filepath.Join(dir, "dst", "todos.json")}
+			td := Todo{ID: "a1", Title: "t", Prompt: "p", Priority: priorityCritical}
+			if err := src.add(td); err != nil {
+				t.Fatal(err)
+			}
+			out, _, err := exportTodo(src, dst, td, move)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.Priority != priorityCritical {
+				t.Errorf("exported todo has priority %q, want %q", out.Priority, priorityCritical)
+			}
+			if err := dst.load(); err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := dst.find(out.ID); !ok || got.Priority != priorityCritical {
+				t.Errorf("the priority did not reach the destination backlog: %+v", got)
+			}
+		})
+	}
+}

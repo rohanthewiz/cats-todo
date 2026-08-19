@@ -39,6 +39,15 @@ import (
 // there to say what a row is: a heading is a separator row, and separators are
 // dropped while a query filters — so a fact that must survive filtering has to
 // ride the row itself.
+// prio, when set, is a mark drawn in a column of its own between the cursor and
+// the badge — the todo list's priority dot. It is separate from badge because
+// the badge holds one mutually-exclusive state and a priority is not one of
+// them: a row can be both critical and scheduled, and the two facts need two
+// columns to be true at once. prioSelStyle is the same mark on the highlighted
+// row, so a caller whose mark is drawn in a receded tone can lift it there the
+// way the name's own greys are lifted; callers with a mark that does not recede
+// pass the same style twice.
+//
 // descMarks are the small flags that lead the description — the fire time, the
 // session cog, the attachment count — each drawn in its own hue and in the order
 // given, ahead of the description text itself. They are separate from desc for
@@ -47,17 +56,20 @@ import (
 // field behind every segment it draws and a segment that already ends in a reset
 // cannot be given a background without nesting one style inside another.
 type listItem struct {
-	name       string
-	desc       string
-	descMarks  []descMark
-	search     string // when set, replaces desc in the fuzzy-match haystack
-	badge      string
-	badgeStyle lipgloss.Style
-	tag        string
-	strike     bool
-	dim        bool
-	selectable bool
-	ref        int
+	name         string
+	desc         string
+	descMarks    []descMark
+	search       string // when set, replaces desc in the fuzzy-match haystack
+	badge        string
+	badgeStyle   lipgloss.Style
+	prio         string
+	prioStyle    lipgloss.Style
+	prioSelStyle lipgloss.Style
+	tag          string
+	strike       bool
+	dim          bool
+	selectable   bool
+	ref          int
 }
 
 // descMark is one such flag: what to print, and the style to print it in.
@@ -522,6 +534,18 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 			r.WriteString(onRow(cursorStyle, true).Render(glyph))
 		} else {
 			r.WriteString("  ")
+		}
+		// The priority dot leads the badge, so the two marks read outward from
+		// the cursor as "how much" then "what state" — and so the dots line up
+		// in one column down the pane, which is the only way a color is worth
+		// anything for triage. Its own segment with its own style, like every
+		// other part of the row (see descMark).
+		if it.prio != "" {
+			st := it.prioStyle
+			if selected {
+				st = it.prioSelStyle
+			}
+			r.WriteString(onRow(st, selected).Render(it.prio + " "))
 		}
 		if it.badge != "" {
 			r.WriteString(onRow(it.badgeStyle, selected).Render(it.badge + " "))

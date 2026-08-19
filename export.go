@@ -438,8 +438,11 @@ func destinationStore(dir string) (*store, error) {
 //
 // What travels: the title, the prompt, the attachments (copied into dst's own
 // images/ directory, since a backlog owns its files — see images.go), the
-// session options, and the open/frozen/done state, so the destination gets the
-// prompt as it was and not a reset of it. What does not: the schedule. A
+// session options, the priority, and the open/frozen/done state, so the
+// destination gets the prompt as it was and not a reset of it. (The priority
+// travels because it is a fact about the prompt and stays true in any backlog —
+// unlike the schedule below, which names a pane in the project being left.)
+// What does not: the schedule. A
 // schedule names a pane and a launch directory of the *source* project, and a
 // prompt that fired itself into the wrong project's session would be worse
 // than one that quietly needs re-scheduling; the caller is told (the returned

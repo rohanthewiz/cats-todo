@@ -54,8 +54,16 @@ func addFromCLI(args []string) {
 	fs.Var(&reviews, "review", "run this review skill first (repeatable): code-review, security-review, simplify")
 	release := fs.Bool("release", false, "cut a release once the work is done")
 
+	// Long-only, unlike -g/-t/-i above. A bare -p is free as far as Go's flag
+	// package is concerned — it does no prefix matching, so it would not collide
+	// with --perm — but -p sitting on the same command line as --perm reads to a
+	// person as an abbreviation of it, and a flag that looks like it means
+	// permissions while meaning priority is the kind of thing that gets found
+	// out at the wrong moment.
+	priority := fs.String("priority", "", "how much it matters: critical|standard|low (default standard)")
+
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [session options] [prompt...]")
+		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [--priority p] [session options] [prompt...]")
 		fmt.Fprintln(os.Stderr, "  the prompt is the remaining args joined; with none it is read from a piped stdin")
 		fmt.Fprintln(os.Stderr, "  session options: --model --effort --perm --clear --sess-load[=n] --sess-use --ctx")
 		fmt.Fprintln(os.Stderr, "                   --finish --review --release")
@@ -68,6 +76,14 @@ func addFromCLI(args []string) {
 
 	opts := sessionFromFlags(*model, *effort, *perm, *clear, sessLoad.set, sessLoad.value, *sessUse,
 		ctxFiles, *finish, reviews, *release)
+
+	// Checked before anything is written, and through the same normalizer the
+	// TUI's ring is built on, so a value this program would refuse is refused
+	// here in the same words.
+	prio, err := normalizePriority(*priority)
+	if err != nil {
+		errExit(err)
+	}
 
 	prompt := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if prompt == "" {
@@ -115,8 +131,9 @@ func addFromCLI(args []string) {
 	}
 	if err := st.add(Todo{
 		ID: id, Title: t, Prompt: prompt, Images: attached,
-		Session: sessionPtr(opts),
-		Created: time.Now(),
+		Session:  sessionPtr(opts),
+		Priority: prio,
+		Created:  time.Now(),
 	}); err != nil {
 		// The copies are already on disk but no todo will ever reference them.
 		st.removeImages(id)
@@ -129,7 +146,19 @@ func addFromCLI(args []string) {
 	} else if n > 1 {
 		note = fmt.Sprintf(" with %d images", n)
 	}
-	fmt.Printf("added%s to the %s backlog (%s)\n", note, strings.ToLower(st.scope.String()), st.path)
+	// The priority rides on the same line rather than with the session options
+	// below: it is a fact about the prompt, like the images, not part of how the
+	// agent that receives it will be set up. It trails the backlog clause rather
+	// than joining the image note, so both halves stay readable together
+	// ("added with 1 image to the project backlog, marked critical").
+	//
+	// Standard says nothing at all — the default announcing itself on every add
+	// is noise, and silence is what "ordinary" should sound like.
+	prioNote := ""
+	if prio != priorityStandard {
+		prioNote = ", marked " + priorityLabel(prio)
+	}
+	fmt.Printf("added%s to the %s backlog%s (%s)\n", note, strings.ToLower(st.scope.String()), prioNote, st.path)
 	// Echoed on its own line, and only when there is something to echo: the
 	// options are the part of this command that is easiest to get subtly wrong
 	// (a folded spelling, a --sess-load count that landed as a count rather than

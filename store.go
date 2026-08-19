@@ -49,6 +49,20 @@ type Todo struct {
 	// absent, so a backlog of plain prompts reads exactly as it did before the
 	// field existed, and an older binary ignores it rather than choking.
 	Session *SessionOpts `json:"session,omitempty"`
+	// Priority is how much this prompt matters — critical, standard, low — and
+	// is orthogonal to Done/Frozen/Schedule: a critical prompt can also be
+	// scheduled, and a frozen one keeps the priority it was frozen at.
+	//
+	// It says nothing about *where* the todo sits. Array order is still the
+	// backlog's order and still the user's to set by hand (see move/reorder);
+	// this is the second axis the list can be read by, and sorting on it is a
+	// lens the manager can be put into rather than a rewrite of the file.
+	//
+	// Same compat contract as the fields above, with the extra turn that the
+	// default is the empty string (priorityStandard): omitted from the JSON
+	// unless someone has actually said otherwise, so an untouched backlog is
+	// byte-identical to what it was before the field existed.
+	Priority string `json:"priority,omitempty"`
 }
 
 // Schedule is a one-shot auto-drop waiting to fire: at time At, the todo's
@@ -88,6 +102,20 @@ type Schedule struct {
 const (
 	scheduleKindPane = "pane"
 	scheduleKindNew  = "new"
+)
+
+// The three priorities, in the order they escalate. Stored in backlog files —
+// like the schedule kinds, these names are wire format and not just code.
+//
+// Standard is the empty string rather than "standard" for the reason ctxNone is
+// (see session.go): "never said" and "explicitly ordinary" are deliberately the
+// same value, so a hand-edited backlog has one fewer state to guess about, most
+// todos write no key at all, and every todo that existed before this field
+// decodes as standard without a migration pass.
+const (
+	priorityStandard = ""
+	priorityCritical = "critical"
+	priorityLow      = "low"
 )
 
 // The three states a todo can be in, in the order the list draws them within a
@@ -325,6 +353,27 @@ func (s *store) setSession(id string, o *SessionOpts) error {
 	for i := range s.todos {
 		if s.todos[i].ID == id {
 			s.todos[i].Session = o
+			return s.save()
+		}
+	}
+	return errTodoNotFound
+}
+
+// setPriority replaces the priority of the todo with id and persists.
+// priorityStandard clears it, which is what writes the key back out of the file
+// rather than storing "standard" — see the Priority field.
+//
+// Its own method rather than a field on update, for the reason setImages and
+// setSession each have one: update is deliberately text-only, so a caller that
+// saves a title and a prompt cannot silently reset a triage decision it knows
+// nothing about.
+func (s *store) setPriority(id, p string) error {
+	if err := s.reload(); err != nil {
+		return err
+	}
+	for i := range s.todos {
+		if s.todos[i].ID == id {
+			s.todos[i].Priority = p
 			return s.save()
 		}
 	}

@@ -26,6 +26,33 @@ const (
 	colOk     = "#6ac47a"
 	colWarn   = "#e0b64e"
 	colErr    = "#e57373"
+	// The standard-priority dot. This is cats' own `todo` key (internal/theme's
+	// builtin table, and --todo in the served page) — the hue the mux paints the
+	// paw print it counts this backlog with. Taking it from there means a row's
+	// dot and the workspace badge that counts that row are the same color by
+	// construction rather than by two people picking a yellow.
+	//
+	// Deliberately not colWarn, even though amber is the obvious "standard"
+	// yellow. Amber is spoken for by matchStyle, which paints fuzzy hits inside
+	// the row names — and standard is the default, so its dot lands on more rows
+	// than any other mark on screen. A second amber on every one of those lines
+	// would cost the highlight the one thing it exists to do.
+	colTodo = "#f0dfa0"
+	// The low-priority dot. A muted brown, and the one hue here that is neither
+	// cats' nor a mix of something that is — the warm end of the palette had
+	// nothing dark left in it, and this level needs to be dark.
+	//
+	// It is chosen on lightness rather than on hue, because lightness is what
+	// separates the three dots at a glance in a single cell. The ramp runs
+	// standard 78% → critical 67% → low 53% → the closed rows' 40%: low sits
+	// plainly below active work and plainly above the tier that means "not work
+	// any more", which is exactly what "whenever" should look like.
+	//
+	// Warm and saturated enough (28° 38%) not to be mistaken for colFaint's
+	// near-neutral grey one step below it, and far enough under colTodo's 78%
+	// that sharing the warm half of the wheel with it costs nothing. Clears
+	// 4.7:1 on the page.
+	colBrown = "#b5835a"
 	// The action bars' extra hues. colInfo is the coolest color in a warm
 	// green palette, mixed to sit at colOk and colErr's brightness so the bar's
 	// tints read as one set rather than four unrelated colors that happen to be
@@ -242,6 +269,62 @@ var (
 	// styles would have made a picture look like a state.
 	attachStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colCyan))
 
+	// The priority dot, one style per level. Named for the level rather than the
+	// color so the row code reads as triage instead of as painting.
+	//
+	// It gets a column of its own, ahead of the badge, rather than joining
+	// either of the row's existing marks. The badge holds the row's *state* and
+	// there is exactly one of those at a time (see the note above it), while
+	// priority is orthogonal to all four — a critical prompt can also be
+	// scheduled. The descMarks were the other candidate and are worse for the
+	// opposite reason: they follow the name, so they start at a ragged column,
+	// and a triage color that cannot be scanned straight down the list is not
+	// doing the job it was added for.
+	//
+	// Low takes the brown rather than a grey. It is the level that means
+	// "later", not the level that means "ignore me", and the row's greys are
+	// already spoken for by done and frozen; drawing low in one of them would
+	// say the prompt had been dealt with.
+	prioCriticalStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
+	prioStandardStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colTodo))
+	prioLowStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colBrown))
+	// The same dot on a row that is no longer active work. Closed rows are drawn
+	// to recede (see doneStyle), and a red dot on finished work would compete
+	// with the open prompts above it for exactly the attention priority exists
+	// to direct. The glyph stays so the column keeps its alignment; only the
+	// shout comes off.
+	prioClosedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint))
+	// And on a closed row under the cursor, one tier brighter — the same
+	// concession doneSelStyle makes, for the same reason: a tone chosen to
+	// recede recedes further still against the highlight's lifted field.
+	prioClosedSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
+)
+
+// prioGlyph is the priority mark. A filled circle against the open badge's
+// hollow one (○, already the row's open marker), which is what keeps the two
+// adjacent circles from reading as one thing: the priority dot is filled and
+// carries a hue, the state badge is hollow and grey.
+//
+// U+25CF is East Asian Ambiguous, the same width class as the ○ this list has
+// always drawn, so it costs exactly one cell wherever that one does.
+const prioGlyph = "●"
+
+// prioStyleFor is the dot's hue for a priority on an open row. Closed rows do
+// not come through here — they take the receded pair above.
+//
+// An unrecognized value from a hand-edited backlog draws as standard: the level
+// it could not be read as should look ordinary rather than alarming.
+func prioStyleFor(p string) lipgloss.Style {
+	switch p {
+	case priorityCritical:
+		return prioCriticalStyle
+	case priorityLow:
+		return prioLowStyle
+	}
+	return prioStandardStyle
+}
+
+var (
 	// Action-bar buttons. Each chip is rendered by exactly one of these styles —
 	// label and key hint together — because nesting a second style inside a
 	// chip would let the outer reset clobber the inner one (see the badge note

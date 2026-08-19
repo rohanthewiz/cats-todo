@@ -20,6 +20,12 @@ var errTestDrop = errors.New("drop failed")
 func newModelInTemp(t *testing.T) (model, *store, *store) {
 	t.Helper()
 	dir := t.TempDir()
+	// newModel reads the saved preferences, and two of them (priority order,
+	// frozen prompts) decide which rows are drawn at all. Without this the suite
+	// would be answering to whatever the developer running it last toggled — so
+	// the config directory is pointed somewhere empty and every test sees the
+	// documented defaults.
+	t.Setenv(configDirEnvVar, filepath.Join(dir, "config"))
 	project := &store{scope: scopeProject, path: filepath.Join(dir, "project", "todos.json")}
 	global := &store{scope: scopeGlobal, path: filepath.Join(dir, "global", "todos.json")}
 	m := newModel(RunContext{WorkDir: filepath.Join(dir, "project")}, project, global, nil)
@@ -310,9 +316,12 @@ func TestRebuildListSortsDoneToBottom(t *testing.T) {
 	}
 }
 
-// TestHideClosedFoldsCompletedAndFrozen pins ctrl+d's fold: with hideClosed set,
-// done *and* frozen todos leave the rows entirely, and clearing it brings them
-// back.
+// TestHideClosedFoldsCompletedAndFrozen pins ctrl+d's fold: it still takes done
+// *and* frozen todos out of the rows together, and lifting it brings both back.
+//
+// The fold is two flags now that the View panel gives frozen prompts a switch of
+// their own (see toggleClosedFold), so this asserts through the key rather than
+// through the flags — the key is the promise that has to survive the split.
 func TestHideClosedFoldsCompletedAndFrozen(t *testing.T) {
 	m, project, _ := newModelInTemp(t)
 	if err := project.add(Todo{ID: "open", Prompt: "o"}); err != nil {
@@ -325,8 +334,11 @@ func TestHideClosedFoldsCompletedAndFrozen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m.hideClosed = true
-	m.rebuildList()
+	mm, _ := m.toggleClosedFold()
+	m = mm.(model)
+	if !m.hideDone || m.showFrozen {
+		t.Fatalf("ctrl+d left hideDone=%v showFrozen=%v, want the pair folded", m.hideDone, m.showFrozen)
+	}
 	if len(m.rows) != 1 || m.rows[0].id != "open" {
 		t.Errorf("hidden rows = %+v, want only the open todo", m.rows)
 	}
@@ -338,8 +350,11 @@ func TestHideClosedFoldsCompletedAndFrozen(t *testing.T) {
 		t.Errorf("doneCount = %d, want 1 (frozen is not cleared)", m.doneCount())
 	}
 
-	m.hideClosed = false
-	m.rebuildList()
+	mm, _ = m.toggleClosedFold()
+	m = mm.(model)
+	if m.hideDone || !m.showFrozen {
+		t.Fatalf("a second ctrl+d left hideDone=%v showFrozen=%v, want both showing", m.hideDone, m.showFrozen)
+	}
 	if len(m.rows) != 3 {
 		t.Errorf("unhidden rows = %+v, want all three todos back", m.rows)
 	}

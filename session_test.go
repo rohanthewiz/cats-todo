@@ -414,10 +414,13 @@ func stepSession(t *testing.T, m model, key string) model {
 // cycle it, and find the record changed.
 func TestSessionPanelCycles(t *testing.T) {
 	m, _ := openSessionPanel(t)
-	if m.sessCursor != sessRowModel {
-		t.Fatalf("the panel opened on row %d, want the first", m.sessCursor)
+	// Priority leads the panel — the one row here that describes the prompt
+	// rather than the session that will read it.
+	if m.sessCursor != sessRowPriority {
+		t.Fatalf("the panel opened on row %d, want Priority (%d) first", m.sessCursor, sessRowPriority)
 	}
 
+	m = stepSession(t, m, "down")
 	m = stepSession(t, m, "right")
 	if m.formSession.Model != sessModelValues[1] {
 		t.Errorf("right on the model row = %q, want %q", m.formSession.Model, sessModelValues[1])
@@ -537,6 +540,7 @@ func TestSessionPanelEscRestoresFocus(t *testing.T) {
 // key at all.
 func TestSessionSavedWithTodo(t *testing.T) {
 	m, project := openSessionPanel(t)
+	m = stepSession(t, m, "down")  // past Priority, which leads the panel
 	m = stepSession(t, m, "right") // model → the first alias
 	m = stepSession(t, m, "down")
 	m = stepSession(t, m, "right") // effort → low

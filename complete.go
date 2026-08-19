@@ -58,6 +58,7 @@ var addCompletions = []completion{
 	{"--global", "add to the global backlog instead of this project's"},
 	{"--title", "short title (derived from the prompt's first line when blank)"},
 	{"--image", "attach an image file (repeatable); copied into the backlog"},
+	{"--priority", "how much it matters: critical|standard|low"},
 	// The session options (see session.go). They are offered here rather than
 	// left to the manual for the reason the flags exist at all: the whole point
 	// of recording them on the prompt is not having to remember the setup, and a
@@ -74,10 +75,21 @@ var addCompletions = []completion{
 	{"--release", "cut a release once the work is done"},
 }
 
-// The values the enum-valued session flags accept, keyed by flag. A flag that
-// takes one of a closed set is the case a completion menu earns its keep on —
-// these are exactly the spellings normalize* will accept without folding.
+// The values the enum-valued flags accept, keyed by flag. A flag that takes one
+// of a closed set is the case a completion menu earns its keep on — these are
+// exactly the spellings normalize* will accept without folding.
+//
+// Named for the session options it started as, and now one flag wider than
+// that: --priority is not a session option (it is a fact about the prompt, not
+// about the agent that will read it) but it is the same kind of flag, and a
+// second map holding one entry would be worse than a name that overstates by
+// one.
 var sessionValueCompletions = map[string][]completion{
+	"--priority": {
+		{"critical", "do this first"},
+		{"standard", "the default"},
+		{"low", "whenever"},
+	},
 	"--model": {
 		{"opus", "the most capable model"},
 		{"sonnet", "the balanced default"},

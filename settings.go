@@ -26,17 +26,35 @@ type settings struct {
 	// on prose that the people who want it off are the ones with a reason
 	// (another language, mostly code) and a chord to say so.
 	spellcheck bool
+	// orderByPriority is whether the list is sorted by priority rather than
+	// shown in the backlog's own order (see rebuildList). Off by default: the
+	// order in the file is the one the user set by hand, and a manager that
+	// opened having quietly rearranged it would be answering a question nobody
+	// asked. It persists because it is a way of working rather than a glance —
+	// someone who triages by priority does it every session.
+	orderByPriority bool
+	// showFrozen is whether "will not do" prompts are drawn at all. On by
+	// default, which is what the list has always done. Its own preference
+	// rather than a half of the ctrl+d fold because the two are different
+	// questions: hiding what is finished tidies the pile, while hiding what was
+	// declined is a standing decision about whether that record is worth the
+	// rows.
+	showFrozen bool
 }
 
 // defaultSettings is what a missing or empty file means.
-func defaultSettings() settings { return settings{spellcheck: true} }
+func defaultSettings() settings {
+	return settings{spellcheck: true, orderByPriority: false, showFrozen: true}
+}
 
 // settingsFile is the on-disk shape. Pointers, so that "not mentioned" and
 // "set to the default" are different things when reading — a bool alone would
 // read a missing key as false, and every default-true preference would need
 // its sense inverted to survive that.
 type settingsFile struct {
-	Spellcheck *bool `json:"spellcheck,omitempty"`
+	Spellcheck      *bool `json:"spellcheck,omitempty"`
+	OrderByPriority *bool `json:"orderByPriority,omitempty"`
+	ShowFrozen      *bool `json:"showFrozen,omitempty"`
 }
 
 // settingsPath is where the file lives, or "" when the config directory
@@ -72,6 +90,12 @@ func loadSettings() settings {
 	if f.Spellcheck != nil {
 		s.spellcheck = *f.Spellcheck
 	}
+	if f.OrderByPriority != nil {
+		s.orderByPriority = *f.OrderByPriority
+	}
+	if f.ShowFrozen != nil {
+		s.showFrozen = *f.ShowFrozen
+	}
 	return s
 }
 
@@ -87,7 +111,11 @@ func (s settings) save() error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f := settingsFile{Spellcheck: &s.spellcheck}
+	f := settingsFile{
+		Spellcheck:      &s.spellcheck,
+		OrderByPriority: &s.orderByPriority,
+		ShowFrozen:      &s.showFrozen,
+	}
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err

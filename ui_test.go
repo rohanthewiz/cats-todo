@@ -1023,7 +1023,7 @@ func TestHeaderLineFits(t *testing.T) {
 			m.project.todos = append(m.project.todos,
 				Todo{ID: "d1", Title: "done", Done: true},
 				Todo{ID: "f1", Title: "frozen", Frozen: true})
-			m.hideClosed = true
+			m.hideDone, m.showFrozen = true, false
 			m.rebuildList()
 		}},
 	}

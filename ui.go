@@ -36,6 +36,12 @@ const (
 	stageFiles                   // browse the file system for an @mention in the prompt, or a folder to export to
 	stageExport                  // pick another project's backlog to copy / move the chosen prompt into
 	stageSpell                   // correct, or accept, the misspelled word nearest the prompt's caret
+	// stageViewOpts is the list's View panel: how the list is drawn, as against
+	// stageView above, which is one prompt's text. The names are close because
+	// the words are; stageView is the older of the two and renaming it to
+	// stagePrompt (which is what its renderer is already called) would be tidier
+	// but is a separate change.
+	stageViewOpts
 )
 
 // confirmKind distinguishes what the confirm stage is about to do.
@@ -177,11 +183,31 @@ type model struct {
 	// List stage.
 	list fuzzyList
 	rows []todoRef // selectable row index -> todo
-	// hideClosed folds everything that is no longer active work — done and
-	// frozen alike — out of the list. One fold rather than two because the
-	// question it answers is "show me what is left to do", and a prompt the user
-	// has decided against is no more left to do than a finished one.
-	hideClosed bool
+	// hideDone folds completed prompts out of the list, and showFrozen says
+	// whether the "will not do" ones are drawn at all.
+	//
+	// These were one flag (hideClosed) until the View panel gave frozen prompts
+	// a switch of their own, because the two turn out to be different questions.
+	// "Hide what is finished" is a tidy-up, reached for when the done pile is in
+	// the way and reset by the next launch. "Show frozen at all" is a standing
+	// decision about whether the record of what was declined is worth its rows,
+	// which is why only that one is a saved preference (see settings.go).
+	//
+	// ctrl+d still moves both together, so the one key that has always meant
+	// "show me what is left to do" still means exactly that — the panel is the
+	// fine control, not a replacement for it.
+	hideDone bool
+	// orderByPriority is the View panel's other toggle: the list is drawn
+	// critical-first inside each group rather than in the order the file holds.
+	// A lens over the backlog and never a rewrite of it — see rebuildList.
+	orderByPriority bool
+	showFrozen      bool
+	// The View panel's cursor, and its one line of feedback — which is only
+	// ever a settings write that failed. The toggle itself always takes; it is
+	// the memory of it that can be lost, and that split is worth saying out
+	// loud rather than swallowing (the same report toggleSpell makes).
+	viewOptsCursor int
+	viewOptsNote   string
 	// Action bar. actionFocus says whether tab has walked the focus out of the
 	// query box and onto a button; actionIdx is which one. Focus is a bool
 	// rather than a -1 sentinel in actionIdx so the zero-value model starts
@@ -292,7 +318,17 @@ type model struct {
 	// beginEditRef, written back by saveForm. It is held by value rather than as
 	// a pointer so that cancelling the form cannot have touched the stored one.
 	formSession SessionOpts
-	sessCursor  int
+	// formPriority is the prompt's priority while the form holds it. A field of
+	// its own rather than a member of formSession, because it is not a session
+	// option: it says how much the prompt matters, not how the agent that reads
+	// it will be set up, and it is stored on the Todo rather than in its Session
+	// record. It shares the panel with them (see sessRowPriority) and nothing
+	// else.
+	//
+	// Held by value for the same reason formSession is copied: an abandoned form
+	// must leave the stored priority exactly as it was.
+	formPriority string
+	sessCursor   int
 	// sessInput is the box the two free-text rows share: the context argument
 	// on one, the file being added on the other. One input rather than two
 	// because only ever one row holds the keys, and the value is committed to
@@ -370,7 +406,13 @@ func (m model) modEnter() string {
 // newModel builds the initial manager state showing the todo list.
 func newModel(ctx RunContext, project, global *store, client *catsClient) model {
 	m := model{ctx: ctx, project: project, global: global, client: client, stage: stageList}
-	m.spellOn = loadSettings().spellcheck
+	// Preferences before the list is built, not after: rebuildList reads both
+	// of the View panel's toggles, so a load that came second would draw one
+	// list from the defaults and only pick up the saved view on the next
+	// keystroke that happened to rebuild.
+	pref := loadSettings()
+	m.spellOn = pref.spellcheck
+	m.orderByPriority, m.showFrozen = pref.orderByPriority, pref.showFrozen
 	m.list = newFuzzyList("Type to filter prompts…", nil)
 	m.rebuildList()
 	return m
@@ -482,6 +524,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateExport(msg)
 		case stageSpell:
 			return m.updateSpell(msg)
+		case stageViewOpts:
+			return m.updateViewOpts(msg)
 		}
 	}
 	return m.forward(msg)
@@ -598,17 +642,12 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.toggleSelected()
 	case "ctrl+f":
 		return m.freezeSelected()
+	case "ctrl+l":
+		return m.beginViewOpts()
 	case "ctrl+v":
 		return m.beginView()
 	case "ctrl+d":
-		m.hideClosed = !m.hideClosed
-		m.rebuildList()
-		if m.hideClosed {
-			m.setStatus("hiding completed and frozen prompts", false)
-		} else {
-			m.setStatus("showing completed and frozen prompts", false)
-		}
-		return m, nil
+		return m.toggleClosedFold()
 	case "ctrl+s":
 		return m.beginSchedule()
 	case "ctrl+w":
@@ -670,6 +709,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.clickExport(msg)
 	case stageSpell:
 		return m.clickSpell(msg)
+	case stageViewOpts:
+		return m.clickViewOpts(msg)
 	}
 	return m, nil
 }
@@ -730,8 +771,32 @@ func (m model) clickRow(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // there" has no meaning against that — the position the user pointed at is not a
 // position the file has — so a drag under a filter is refused in words rather
 // than guessing at an array slot.
+// Priority order is the same problem arriving from the other direction: the
+// rows are in an order the file does not have, so the slot the pointer names is
+// again not a slot the array holds.
 func (m model) canReorder() bool {
-	return strings.TrimSpace(m.list.input.Value()) == ""
+	return strings.TrimSpace(m.list.input.Value()) == "" && m.orderIsBacklogOrder()
+}
+
+// orderIsBacklogOrder reports whether the rows are in the file's own order
+// rather than under the priority lens.
+//
+// Split out from canReorder because the two reorder paths are not in the same
+// position. A drag names a destination row, so it needs the whole of
+// canReorder — under a filter the row above another on screen may be anywhere
+// in the backlog. ctrl+↑/↓ names a direction and store.move walks the array,
+// which stays coherent under a filter and always has; it is only the priority
+// lens that breaks it, by putting the rows in an order the array does not hold.
+func (m model) orderIsBacklogOrder() bool { return !m.orderByPriority }
+
+// reorderRefusal names which of the two orders is in the way. On screen they
+// look identical — rows in an order the file does not have — and what to do
+// about them is different, so the words have to tell them apart.
+func (m model) reorderRefusal() string {
+	if !m.orderIsBacklogOrder() {
+		return "turn priority order off (ctrl+l) to reorder — the list is in priority order, not backlog order"
+	}
+	return "clear the filter to reorder — a filtered list is in match order, not backlog order"
 }
 
 // dragOver is the pointer moving with the button still down: the held prompt is
@@ -769,7 +834,7 @@ func (m model) dragOver(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		return m, nil // still on the row it is already occupying: nothing to do
 	}
 	if !m.canReorder() {
-		m.setStatus("clear the filter to reorder — a filtered list is in match order, not backlog order", true)
+		m.setStatus(m.reorderRefusal(), true)
 		return m, nil
 	}
 	if over.scope != m.drag.scope {
@@ -1442,7 +1507,7 @@ func (m *model) rebuildList() {
 	visible := func(s *store) int {
 		n := 0
 		for _, t := range s.todos {
-			if !t.closed() || !m.hideClosed {
+			if !m.folded(t) {
 				n++
 			}
 		}
@@ -1466,6 +1531,18 @@ func (m *model) rebuildList() {
 			// put the highlighted row's field behind the badge, which it cannot
 			// do to text that is already rendered. The open marker names its own
 			// dimming rather than inheriting any.
+			// The priority dot, in its own column ahead of the badge. Every
+			// row carries one — standard is a level, not an absence, and a
+			// column with holes in it cannot be read down.
+			//
+			// A closed row's dot drops to the greys the rest of that row is
+			// drawn in: priority is about what to do next, and finished work
+			// arguing for attention is exactly what the done tier exists to
+			// prevent. The glyph stays either way so the column stays straight.
+			prioStyle, prioSelStyle := prioStyleFor(t.Priority), prioStyleFor(t.Priority)
+			if t.closed() {
+				prioStyle, prioSelStyle = prioClosedStyle, prioClosedSelStyle
+			}
 			badge, badgeStyle := "○", descStyle
 			switch {
 			case t.Done:
@@ -1523,9 +1600,12 @@ func (m *model) rebuildList() {
 				tag = "global"
 			}
 			items = append(items, listItem{
-				name:      name,
-				desc:      desc,
-				descMarks: marks,
+				name:         name,
+				desc:         desc,
+				descMarks:    marks,
+				prio:         prioGlyph,
+				prioStyle:    prioStyle,
+				prioSelStyle: prioSelStyle,
 				// Match against the whole prompt (flattened to one line), not
 				// just the rendered first-line preview, so a filter can hit
 				// text buried deep in a multi-line prompt.
@@ -1548,13 +1628,44 @@ func (m *model) rebuildList() {
 		// file: the array stays the user's priority order, so a thaw puts a
 		// prompt back exactly where it was rather than at the end of the queue.
 		for _, g := range []int{groupOpen, groupFrozen, groupDone} {
-			if g != groupOpen && m.hideClosed {
-				return
+			if g == groupFrozen && !m.showFrozen {
+				continue
 			}
+			if g == groupDone && m.hideDone {
+				continue
+			}
+			// The group is collected before it is drawn so the priority lens
+			// has something to sort. With the lens off this is the same walk
+			// the three passes always did, one slice longer.
+			var grp []Todo
 			for _, t := range s.todos {
 				if t.group() == g {
-					appendTodo(t)
+					grp = append(grp, t)
 				}
+			}
+			// Sorted inside the pass — one backlog, one group — and never
+			// across them. A sort over the whole list would file a finished
+			// critical prompt above open work and a critical global prompt
+			// above the project's; the groups and the two backlogs are the
+			// frame the user reads, and priority orders what sits inside that
+			// frame rather than the frame itself.
+			//
+			// Stable, so prompts of equal priority keep the hand-set order
+			// among themselves: the lens is meant to lift the urgent ones, not
+			// to shuffle everything that is not.
+			//
+			// It sorts a copy. The store's array is the order the user dragged
+			// the backlog into and the only record of it — sorting in place
+			// would mean turning the lens off had nothing to restore, and would
+			// write one pane's view preference into a file the other panes
+			// share.
+			if m.orderByPriority {
+				sort.SliceStable(grp, func(i, j int) bool {
+					return priorityRank(grp[i].Priority) < priorityRank(grp[j].Priority)
+				})
+			}
+			for _, t := range grp {
+				appendTodo(t)
 			}
 		}
 	}
@@ -1582,19 +1693,68 @@ func (m *model) rebuildList() {
 	}
 }
 
-// hiddenClosedCount is how many todos the hideClosed fold is holding back —
-// completed and frozen together, since the fold takes both — for the header
-// note.
+// folded reports whether either fold is currently holding this todo out of the
+// list. The two questions are asked in one place so the row count, the header's
+// hidden note and the render loop can never disagree about what is on screen.
+func (m model) folded(t Todo) bool {
+	switch {
+	case t.Done:
+		return m.hideDone
+	case t.Frozen:
+		return !m.showFrozen
+	}
+	return false
+}
+
+// hiddenClosedCount is how many todos the folds are holding back, for the
+// header note. It counts what is actually hidden rather than everything closed,
+// so hiding only one of the two states reports only that one.
 func (m model) hiddenClosedCount() int {
 	n := 0
 	for _, s := range []*store{m.project, m.global} {
 		for _, t := range s.todos {
-			if t.closed() {
+			if m.folded(t) {
 				n++
 			}
 		}
 	}
 	return n
+}
+
+// toggleClosedFold is ctrl+d: one key for "show me what is left to do", which
+// is both folds at once.
+//
+// Mixed state resolves toward showing. With one of the two already hidden the
+// key has to pick a direction, and revealing is the recoverable one — the next
+// press hides both, where guessing the other way could fold away a group the
+// user had just deliberately turned on and leave no sign it had happened.
+// saveViewPrefs writes the View panel's two toggles back to the preferences
+// file. Load-modify-write rather than saving the model's idea of the whole
+// file, so this pane cannot blank a preference another pane — or another
+// version — wrote between launches. Same shape toggleSpell uses.
+func (m model) saveViewPrefs() error {
+	s := loadSettings()
+	s.orderByPriority, s.showFrozen = m.orderByPriority, m.showFrozen
+	return s.save()
+}
+
+func (m model) toggleClosedFold() (tea.Model, tea.Cmd) {
+	hiding := !(m.hideDone || !m.showFrozen)
+	m.hideDone, m.showFrozen = hiding, !hiding
+	m.rebuildList()
+	// showFrozen is a saved preference, so this key writes it like the panel
+	// does. A failure is worth a word but not the fold: the view has already
+	// changed, and only its memory is lost.
+	if err := m.saveViewPrefs(); err != nil {
+		m.setStatus("view preference not saved: "+err.Error(), true)
+		return m, nil
+	}
+	if hiding {
+		m.setStatus("hiding completed and frozen prompts", false)
+	} else {
+		m.setStatus("showing completed and frozen prompts", false)
+	}
+	return m, nil
 }
 
 // doneCount is how many completed todos sit across both backlogs — what ctrl+w
@@ -1618,6 +1778,15 @@ func (m model) doneCount() int {
 func (m model) moveSelected(delta int) (tea.Model, tea.Cmd) {
 	ref, ok := m.selectedRef()
 	if !ok {
+		return m, nil
+	}
+	// Only the priority lens is checked, not the whole of canReorder: this
+	// chord has always worked under a filter, because store.move steps through
+	// the array rather than through what is on screen, and taking that away
+	// would be a change nobody asked for. Under the lens it genuinely cannot
+	// work — the array would shuffle beneath a list showing something else.
+	if !m.orderIsBacklogOrder() {
+		m.setStatus(m.reorderRefusal(), true)
 		return m, nil
 	}
 	if err := m.storeFor(ref.scope).move(ref.id, delta); err != nil {
@@ -1666,6 +1835,7 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	// A new prompt starts on the defaults — the zero SessionOpts is exactly the
 	// behaviour a drop had before options existed.
 	m.formSession = SessionOpts{}
+	m.formPriority = priorityStandard
 	m.discardClipboardCaptures()
 	// Start in the prompt — that's the point of an entry.
 	cmd := m.focusForm(formFieldPrompt)
@@ -1707,6 +1877,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	if td.Session != nil {
 		m.formSession = td.Session.clone()
 	}
+	m.formPriority = td.Priority
 	m.discardClipboardCaptures()
 	cmd := m.focusForm(formFieldPrompt)
 	m.formErr, m.formNote = "", ""
@@ -2213,7 +2384,16 @@ func (m model) droppedRels() []string {
 // what it does, how it ends. The cursor is an index into this set, so the
 // numbering is the layout and nothing else; it is not stored anywhere.
 const (
-	sessRowModel      = iota // --model
+	// Priority leads, and is the one row here that is not a launch flag. It
+	// describes the prompt — how much it matters — where every row below it
+	// describes the session that will read it.
+	//
+	// It shares this panel anyway because this is where a prompt's per-todo
+	// settings are edited, and a second panel holding one row would be a worse
+	// answer than a first row that says what it is. The note column carries the
+	// distinction.
+	sessRowPriority   = iota // how much this prompt matters
+	sessRowModel             // --model
 	sessRowEffort            // --effort
 	sessRowPermission        // --permission-mode
 	sessRowClear             // /clear an existing pane first
@@ -2414,6 +2594,9 @@ func (m model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *model) cycleSessRow(delta int) {
 	o := &m.formSession
 	switch m.sessCursor {
+	case sessRowPriority:
+		// Not on o: the priority is the Todo's, not the session record's.
+		m.formPriority = cycleValue(prioValues, m.formPriority, delta)
 	case sessRowModel:
 		o.Model = cycleValue(sessModelValues, o.Model, delta)
 	case sessRowEffort:
@@ -2488,11 +2671,24 @@ func (m model) removeSessFile() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// sessionNote is the form's ⚙ line: what the options say, or that there are
-// none. Always something rather than nothing, for the reason the 📎 line is
-// always drawn — a panel nobody knows about is a panel nobody uses.
+// sessionNote is the form's ⚙ line: what the panel behind it holds, or that it
+// holds nothing but defaults. Always something rather than nothing, for the
+// reason the 📎 line is always drawn — a panel nobody knows about is a panel
+// nobody uses.
+//
+// The priority leads it when it is not standard. The dot on the list is where a
+// priority is normally read, and the form is the one screen that does not show
+// that dot — so without this, the level a prompt was given would be invisible
+// on the very screen that sets it unless the panel were opened to look.
+//
+// Standard says nothing, the same silence the CLI's echo keeps: the ⚙ line has
+// one job, which is to say what is not ordinary about this prompt.
 func (m model) sessionNote() string {
-	return firstNonEmpty(m.formSession.summary(), "default session")
+	note := firstNonEmpty(m.formSession.summary(), "default session")
+	if m.formPriority != priorityStandard {
+		note = priorityLabel(m.formPriority) + " · " + note
+	}
+	return note
 }
 
 // imageCountNote describes the form's attachment list for a heading or status
@@ -2596,7 +2792,10 @@ func (m model) persistForm() (model, todoRef, bool) {
 			// nil when nothing was set, so a prompt taking the defaults writes
 			// no "session" key at all (see sessionPtr).
 			Session: sessionPtr(m.formSession),
-			Created: time.Now(),
+			// Standard is the empty string, so an ordinary prompt still writes
+			// no "priority" key at all (see Todo.Priority).
+			Priority: m.formPriority,
+			Created:  time.Now(),
 		}); err != nil {
 			// The copies are on disk but no todo will ever reference them.
 			st.removeImages(id)
@@ -2630,6 +2829,13 @@ func (m model) persistForm() (model, todoRef, bool) {
 		// attachments are already saved, so failing loudly and leaving them is
 		// more honest than un-attaching files the todo now references.
 		if err := st.setSession(m.editID, sessionPtr(m.formSession)); err != nil {
+			m.formErr = "save failed: " + err.Error()
+			return m, todoRef{}, false
+		}
+		// And its own write again, for the same reason: the priority lives on
+		// the Todo rather than in its session record, and update() would not
+		// have carried it.
+		if err := st.setPriority(m.editID, m.formPriority); err != nil {
 			m.formErr = "save failed: " + err.Error()
 			return m, todoRef{}, false
 		}
@@ -3432,7 +3638,7 @@ func (m model) View() tea.View {
 	// Cell motion is also exactly the mode a drag needs: it reports motion only
 	// while a button is held, so the manager hears the gesture without paying for
 	// a message on every idle sweep of the pointer across the pane.
-	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageExport || m.stage == stageSpell {
+	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageExport || m.stage == stageSpell || m.stage == stageViewOpts {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -3464,6 +3670,8 @@ func (m model) renderStage() string {
 		return m.viewExport()
 	case stageSpell:
 		return m.viewSpell()
+	case stageViewOpts:
+		return m.viewViewOpts()
 	default:
 		return m.viewList()
 	}
@@ -3712,9 +3920,6 @@ func (m model) scopeNote(room int) string {
 // "hidden" rather than "done hidden" now that the fold takes frozen prompts too:
 // naming one of the two states would misreport the other half of the number.
 func (m model) hiddenNote() string {
-	if !m.hideClosed {
-		return ""
-	}
 	if n := m.hiddenClosedCount(); n > 0 {
 		return fmt.Sprintf(" · %d hidden", n)
 	}
@@ -3793,15 +3998,22 @@ func (m model) listFooter() string {
 		// double-click is a guess worth confirming, not one worth making blind.
 		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+o export · ctrl+x delete") +
 			"\n" +
-			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · ctrl+d hide/show closed · ctrl+w clear done · esc quit")
+			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
 	}
 	// Freeze rides directly after done: the two are the ways a prompt leaves the
 	// open list, and reading them side by side is what teaches that they are
 	// different claims. It also puts the pair ahead of the concessions the loop
 	// below makes from the right, so a narrow pane keeps them.
+	// Priority rides directly after freeze for the same reason freeze rides
+	// after done: all three are per-row marks, and the chords that set them are
+	// learned together. The View panel follows the fold it generalizes.
+	//
+	// "view options" spelled out, never shortened to "view": ctrl+v is two
+	// segments to the left and means read this prompt's text. Two chords sharing
+	// a word on one line is how a reader learns the wrong one.
 	segs := []string{
-		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze", "ctrl+↑/↓ or drag move",
-		"ctrl+d hide closed", "ctrl+w clear done", "esc quit",
+		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze",
+		"ctrl+↑/↓ or drag move", "ctrl+d hide closed", "ctrl+l view options", "ctrl+w clear done", "esc quit",
 	}
 	line := strings.Join(segs, " · ")
 	// Concede from the right rather than wrap: the footer sits below the mouse
@@ -4333,6 +4545,11 @@ func (m model) viewImages() string {
 func (m model) sessValueLabel(row int) string {
 	o := m.formSession
 	switch row {
+	case sessRowPriority:
+		// Named rather than left blank at standard, unlike the launch flags
+		// below, whose blank means "we do not pass this and claude picks". A
+		// prompt always has a priority; standard is a level, not an absence.
+		return priorityLabel(m.formPriority)
 	case sessRowModel:
 		return firstNonEmpty(o.Model, "default")
 	case sessRowEffort:
@@ -4389,6 +4606,7 @@ func yesNo(b bool) string {
 // The note is what the option actually does — a panel of bare enum names would
 // make the user open the README to find out what "dontAsk" costs them.
 var sessRowLabels = [sessRowCount]struct{ label, note string }{
+	sessRowPriority:   {"Priority", "how much this prompt matters — the coloured dot on its row"},
 	sessRowModel:      {"Model", "--model, on a new claude session"},
 	sessRowEffort:     {"Effort", "--effort, on a new claude session"},
 	sessRowPermission: {"Permission", "--permission-mode, on a new claude session"},
@@ -4702,4 +4920,191 @@ func baseName(p string) string {
 		return ""
 	}
 	return b
+}
+
+// --- The View panel ---------------------------------------------------------
+//
+// Two switches about how the list is drawn, as against every other panel on the
+// list stage, which is about one prompt. That is also why it is not on the
+// action bar: every chip there acts on the highlighted row, and a panel that
+// needs no row would be the one entry whose greying-out rule differed.
+
+// The panel's rows, in the order they are drawn. The cursor is an index into
+// this set, so the numbering is the layout and nothing else.
+const (
+	viewRowPriority   = iota // draw the list critical-first instead of by hand
+	viewRowShowFrozen        // draw the ❄ prompts at all
+	viewRowCount
+)
+
+// viewOptsRowsRow is the first line the panel's rows are drawn on: the title
+// line, then a blank. Pinned by a test, because the hit test cannot re-measure
+// the frame — anything gaining a line above the rows would aim every click one
+// row off. The same contract listRowsRow and exportRowsRow carry.
+const viewOptsRowsRow = 2
+
+// The panel's labels and the note each row carries, in row order — the shape
+// sessRowLabels uses, and for the same reason: a column of bare switches makes
+// the user guess what flipping one costs them.
+var viewRowLabels = [viewRowCount]struct{ label, note string }{
+	viewRowPriority:   {"Priority order", "critical first inside each group — dragging and ctrl+↑/↓ are off while it is on"},
+	viewRowShowFrozen: {"Frozen prompts", "the ❄ rows — work decided against, kept on the record"},
+}
+
+// beginViewOpts opens the panel. Unlike every other panel reachable from the
+// list it needs no highlighted prompt, because it is about the list itself.
+func (m model) beginViewOpts() (tea.Model, tea.Cmd) {
+	m.viewOptsCursor = 0
+	m.viewOptsNote = ""
+	m.stage = stageViewOpts
+	return m, nil
+}
+
+func (m model) updateViewOpts(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+	case "esc", "enter":
+		// Both close, and neither means anything different. Every switch here
+		// has already taken and already been written, so there is nothing for
+		// enter to confirm and nothing for esc to undo — which is the honest
+		// shape for live preferences, as against the form, where esc means
+		// "throw this away".
+		m.backToList()
+		return m, nil
+	case "up", "ctrl+p", "shift+tab":
+		m.viewOptsCursor = (m.viewOptsCursor - 1 + viewRowCount) % viewRowCount
+		return m, nil
+	case "down", "ctrl+n", "tab":
+		m.viewOptsCursor = (m.viewOptsCursor + 1) % viewRowCount
+		return m, nil
+	case "left", "right", " ", "space":
+		return m.toggleViewOptsRow(m.viewOptsCursor)
+	}
+	return m, nil
+}
+
+// toggleViewOptsRow flips one switch, redraws the list under the panel, and
+// writes the choice.
+//
+// Written now rather than when the panel closes, for the reason toggleSpell
+// writes immediately: a preference that only sticks if you leave by the
+// approved door is a preference that silently does not stick.
+//
+// The highlight is captured and re-parked around the rebuild because flipping
+// priority order resorts every group — without it the cursor would keep its
+// index and so end up on a different prompt than the one it was left on.
+func (m model) toggleViewOptsRow(row int) (tea.Model, tea.Cmd) {
+	switch row {
+	case viewRowPriority:
+		m.orderByPriority = !m.orderByPriority
+	case viewRowShowFrozen:
+		m.showFrozen = !m.showFrozen
+	default:
+		return m, nil
+	}
+	ref, had := m.selectedRef()
+	m.rebuildList()
+	if had {
+		m.selectRow(ref)
+	}
+	m.viewOptsNote = ""
+	if err := m.saveViewPrefs(); err != nil {
+		// The switch took for this run; only its memory failed. Said rather
+		// than swallowed, because a panel reading "on" beside a file that still
+		// says off is the wrong thing to be trusted.
+		m.viewOptsNote = "not saved: " + err.Error()
+	}
+	return m, nil
+}
+
+// clickViewOpts flips the switch under the pointer, moving the cursor there
+// first — the rule every other click in this program follows, so the pointer
+// and the keyboard never act from two different places.
+func (m model) clickViewOpts(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	row := msg.Y - viewOptsRowsRow
+	if row < 0 || row >= viewRowCount {
+		return m, nil
+	}
+	m.viewOptsCursor = row
+	return m.toggleViewOptsRow(row)
+}
+
+// viewOptsOn reads one row's state.
+func (m model) viewOptsOn(row int) bool {
+	if row == viewRowShowFrozen {
+		return m.showFrozen
+	}
+	return m.orderByPriority
+}
+
+// viewOptsValue is the value column. "on"/"off" rather than the session
+// panel's "yes"/"no": those rows answer questions ("clear first?" — yes), and
+// these are switches, and a switch says on.
+func (m model) viewOptsValue(row int) string {
+	if m.viewOptsOn(row) {
+		return "on"
+	}
+	return "off"
+}
+
+func (m model) viewViewOpts() string {
+	var b strings.Builder
+	heading := titleStyle.Render("View")
+	b.WriteString(heading)
+	b.WriteString("  ")
+	b.WriteString(descStyle.Render(m.fitToPane("how this list is drawn — kept between launches", lipgloss.Width(heading)+2)))
+	b.WriteString("\n\n")
+
+	const labelWidth = 16
+	for row := range viewRowCount {
+		// Built a row at a time so the note can be measured against what is
+		// already on the line and dropped rather than wrapped: these rows are a
+		// table, and one row wrapping puts every row below it a line off from
+		// where the click hit test expects it.
+		var line strings.Builder
+		if row == m.viewOptsCursor {
+			line.WriteString(cursorStyle.Render(cursorGlyph))
+		} else {
+			line.WriteString("  ")
+		}
+		line.WriteString(nameStyle.Render(fmt.Sprintf("%-*s", labelWidth, viewRowLabels[row].label)))
+
+		valueStyle := nameStyle
+		if row == m.viewOptsCursor {
+			valueStyle = nameSelStyle
+		}
+		line.WriteString(valueStyle.Render(fmt.Sprintf("%-5s", m.viewOptsValue(row))))
+
+		// The frozen row keeps its switch while the ctrl+d fold is on — it is a
+		// preference that takes effect when the fold lifts, and a row disabled
+		// for a reason it cannot show would be the panel lying about what it
+		// stores. The note is what changes instead.
+		note := viewRowLabels[row].note
+		if row == viewRowShowFrozen && m.hideDone && !m.showFrozen {
+			note = "the ctrl+d fold is hiding these and the completed ones"
+		}
+		if note != "" {
+			line.WriteString(descStyle.Render(m.fitToPane(note, indentWidth+labelWidth+5)))
+		}
+		b.WriteString(line.String())
+		b.WriteString("\n")
+	}
+
+	if m.viewOptsNote != "" {
+		b.WriteString("\n")
+		b.WriteString(m.wrapToPane(errStyle, "• "+m.viewOptsNote))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+		"↑/↓ row", "←/→ or space toggle", "enter/esc back to the list",
+	})))
+	b.WriteString("\n")
+	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+		"a prompt's own priority is set in its editor (ctrl+r)", "both switches are remembered between launches",
+	})))
+	return b.String()
 }
