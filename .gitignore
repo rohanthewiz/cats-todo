@@ -1,5 +1,10 @@
 bin/
-.claude/
+.claude/*
+# …except the project skills, which are documentation for working on this repo
+# and should travel with a clone. `.claude/*` (not `.claude/`) is what makes the
+# negation possible: git cannot re-include anything under an ignored directory,
+# only under an ignored glob. settings.local.json and the rest stay ignored.
+!.claude/skills/
 
 # This repo's own prompt backlog, written by the tool it builds. A project
 # backlog is committed with the repo in a normal project (see README); here it
