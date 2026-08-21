@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -223,6 +225,7 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) er
 	// nothing for a non-claude agent (see its comment), which is what keeps this
 	// one line right for every row in the picker.
 	argv := append(strings.Fields(command), act.todo.Session.launchArgs(command)...)
+	argv[0] = resolveAgentPath(argv[0])
 	_, pane, err := client.tabCreate(cwd, label, argv)
 	if err != nil {
 		return err
@@ -233,6 +236,35 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) er
 	// start typing early.
 	time.Sleep(newSessionSettle)
 	return client.sendInput(pane, prompt, act.mode == dropRun)
+}
+
+// resolveAgentPath turns an agent's name into the absolute path of the binary,
+// when this process can find one.
+//
+// The manager runs inside a pane, so its PATH is the user's — the login shell
+// built it. cathost, which is what actually exec's the argv, may not be in that
+// position at all: a GUI-launched Cats.app inherits launchd's bare
+// /usr/bin:/bin:/usr/sbin:/sbin, and Go resolves a bare program name against
+// the *spawning process's* PATH, never against the environment prepared for the
+// child. An agent installed under ~/.local/bin (or a version manager's shim
+// directory) is then unreachable, cathost degrades the pane to a plain shell,
+// and the drop types a whole prompt at a shell prompt — which, in run mode,
+// the shell then tries to execute.
+//
+// Sending the path we resolved here removes the daemon's PATH from the
+// question. It is best effort in both directions: an unresolvable name is sent
+// through unchanged (the daemon may well have a PATH we do not, and its own
+// error message is the better one), and a name that is already a path is left
+// alone. Newer cats daemons resolve this themselves; passing an absolute path
+// is what makes a drop work against the ones that do not.
+func resolveAgentPath(name string) string {
+	if name == "" || strings.ContainsRune(name, os.PathSeparator) {
+		return name
+	}
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	return name
 }
 
 // dropWorktree cuts the checkout a worktree drop lands in and returns its path.

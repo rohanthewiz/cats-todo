@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -50,4 +52,30 @@ func TestComposePrompt(t *testing.T) {
 			t.Errorf("composePrompt = %q, want no @ prefix on paths", got)
 		}
 	})
+}
+
+// A bare agent name is sent to cats as an absolute path when this process can
+// resolve one, because the daemon that exec's it may be holding launchd's bare
+// PATH (see resolveAgentPath). Anything already a path, or unresolvable, goes
+// over untouched.
+func TestResolveAgentPath(t *testing.T) {
+	dir := t.TempDir()
+	prog := filepath.Join(dir, "cats-todo-fake-agent")
+	if err := os.WriteFile(prog, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	if got := resolveAgentPath("cats-todo-fake-agent"); got != prog {
+		t.Fatalf("resolveAgentPath(name) = %q, want %q", got, prog)
+	}
+	if got := resolveAgentPath("/opt/agents/claude"); got != "/opt/agents/claude" {
+		t.Fatalf("resolveAgentPath(path) = %q, want it unchanged", got)
+	}
+	if got := resolveAgentPath("no-such-agent-anywhere"); got != "no-such-agent-anywhere" {
+		t.Fatalf("resolveAgentPath(unknown) = %q, want it unchanged", got)
+	}
+	if got := resolveAgentPath(""); got != "" {
+		t.Fatalf("resolveAgentPath(\"\") = %q, want \"\"", got)
+	}
 }
