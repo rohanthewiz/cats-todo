@@ -12,3 +12,8 @@ bin/
 # directory, not just todos.json: attachments land in .cats-todo/images, and
 # ignoring only the manifest left the screenshots showing up as untracked.
 .cats-todo/
+
+# The compiled manager, when it is built in place rather than into bin/. `go
+# build` with no -o drops it here named after the module, and a stray 10 MB
+# binary showing up as untracked is noise on every status.
+/cats-todo

@@ -928,28 +928,15 @@ func TestListModifierEnterDrops(t *testing.T) {
 	}
 }
 
-// TestFormEnterSavesAndChordInsertsNewline pins the form's half of the split:
-// enter commits the prompt, while every chord spelling reaches the textarea's
-// rebound InsertNewline instead of saving. ctrl+j is in that set as the raw
-// line feed that survives terminals which swallow Option.
-func TestFormEnterSavesAndChordInsertsNewline(t *testing.T) {
-	t.Run("enter saves", func(t *testing.T) {
-		m, project, _ := newModelInTemp(t)
-		next, _ := m.beginAdd()
-		m = next.(model)
-		m.promptArea.SetValue("ship it")
-
-		next, _ = m.updateForm(enterKey(0))
-		m = next.(model)
-		if m.stage != stageList {
-			t.Fatalf("enter in the form: stage=%v, want a save back to the list", m.stage)
-		}
-		if len(project.todos) != 1 || project.todos[0].Prompt != "ship it" {
-			t.Errorf("project todos = %+v, want the saved prompt", project.todos)
-		}
-	})
-
+// TestFormEnterInsertsNewlineAndCtrlSSaves pins the form's key split after
+// enter went back to meaning what it means in every other editor. In the prompt
+// field enter — and each chord spelling beside it — reaches the textarea's
+// InsertNewline; ctrl+j is in that set as the raw line feed that survives
+// terminals which swallow Option. Saving is ctrl+s from either field, and enter
+// from the title field, which cannot hold a newline at all.
+func TestFormEnterInsertsNewlineAndCtrlSSaves(t *testing.T) {
 	newline := map[string]tea.KeyPressMsg{
+		"enter":       enterKey(0),
 		"shift+enter": enterKey(tea.ModShift),
 		"alt+enter":   enterKey(tea.ModAlt),
 		"ctrl+j":      {Code: 'j', Mod: tea.ModCtrl},
@@ -970,10 +957,74 @@ func TestFormEnterSavesAndChordInsertsNewline(t *testing.T) {
 				t.Errorf("%s left the prompt as %q, want a newline inserted", name, got)
 			}
 			if len(project.todos) != 0 {
-				t.Errorf("%s saved %d todos, want 0 — the chord must not save", name, len(project.todos))
+				t.Errorf("%s saved %d todos, want 0 — the key must not save", name, len(project.todos))
 			}
 		})
 	}
+
+	t.Run("ctrl+s saves", func(t *testing.T) {
+		m, project, _ := newModelInTemp(t)
+		next, _ := m.beginAdd()
+		m = next.(model)
+		m.promptArea.SetValue("ship it")
+
+		next, _ = m.updateForm(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+		m = next.(model)
+		if m.stage != stageList {
+			t.Fatalf("ctrl+s in the form: stage=%v, want a save back to the list", m.stage)
+		}
+		if len(project.todos) != 1 || project.todos[0].Prompt != "ship it" {
+			t.Errorf("project todos = %+v, want the saved prompt", project.todos)
+		}
+	})
+
+	// Cmd+S, when a terminal is willing to report it. tea.ModSuper is the bit a
+	// kitty-protocol terminal sets for the Command key, and ModMeta is what a
+	// terminal that spells the same press with the meta bit sends instead; both
+	// have to land on the save, because which one arrives is the terminal's
+	// choice and not the user's.
+	for name, key := range map[string]tea.KeyPressMsg{
+		"super+s": {Code: 's', Mod: tea.ModSuper},
+		"meta+s":  {Code: 's', Mod: tea.ModMeta},
+	} {
+		t.Run(name+" saves", func(t *testing.T) {
+			m, project, _ := newModelInTemp(t)
+			next, _ := m.beginAdd()
+			m = next.(model)
+			m.promptArea.SetValue("ship it")
+
+			next, _ = m.updateForm(key)
+			m = next.(model)
+			if m.stage != stageList {
+				t.Fatalf("%s in the form: stage=%v, want a save back to the list", name, m.stage)
+			}
+			if len(project.todos) != 1 || project.todos[0].Prompt != "ship it" {
+				t.Errorf("%s: project todos = %+v, want the saved prompt", name, project.todos)
+			}
+		})
+	}
+
+	t.Run("enter from the title field saves", func(t *testing.T) {
+		m, project, _ := newModelInTemp(t)
+		next, _ := m.beginAdd()
+		m = next.(model)
+		m.promptArea.SetValue("ship it")
+		// tab moves the focus off the prompt; the title is the other field.
+		next, _ = m.toggleFormFocus()
+		m = next.(model)
+		if m.formFocus == formFieldPrompt {
+			t.Fatalf("focus did not leave the prompt field")
+		}
+
+		next, _ = m.updateForm(enterKey(0))
+		m = next.(model)
+		if m.stage != stageList {
+			t.Fatalf("enter from the title field: stage=%v, want a save back to the list", m.stage)
+		}
+		if len(project.todos) != 1 || project.todos[0].Prompt != "ship it" {
+			t.Errorf("project todos = %+v, want the saved prompt", project.todos)
+		}
+	})
 }
 
 // TestTargetPickerModifierEnterRuns pins the picker's key routing: enter and

@@ -392,7 +392,8 @@ type model struct {
 }
 
 // modEnter names the modifier+enter chord for the footers: the drop key in the
-// list and view, the newline key in the form. shift+enter is the one to show
+// list and view. (The form no longer needs it — enter is the newline there
+// again — but the chord stays bound in the editor beside it.) shift+enter is the one to show
 // when the terminal can actually send it; alt+enter is the legacy fallback
 // every terminal encodes as ESC CR, so it leads until the terminal says
 // otherwise.
@@ -1906,16 +1907,18 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 	ta.Placeholder = "The prompt to hand Claude Code later…"
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
-	// Move the newline off plain enter, which now saves the form, onto the
-	// modifier chord. All three spellings are bound: shift+enter needs the
-	// kitty protocol, alt+enter is the legacy ESC CR every terminal sends, and
-	// ctrl+j is the raw line feed that survives even a terminal which eats
-	// Option. ctrl+m — the default binding's second key, and literally the CR
-	// that plain enter sends on a legacy terminal — has to go, or enter would
-	// still insert a newline there instead of saving.
+	// Plain enter is a newline here, because that is what enter means in every
+	// other editor a prompt gets typed into; save lives on ctrl+s (and the ✔
+	// Save chip) instead. The modifier spellings stay bound alongside it — they
+	// are what this form taught first, and a hand that learned shift+enter must
+	// not be told it is now wrong. Four keys, all the same act: enter, plus
+	// shift+enter (needs the kitty protocol), alt+enter (the legacy ESC CR every
+	// terminal sends), and ctrl+j (the raw line feed that survives a terminal
+	// which eats Option). ctrl+m is enter's wire form on a legacy terminal, so
+	// it rides along for free.
 	ta.KeyMap.InsertNewline = key.NewBinding(
-		key.WithKeys("shift+enter", "alt+enter", "ctrl+j"),
-		key.WithHelp("shift+enter", "insert newline"),
+		key.WithKeys("enter", "ctrl+m", "shift+enter", "alt+enter", "ctrl+j"),
+		key.WithHelp("enter", "insert newline"),
 	)
 	ta.SetValue(prompt)
 
@@ -1963,13 +1966,29 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		return m.cancelForm()
 	case "enter":
-		// Enter saves from either field. The prompt area's newline lives on
-		// modifier+enter instead (see newFormInputs, which rebinds the
-		// textarea's InsertNewline off plain enter so it never swallows this).
+		// Enter belongs to whichever field is focused, and the two fields want
+		// opposite things from it. The prompt is a text editor: enter is a
+		// newline there, so the key falls through to the textarea (see
+		// newFormInputs, which binds it on InsertNewline). The title is one
+		// line and cannot hold a newline at all, so enter does what enter does
+		// in every single-line form — commits it. Save is ctrl+s from either
+		// field, and the ✔ Save chip from neither.
+		if m.formFocus == formFieldPrompt {
+			break
+		}
 		return m.saveForm()
 	case "tab", "shift+tab":
 		return m.toggleFormFocus()
-	case "ctrl+s":
+	case "ctrl+s", "super+s", "meta+s":
+		// ctrl+s is the binding that always works; super+s is the mac mnemonic
+		// that mostly cannot — same shape of answer as ctrl+o vs ctrl+i above.
+		// Cmd only reaches a TUI at all when the terminal encodes modifiers in
+		// the kitty keyboard protocol *and* has not claimed the chord for its
+		// own menu: Terminal.app eats Cmd+S outright, iTerm2 needs the key
+		// mapped to "Send Text with vim Special Chars"/CSI u reporting, while
+		// Ghostty, Kitty and WezTerm forward it once the chord is unbound on
+		// their side. meta+s rides along because a terminal that reports Cmd as
+		// the meta bit rather than the super bit spells the same press that way.
 		return m.saveForm()
 	case "ctrl+o", "ctrl+i":
 		// ctrl+o is the binding that always works; ctrl+i is the mnemonic that
@@ -4258,8 +4277,8 @@ func (m model) viewForm() string {
 // same chip.
 func (m model) formActions() []listAction {
 	return []listAction{
-		{label: "✔ Save", hint: "enter", tint: colFgHi},
-		{label: "↵ Newline", hint: m.modEnter(), tint: colStraw},
+		{label: "✔ Save", hint: "ctrl+s", tint: colFgHi},
+		{label: "↵ Newline", hint: "enter", tint: colStraw},
 		{label: m.spellChipLabel(), tint: m.spellChipTint()},
 		{label: "❐ Images", hint: "ctrl+o", tint: colCyan},
 		{label: "⚙ Session", hint: "ctrl+r", tint: colInfo},
@@ -4395,7 +4414,7 @@ func (m model) formFooter() string {
 		// before it reaches the panel, and this line is what a narrow pane
 		// reads.
 		chords := []string{
-			"enter save", m.modEnter() + " newline", "ctrl+o images", "ctrl+r session", "esc cancel", "ctrl+l spelling",
+			"ctrl+s save", "enter newline", "ctrl+o images", "ctrl+r session", "esc cancel", "ctrl+l spelling",
 		}
 		if tier == tierIcons {
 			// Down to glyphs, ✉ is the one chip no chord on this line stands for

@@ -86,9 +86,11 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
   `ctrl+v` view · `ctrl+t` done · `ctrl+f` freeze · `ctrl+s` schedule · `ctrl+o` export ·
   `ctrl+x` delete · `ctrl+↑/↓` move · `ctrl+d` fold closed · `ctrl+l` View panel ·
   `ctrl+w` clear done · `tab` button row · `esc`/`ctrl+c` quit.
-- **Form:** `enter` save · `shift+enter`/`alt+enter`/`ctrl+j` newline · `ctrl+o` (and
+- **Form:** `ctrl+s` save (also `cmd+s` as `super+s`/`meta+s`, which only a terminal
+  that reports Cmd — cats does — can send; and `enter` from the title field) ·
+  `enter`/`shift+enter`/`alt+enter`/`ctrl+j` newline in the prompt · `ctrl+o` (and
   `ctrl+i`) images · `ctrl+r` ⚙ Session panel (moved off `ctrl+e`, which is the
-  caret's end-of-line) · `ctrl+l` Spelling · `ctrl+s` save · `ctrl+g` toggle project/global scope (add mode,
+  caret's end-of-line) · `ctrl+l` Spelling · `ctrl+g` toggle project/global scope (add mode,
   both backlogs available) · `tab` title⇄prompt · `@` file picker ·
   **Send** is click-only by design.
 - `shift+enter` needs the kitty keyboard protocol; `alt+enter` is the universal alias

@@ -401,7 +401,7 @@ func TestFormFooterTeachesCaretKeys(t *testing.T) {
 	if !wide.formBarShowsHints() {
 		t.Fatal("a 120-cell pane should fit the chip hints")
 	}
-	for _, dup := range []string{"enter save", "esc cancel", "ctrl+o images"} {
+	for _, dup := range []string{"ctrl+s save", "esc cancel", "ctrl+o images"} {
 		if strings.Contains(foot, dup) {
 			t.Errorf("footer repeats %q, which the toolbar chips already print: %q", dup, foot)
 		}
@@ -413,7 +413,7 @@ func TestFormFooterTeachesCaretKeys(t *testing.T) {
 	}
 	// With the chips gone quiet the footer is the only teacher left, so it opens
 	// with the chords — as many of them as the pane can hold.
-	if first, _, _ := strings.Cut(narrow.formFooter(), "\n"); !strings.Contains(first, "enter save") {
+	if first, _, _ := strings.Cut(narrow.formFooter(), "\n"); !strings.Contains(first, "ctrl+s save") {
 		t.Errorf("first footer line is %q, want it to start naming the chords", first)
 	}
 	for line := range strings.SplitSeq(narrow.formFooter(), "\n") {

@@ -26,12 +26,17 @@ func TestEnterKeysEndToEnd(t *testing.T) {
 	m := newModel(RunContext{WorkDir: filepath.Join(dir, "project")}, project, global, nil)
 
 	// enter (add form, the list being empty) · "line one" · alt+enter (newline)
-	// · "line two" · enter (save) · enter (reopen it for editing) · ctrl+c.
+	// · "line two" · enter (newline) · "line three" · ctrl+s (save) · enter
+	// (reopen it for editing) · ctrl+c.
+	//
+	// Plain enter is in the middle of the prompt on purpose: in the form it is
+	// a newline like the chord beside it, and only the wire proves the CR the
+	// terminal sends reaches the textarea rather than the save.
 	//
 	// Keep esc out of the tail: the parser reads a buffer at a time, so an ESC
 	// byte sitting in front of ctrl+c is read as one chord (ctrl+alt+c) and the
 	// quit never happens.
-	keys := "\r" + "line one" + "\x1b\r" + "line two" + "\r" + "\r" + "\x03"
+	keys := "\r" + "line one" + "\x1b\r" + "line two" + "\r" + "line three" + "\x13" + "\r" + "\x03"
 
 	var out bytes.Buffer
 	p := tea.NewProgram(m,
@@ -54,9 +59,9 @@ func TestEnterKeysEndToEnd(t *testing.T) {
 	if len(project.todos) != 1 {
 		t.Fatalf("project todos = %+v, want the single prompt the keystrokes entered", project.todos)
 	}
-	if got := project.todos[0].Prompt; got != "line one\nline two" {
-		t.Errorf("prompt = %q, want both lines joined by the alt+enter newline "+
-			"(one line means alt+enter saved instead of inserting; a missing todo means enter did not save)", got)
+	if got := project.todos[0].Prompt; got != "line one\nline two\nline three" {
+		t.Errorf("prompt = %q, want all three lines joined by the alt+enter and enter newlines "+
+			"(a lost line means that key saved instead of inserting; a missing todo means ctrl+s did not save)", got)
 	}
 	if out.Len() == 0 {
 		t.Error("the program rendered nothing")
@@ -72,7 +77,7 @@ func TestEnterKeysEndToEnd(t *testing.T) {
 //
 // Keys: enter (the list is empty, so the add form) · the prompt · ctrl+o (open
 // the attachment editor) · ctrl+r (offer the newest image in CATS_TODO_IMAGE_DIR)
-// · enter (attach it) · enter (empty box — back to the form) · enter (save) ·
+// · enter (attach it) · enter (empty box — back to the form) · ctrl+s (save) ·
 // ctrl+c.
 func TestAttachKeysEndToEnd(t *testing.T) {
 	dir := t.TempDir()
@@ -86,7 +91,7 @@ func TestAttachKeysEndToEnd(t *testing.T) {
 	global := &store{scope: scopeGlobal, path: filepath.Join(dir, "global", "todos.json")}
 	m := newModel(RunContext{WorkDir: filepath.Join(dir, "project")}, project, global, nil)
 
-	keys := "\r" + "this layout is wrong" + "\x0f" + "\x12" + "\r" + "\r" + "\r" + "\x03"
+	keys := "\r" + "this layout is wrong" + "\x0f" + "\x12" + "\r" + "\r" + "\x13" + "\x03"
 
 	var out bytes.Buffer
 	p := tea.NewProgram(m, tea.WithInput(strings.NewReader(keys)), tea.WithOutput(&out))

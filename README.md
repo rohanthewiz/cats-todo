@@ -57,8 +57,10 @@ In the manager, `enter` opens what is in front of you — the highlighted prompt
 into the editor, or a brand-new entry when the list is empty — and `shift+enter`
 drops the prompt into an agent. That opens the target picker, where `enter`
 pastes the prompt staged for review and `shift+enter` submits it to run (and
-marks the todo done). Inside the editor `enter` saves and `shift+enter` inserts
-a newline. Outside cats it still manages backlogs; only drops need the socket.
+marks the todo done). Inside the editor `enter` inserts a newline — the prompt
+is a text editor, so enter means there what it means in every other one — and
+`ctrl+s` saves. Outside cats it still manages backlogs; only drops need the
+socket.
 
 The editor has its own row of buttons — **Save**, **Newline**, **Images**,
 **Session**, **Send**, **Cancel** — and **Send** is the one way to hand a prompt
@@ -379,12 +381,20 @@ attachment that has since been deleted is left out of the delivered prompt and
 flagged in the `ctrl+v` view rather than sent for the agent to chase. Accepted
 formats are `.png`, `.jpg`/`.jpeg`, `.gif` and `.webp`, up to 10 MiB each.
 
-`alt+enter` is bound everywhere `shift+enter` is, and `ctrl+j` also inserts a
-newline in the editor. Distinguishing shift+enter from a bare enter needs the
-kitty keyboard protocol — cats speaks it, but a terminal that does not will
-send the two identically, so the footers advertise `alt+enter` (which every
-terminal encodes as `ESC CR`) until the terminal answers the protocol
-handshake.
+`alt+enter` is bound everywhere `shift+enter` is, and in the editor
+`shift+enter`, `alt+enter` and `ctrl+j` all insert a newline alongside plain
+`enter` — the chords the form taught first still work, and a hand that learned
+them is never told it is now wrong. Distinguishing shift+enter from a bare enter
+needs the kitty keyboard protocol — cats speaks it, but a terminal that does not
+will send the two identically, so the footers advertise `alt+enter` (which every
+terminal encodes as `ESC CR`) until the terminal answers the protocol handshake.
+
+`cmd+s` saves the editor too, wherever the terminal is willing to report the
+Command key — cats does, so under cats it is the mac chord for the mac hand.
+Elsewhere the same press may never leave the terminal: Terminal.app claims Cmd
+for its own menus, and iTerm2 needs the chord mapped by hand. That is why it is
+an alias and never the only way in — `ctrl+s` is the binding that always works,
+and it is the one the footer teaches.
 
 ## Spell check
 
