@@ -579,7 +579,7 @@ func TestExportCarriesPriority(t *testing.T) {
 			dir := t.TempDir()
 			src := &store{scope: scopeProject, path: filepath.Join(dir, "src", "todos.json")}
 			dst := &store{scope: scopeProject, path: filepath.Join(dir, "dst", "todos.json")}
-			td := Todo{ID: "a1", Title: "t", Prompt: "p", Priority: priorityCritical}
+			td := Todo{ID: "a1", Title: "t", Prompt: "p", Priority: priorityCritical, Fruit: true}
 			if err := src.add(td); err != nil {
 				t.Fatal(err)
 			}
@@ -590,11 +590,14 @@ func TestExportCarriesPriority(t *testing.T) {
 			if out.Priority != priorityCritical {
 				t.Errorf("exported todo has priority %q, want %q", out.Priority, priorityCritical)
 			}
+			if !out.Fruit {
+				t.Error("exported todo lost its low-hanging-fruit mark")
+			}
 			if err := dst.load(); err != nil {
 				t.Fatal(err)
 			}
-			if got, ok := dst.find(out.ID); !ok || got.Priority != priorityCritical {
-				t.Errorf("the priority did not reach the destination backlog: %+v", got)
+			if got, ok := dst.find(out.ID); !ok || got.Priority != priorityCritical || !got.Fruit {
+				t.Errorf("the annotations did not reach the destination backlog: %+v", got)
 			}
 		})
 	}

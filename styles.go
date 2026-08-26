@@ -269,60 +269,64 @@ var (
 	// styles would have made a picture look like a state.
 	attachStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colCyan))
 
-	// The priority dot, one style per level. Named for the level rather than the
-	// color so the row code reads as triage instead of as painting.
+	// The priority mark, one style per raised level. Named for the level rather
+	// than the color so the row code reads as triage instead of as painting.
 	//
-	// It gets a column of its own, ahead of the badge, rather than joining
-	// either of the row's existing marks. The badge holds the row's *state* and
-	// there is exactly one of those at a time (see the note above it), while
-	// priority is orthogonal to all four — a critical prompt can also be
-	// scheduled. The descMarks were the other candidate and are worse for the
-	// opposite reason: they follow the name, so they start at a ragged column,
-	// and a triage color that cannot be scanned straight down the list is not
-	// doing the job it was added for.
+	// It gets a column of its own, after the badge, rather than joining either of
+	// the row's existing marks. The badge holds the row's *state* and there is
+	// exactly one of those at a time (see the note above it), while priority is
+	// orthogonal to all four — a critical prompt can also be scheduled. The
+	// descMarks were the other candidate and are worse for the opposite reason:
+	// they follow the name, so they start at a ragged column, and a triage color
+	// that cannot be scanned straight down the list is not doing the job it was
+	// added for.
 	//
-	// Low takes the brown rather than a grey. It is the level that means
-	// "later", not the level that means "ignore me", and the row's greys are
-	// already spoken for by done and frozen; drawing low in one of them would
-	// say the prompt had been dealt with.
+	// Critical keeps the error red. High takes cats' own todo yellow — the hue
+	// the mux paints a waiting prompt in — which is the right tier for "this
+	// matters" precisely because it is the color of ordinary outstanding work
+	// turned up rather than an alarm. The amber colWarn is not available for it:
+	// that one is spoken for by the fuzzy-match highlight, and two meanings for
+	// one hue on the same row is one too many.
 	prioCriticalStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
-	prioStandardStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colTodo))
-	prioLowStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colBrown))
-	// The same dot on a row that is no longer active work. Closed rows are drawn
-	// to recede (see doneStyle), and a red dot on finished work would compete
+	prioHighStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colTodo))
+	// The same mark on a row that is no longer active work. Closed rows are drawn
+	// to recede (see doneStyle), and a red mark on finished work would compete
 	// with the open prompts above it for exactly the attention priority exists
-	// to direct. The glyph stays so the column keeps its alignment; only the
+	// to direct. The glyph stays so the record of the rating reads; only the
 	// shout comes off.
 	prioClosedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint))
 	// And on a closed row under the cursor, one tier brighter — the same
 	// concession doneSelStyle makes, for the same reason: a tone chosen to
 	// recede recedes further still against the highlight's lifted field.
 	prioClosedSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
+	// The low-hanging-fruit mark. An emoji paints itself and ignores a
+	// foreground, so this style carries no color and exists for the one thing it
+	// still has to do: give the segment something for onRow to hang the
+	// highlighted row's field on (see the badge note in fuzzylist.view).
+	fruitStyle = lipgloss.NewStyle()
 )
 
-// prioGlyph is the priority mark. A filled circle against the open badge's
-// hollow one (○, already the row's open marker), which is what keeps the two
-// adjacent circles from reading as one thing: the priority dot is filled and
-// carries a hue, the state badge is hollow and grey.
+// The annotation glyphs (see annotations.go for the columns they live in).
 //
-// U+25CF is East Asian Ambiguous, the same width class as the ○ this list has
-// always drawn, so it costs exactly one cell wherever that one does.
-const prioGlyph = "●"
-
-// prioStyleFor is the dot's hue for a priority on an open row. Closed rows do
-// not come through here — they take the receded pair above.
+// Priority is a triangle rather than a dot so it cannot be confused with the
+// state badge two cells to its left, which is a circle in every one of its four
+// forms (○ ✓ ❄ ◷): a shape says "different kind of fact" at a glance where a hue
+// alone only says "different value". The pair escalates by fill as well as by
+// color — hollow for high, solid for critical — so the level survives a
+// colorblind reader, a monochrome capture, and a terminal theme that has flattened
+// the palette. Both are East Asian Ambiguous, the same width class as the ○ this
+// list has always drawn, so each costs exactly one cell wherever that one does.
 //
-// An unrecognized value from a hand-edited backlog draws as standard: the level
-// it could not be read as should look ordinary rather than alarming.
-func prioStyleFor(p string) lipgloss.Style {
-	switch p {
-	case priorityCritical:
-		return prioCriticalStyle
-	case priorityLow:
-		return prioLowStyle
-	}
-	return prioStandardStyle
-}
+// The fruit is the green apple rather than the red one. Red is the critical
+// mark's color one column to its left, and two reds on one row would read as one
+// signal repeated; green is what the rest of this palette already uses for "go
+// ahead". It is an emoji and therefore two cells wide — annotSlots declares that
+// width, so the names below it stay in one column.
+const (
+	prioCriticalGlyph = "▲"
+	prioHighGlyph     = "△"
+	fruitGlyph        = "🍏"
+)
 
 var (
 	// Action-bar buttons. Each chip is rendered by exactly one of these styles —

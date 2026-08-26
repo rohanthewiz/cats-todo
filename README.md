@@ -173,51 +173,129 @@ marked **missed** on the row instead of firing late into a conversation that
 has moved on; send it by hand from there. `ctrl+s` on a scheduled prompt shows
 the time again, where enter on an emptied box clears it.
 
-### Priority
+### Annotations
+
+A row answers three different questions, and they are not the same kind of
+question. **What state is this prompt in** — open, scheduled, frozen, done — is
+exclusive: a prompt is in exactly one, and the badge that says so has always been
+one glyph. **What is true about this prompt** is not exclusive at all: a critical
+one-liner is critical *and* cheap *and* still open, all at once.
+
+So the row reads outward from the cursor as state, then annotations, then the
+prompt:
+
+```
+❯ ○ ▲ 🍏  fix the drop path       the daemon cannot resolve a bare agent name
+  ○ △     context menu grammar    right click across the manager screens
+  ○   🍏  bump the version        two files, one number
+  ○       ordinary work           nothing said about it
+  ❄       shelved idea            not doing this
+  ✓ ▲ 🍏  shipped it              done and dusted
+```
+
+The badge leads because it is what the list is grouped by — arriving at a row you
+want "is this still work" before "how much work". Each annotation then has a
+column of its own, in a fixed order, and **keeps that column on every row whether
+or not the row fills it**: a mark you cannot scan straight down the pane is not
+worth the cell it costs. The columns nobody in the list uses are dropped
+entirely, so a backlog with nothing annotated looks exactly as it did before
+annotations existed, and one that uses a single mark pays for a single column.
+
+Two annotations exist today:
+
+| Mark | Means | Set by |
+|---|---|---|
+| `▲` `△` | **priority** — critical, high | the ⚙ panel's **Priority** row, `--priority` |
+| `🍏` | **low-hanging fruit** — a quick win | the ⚙ panel's **Quick win** row, `--fruit` |
+
+Freezing is *not* an annotation. It is a state, mutually exclusive with done, and
+it stays in the badge (`❄`) where the three groups are read from.
+
+Both are stored as nothing at all when nothing has been said — so a backlog
+nobody has annotated is byte-for-byte the file it was before the feature existed,
+and a teammate on an older build reads it unchanged.
+
+#### Priority
 
 The list's order says what to do next. It cannot say how much a prompt matters —
 once a critical bug and a nice-to-have sit next to each other, the only thing
 between them is the order, and every drag churns that. So a prompt also carries a
-**priority**, drawn as a colored dot in its own column at the head of every row:
+**priority**:
 
-- **critical** — red
-- **standard** — a soft yellow, and the default
-- **low** — a muted brown
+- **critical** — a solid red `▲`
+- **high** — a hollow `△` in cats' soft yellow
+- **none** — no mark, and the default
 
-It is set where the rest of a prompt's settings are: open the prompt, `ctrl+r`
-for the ⚙ panel, and **Priority** is its first row — `←`/`→` or `space` cycles
-it, exactly like the rows below. Nothing is written until the form is saved, so
-an abandoned edit leaves the level as it was. The ⚙ line on the form itself
-leads with the level whenever it is not standard, since the editor is the one
-screen the dot is not on.
+Only raising a prompt leaves a mark. The levels used to be standard / critical /
+low, with a dot on every single row — which meant the column could not be scanned
+for the rows that actually wanted attention, because every row looked the same,
+and "low" never said more than "not raised". Both of those are now the same
+answer: say nothing. A backlog still holding `low` from the old scheme reads as
+none, keeps its key until something rewrites the todo, and `--priority low` still
+works and still means what it meant.
 
-Priority is the first row of that panel and the only one that is not a launch
-flag: everything under it describes the session that will read the prompt, and
-this describes the prompt. It shares the panel because that is where a prompt's
-own settings are edited, and a second panel holding one row would be a worse
-answer than a first row that says what it is.
+The mark is a triangle rather than a dot so it cannot be confused with the state
+badge two cells to its left, which is a circle in every one of its four forms
+(`○ ✓ ❄ ◷`) — a shape says "different kind of fact" where a hue alone only says
+"different value". The pair escalates by *fill* as well as by colour, hollow to
+solid, so the level survives a colourblind reader, a monochrome capture, and a
+terminal theme that has flattened the palette. High's yellow is cats' own — the
+same `todo` hue the mux paints the paw print it counts your backlog with — so a
+row and the workspace badge that counts it are the same colour by construction.
+Deliberately *not* the palette's amber, which belongs to the fuzzy-match
+highlight inside the row names a few columns to the right.
 
-Standard is the default, and it is stored as nothing at all — so a backlog nobody
-has ranked is byte-for-byte the file it was before this feature existed, and a
-teammate on an older build reads it unchanged.
+On a completed or frozen row the mark drops to that row's greys — priority is
+about what to do next, and finished work should not be arguing for attention —
+but the glyph stays, so the record of what the prompt was rated still reads. A
+*scheduled* prompt keeps its colour, because it is still work outstanding.
 
-The standard dot's yellow is cats' own — the same `todo` hue the mux paints the
-paw print it counts your backlog with — so a row and the workspace badge that
-counts it are the same color by construction. Deliberately *not* the palette's
-amber, which belongs to the fuzzy-match highlight inside the row names a few
-columns to the right. The three dots are told apart by *lightness* as much as by
-hue — the ramp runs standard, critical, low, then the greys of the rows that have
-stopped being work — which is what makes them readable as single cells.
+#### Low-hanging fruit
 
+`🍏` marks a prompt whose payoff is out of proportion to what it costs — the one
+worth grabbing while you wait on something else. It answers a different question
+from priority (how *cheap*, not how *much*), which is exactly why it is a second
+column rather than a fourth level: a critical one-liner is both, and one column
+could only have told you one of them.
 
-Every row carries a dot, including the ones that are no longer work: a column
-with holes in it cannot be read down, and reading it down is the whole point. On
-a completed or frozen row the dot drops to that row's greys — priority is about
-what to do next, and finished work should not be arguing for attention. A
-*scheduled* prompt keeps its color, because it is still work outstanding.
+Green rather than red: the critical mark one column to its left is red already,
+and two reds on a row read as one signal repeated.
+
+#### Where they are set
+
+Both live where the rest of a prompt's settings do: open the prompt, `ctrl+r` for
+the ⚙ panel, and they are its first two rows — `←`/`→` or `space` changes the row
+under the cursor, exactly like the rows below.
+
+```
+Prompt & session options   default session
+
+❯ Priority    critical   how much this prompt matters — △ high, ▲ critical, on its row
+  Quick win   yes        low-hanging fruit — cheap for what it pays, marked 🍏 on its row
+
+  Model       default
+  Effort      default
+  …
+```
+
+`ctrl+v` on a row spells them out in words as well — `▲ critical · 🍏
+low-hanging fruit` on the prompt view's meta line — which is where to look when a
+glyph on a row is not yet familiar.
+
+The blank line is a seam: everything above it describes **the prompt**, and
+everything below it describes **the session that will read it**. The annotations
+share the panel because that is where a prompt's own settings are edited, and a
+second panel holding two rows would be a worse answer than two first rows that
+say what they are. Nothing is written until the form is saved, so an abandoned
+edit leaves the marks as they were. The ⚙ line on the form itself leads with
+whatever has been said — `critical · low-hanging fruit · …` — since the editor is
+the one screen the marks are not drawn on, and it stays silent about a prompt
+nobody has annotated.
+
+#### Priority order
 
 Priority does not move anything by itself. The backlog stays in the order you
-dragged it into, and the dot is a second axis to read it by rather than a
+dragged it into, and the mark is a second axis to read it by rather than a
 rearrangement of it. When you do want the rearrangement, `ctrl+l` opens the
 **View** panel:
 
@@ -230,7 +308,8 @@ View  how this list is drawn — kept between launches
 
 `←`/`→` or `space` flips the switch under the cursor, and both switches are
 remembered between launches. **Priority order** lifts the critical prompts to the
-top of each group, keeping the hand-set order among prompts of equal level — it
+top of each group, then the high ones, keeping the hand-set order among prompts
+of equal level — it
 is a lens over the file and never a rewrite of it, so turning it off gives back
 the exact order you had. It sorts *inside* each group and each backlog and never
 across them: a finished critical prompt does not climb above open work.
@@ -303,6 +382,7 @@ cats-todo add fix the flaky reconnect       # → this project's backlog
 cats-todo add -g clean up the dotfiles      # → the global one
 cats-todo add -t "flaky test" fix the …     # → an explicit title
 cats-todo add --priority critical fix the … # → marked critical
+cats-todo add --fruit bump the version …    # → marked 🍏 low-hanging fruit
 git log -p | cats-todo add -t "review this diff"   # → the prompt from piped stdin
 ```
 
@@ -316,16 +396,26 @@ type — so `add` is safe to bind to a key or drop in a script.
 setting when the prompt starts mid-thought, or when it arrives on stdin and its
 first line is a diff header.
 
-`--priority` sets the level the manager draws as a dot (`critical`, `standard`,
-`low` — see [Priority](#priority)), so a prompt captured mid-firefight arrives
-already marked rather than needing to be opened afterwards to say so. Spellings fold, so
-`urgent` and `high` reach critical and `minor` reaches low; anything outside the
-set is refused with the same words the manager would use. Left off, the prompt is
-standard, and nothing is written to the file — the flag has no effect on a
-backlog until someone actually ranks something. It is long-only on purpose: a
-bare `-p` beside `--perm` reads as an abbreviation of it, and a flag that looks
-like it means permissions while meaning priority is the kind of thing that gets
-found out at the wrong moment.
+`--priority` and `--fruit` set the prompt's [annotations](#annotations)
+(`critical`, `high`, `none`; and the `🍏` quick-win mark), so a prompt captured
+mid-firefight arrives already marked rather than needing to be opened afterwards
+to say so:
+
+```sh
+cats-todo add --priority critical --fruit -t "fix the drop path" "the daemon cannot resolve a bare agent name"
+# → added to the project backlog, marked critical · low-hanging fruit (…/.cats-todo/todos.json)
+```
+
+Priority spellings fold, so `urgent` reaches critical and `important` reaches
+high; the old scheme's words still fold onto what they meant — `standard`,
+`normal`, `low` and `minor` all reach none — so a shell history or a script
+holding `--priority low` keeps working. Anything outside the set is refused with
+the same words the manager would use. Left off, both write nothing to the file:
+the flags have no effect on a backlog until someone actually marks something.
+`--priority` is long-only on purpose — a bare `-p` beside `--perm` reads as an
+abbreviation of it, and a flag that looks like it means permissions while meaning
+priority is the kind of thing that gets found out at the wrong moment — and
+`--fruit` follows it for the same reason.
 
 Without `-g`, `add` writes to the project backlog rooted the way everything else
 here roots it — nearest `.cats-todo/`, else the repo root, else the current
@@ -461,8 +551,13 @@ In the editor, `ctrl+r` opens the ⚙ panel (or click the **Session** chip).
 list marks a configured prompt with `⚙`, and nothing is written until you save
 the prompt itself.
 
+The panel's first two rows are above the seam and are not session options at all:
+they are the prompt's own [annotations](#annotations). Everything below the blank
+line describes the session that will read the prompt.
+
 | Row | What it does |
 |---|---|
+| *Priority, Quick win* | *the prompt's own marks — see [Annotations](#annotations)* |
 | Model, Effort, Permission | `--model`, `--effort`, `--permission-mode` on the launch |
 | Clear first | sends `/clear` as its own message before the prompt |
 | Context | starts with `/sess-load [n]` or `/sess-use <pattern>` |

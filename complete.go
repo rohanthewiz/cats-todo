@@ -58,7 +58,8 @@ var addCompletions = []completion{
 	{"--global", "add to the global backlog instead of this project's"},
 	{"--title", "short title (derived from the prompt's first line when blank)"},
 	{"--image", "attach an image file (repeatable); copied into the backlog"},
-	{"--priority", "how much it matters: critical|standard|low"},
+	{"--priority", "how much it matters: critical|high|none"},
+	{"--fruit", "mark as low-hanging fruit — cheap for what it pays"},
 	// The session options (see session.go). They are offered here rather than
 	// left to the manual for the reason the flags exist at all: the whole point
 	// of recording them on the prompt is not having to remember the setup, and a
@@ -80,15 +81,16 @@ var addCompletions = []completion{
 // exactly the spellings normalize* will accept without folding.
 //
 // Named for the session options it started as, and now one flag wider than
-// that: --priority is not a session option (it is a fact about the prompt, not
-// about the agent that will read it) but it is the same kind of flag, and a
-// second map holding one entry would be worse than a name that overstates by
-// one.
+// that: --priority is an annotation and not a session option (it is a fact about
+// the prompt, not about the agent that will read it) but it is the same kind of
+// flag, and a second map holding one entry would be worse than a name that
+// overstates by one. --fruit is the other annotation and takes no value, so it
+// has nothing to offer here.
 var sessionValueCompletions = map[string][]completion{
 	"--priority": {
 		{"critical", "do this first"},
-		{"standard", "the default"},
-		{"low", "whenever"},
+		{"high", "before the unmarked work"},
+		{"none", "the default — nothing said"},
 	},
 	"--model": {
 		{"opus", "the most capable model"},

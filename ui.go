@@ -318,17 +318,18 @@ type model struct {
 	// beginEditRef, written back by saveForm. It is held by value rather than as
 	// a pointer so that cancelling the form cannot have touched the stored one.
 	formSession SessionOpts
-	// formPriority is the prompt's priority while the form holds it. A field of
-	// its own rather than a member of formSession, because it is not a session
-	// option: it says how much the prompt matters, not how the agent that reads
-	// it will be set up, and it is stored on the Todo rather than in its Session
-	// record. It shares the panel with them (see sessRowPriority) and nothing
-	// else.
+	// formAnnots is the prompt's annotations while the form holds them — its
+	// priority and its low-hanging-fruit mark (see annotations.go). A field of
+	// its own rather than a member of formSession, because they are not session
+	// options: they say what is true about the prompt, not how the agent that
+	// reads it will be set up, and they are stored on the Todo rather than in its
+	// Session record. They share the panel with them (see sessRowPriority) and
+	// nothing else.
 	//
 	// Held by value for the same reason formSession is copied: an abandoned form
-	// must leave the stored priority exactly as it was.
-	formPriority string
-	sessCursor   int
+	// must leave the stored annotations exactly as they were.
+	formAnnots annots
+	sessCursor int
 	// sessInput is the box the two free-text rows share: the context argument
 	// on one, the file being added on the other. One input rather than two
 	// because only ever one row holds the keys, and the value is committed to
@@ -1532,18 +1533,6 @@ func (m *model) rebuildList() {
 			// put the highlighted row's field behind the badge, which it cannot
 			// do to text that is already rendered. The open marker names its own
 			// dimming rather than inheriting any.
-			// The priority dot, in its own column ahead of the badge. Every
-			// row carries one — standard is a level, not an absence, and a
-			// column with holes in it cannot be read down.
-			//
-			// A closed row's dot drops to the greys the rest of that row is
-			// drawn in: priority is about what to do next, and finished work
-			// arguing for attention is exactly what the done tier exists to
-			// prevent. The glyph stays either way so the column stays straight.
-			prioStyle, prioSelStyle := prioStyleFor(t.Priority), prioStyleFor(t.Priority)
-			if t.closed() {
-				prioStyle, prioSelStyle = prioClosedStyle, prioClosedSelStyle
-			}
 			badge, badgeStyle := "○", descStyle
 			switch {
 			case t.Done:
@@ -1601,12 +1590,14 @@ func (m *model) rebuildList() {
 				tag = "global"
 			}
 			items = append(items, listItem{
-				name:         name,
-				desc:         desc,
-				descMarks:    marks,
-				prio:         prioGlyph,
-				prioStyle:    prioStyle,
-				prioSelStyle: prioSelStyle,
+				name:      name,
+				desc:      desc,
+				descMarks: marks,
+				// The annotation columns, after the badge — every slot, blanks
+				// included, because which columns survive is a decision about
+				// the whole list rather than this row (see trimAnnotColumns,
+				// applied once the last row is in).
+				annots: annotMarksFor(t),
 				// Match against the whole prompt (flattened to one line), not
 				// just the rendered first-line preview, so a filter can hit
 				// text buried deep in a multi-line prompt.
@@ -1681,6 +1672,10 @@ func (m *model) rebuildList() {
 	add(m.global)
 
 	m.rows = rows
+	// Now that every row is built, drop the annotation columns nobody filled —
+	// a whole-list decision, so it can only be made once the last row is in (see
+	// trimAnnotColumns).
+	trimAnnotColumns(items)
 	// Swap in the new rows while keeping the existing query box and cursor
 	// (setItems re-filters and clamps), so an add/edit/toggle doesn't disturb
 	// what the user has typed or where they were.
@@ -1836,7 +1831,7 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	// A new prompt starts on the defaults — the zero SessionOpts is exactly the
 	// behaviour a drop had before options existed.
 	m.formSession = SessionOpts{}
-	m.formPriority = priorityStandard
+	m.formAnnots = annots{}
 	m.discardClipboardCaptures()
 	// Start in the prompt — that's the point of an entry.
 	cmd := m.focusForm(formFieldPrompt)
@@ -1878,7 +1873,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	if td.Session != nil {
 		m.formSession = td.Session.clone()
 	}
-	m.formPriority = td.Priority
+	m.formAnnots = annotsOf(td)
 	m.discardClipboardCaptures()
 	cmd := m.focusForm(formFieldPrompt)
 	m.formErr, m.formNote = "", ""
@@ -2403,15 +2398,17 @@ func (m model) droppedRels() []string {
 // what it does, how it ends. The cursor is an index into this set, so the
 // numbering is the layout and nothing else; it is not stored anywhere.
 const (
-	// Priority leads, and is the one row here that is not a launch flag. It
-	// describes the prompt — how much it matters — where every row below it
-	// describes the session that will read it.
+	// The annotations lead, and are the rows here that are not launch flags.
+	// They describe the prompt — how much it matters, how cheap it is — where
+	// every row below them describes the session that will read it.
 	//
-	// It shares this panel anyway because this is where a prompt's per-todo
-	// settings are edited, and a second panel holding one row would be a worse
-	// answer than a first row that says what it is. The note column carries the
-	// distinction.
+	// They share this panel anyway because this is where a prompt's per-todo
+	// settings are edited, and a second panel holding two rows would be a worse
+	// answer than two first rows that say what they are. The note column carries
+	// the distinction, and the blank line the renderer draws under them separates
+	// the two halves.
 	sessRowPriority   = iota // how much this prompt matters
+	sessRowFruit             // …and how cheaply it can be had
 	sessRowModel             // --model
 	sessRowEffort            // --effort
 	sessRowPermission        // --permission-mode
@@ -2614,8 +2611,10 @@ func (m *model) cycleSessRow(delta int) {
 	o := &m.formSession
 	switch m.sessCursor {
 	case sessRowPriority:
-		// Not on o: the priority is the Todo's, not the session record's.
-		m.formPriority = cycleValue(prioValues, m.formPriority, delta)
+		// Not on o: the annotations are the Todo's, not the session record's.
+		m.formAnnots.Priority = cycleValue(prioValues, m.formAnnots.Priority, delta)
+	case sessRowFruit:
+		m.formAnnots.Fruit = !m.formAnnots.Fruit
 	case sessRowModel:
 		o.Model = cycleValue(sessModelValues, o.Model, delta)
 	case sessRowEffort:
@@ -2704,8 +2703,8 @@ func (m model) removeSessFile() (tea.Model, tea.Cmd) {
 // one job, which is to say what is not ordinary about this prompt.
 func (m model) sessionNote() string {
 	note := firstNonEmpty(m.formSession.summary(), "default session")
-	if m.formPriority != priorityStandard {
-		note = priorityLabel(m.formPriority) + " · " + note
+	if a := m.formAnnots.summary(); a != "" {
+		note = a + " · " + note
 	}
 	return note
 }
@@ -2806,16 +2805,19 @@ func (m model) persistForm() (model, todoRef, bool) {
 			m.formErr = "attach failed: " + err.Error()
 			return m, todoRef{}, false
 		}
-		if err := st.add(Todo{
+		td := Todo{
 			ID: id, Title: title, Prompt: prompt, Images: added,
 			// nil when nothing was set, so a prompt taking the defaults writes
 			// no "session" key at all (see sessionPtr).
 			Session: sessionPtr(m.formSession),
-			// Standard is the empty string, so an ordinary prompt still writes
-			// no "priority" key at all (see Todo.Priority).
-			Priority: m.formPriority,
-			Created:  time.Now(),
-		}); err != nil {
+			Created: time.Now(),
+		}
+		// Applied as a set rather than field by field, so a mark added later
+		// cannot be forgotten on this path (see annots). Every zero value means
+		// "nothing said", so an unannotated prompt still writes no "priority"
+		// or "fruit" key at all.
+		m.formAnnots.applyTo(&td)
+		if err := st.add(td); err != nil {
 			// The copies are on disk but no todo will ever reference them.
 			st.removeImages(id)
 			m.formErr = "save failed: " + err.Error()
@@ -2851,10 +2853,10 @@ func (m model) persistForm() (model, todoRef, bool) {
 			m.formErr = "save failed: " + err.Error()
 			return m, todoRef{}, false
 		}
-		// And its own write again, for the same reason: the priority lives on
+		// And its own write again, for the same reason: the annotations live on
 		// the Todo rather than in its session record, and update() would not
-		// have carried it.
-		if err := st.setPriority(m.editID, m.formPriority); err != nil {
+		// have carried them.
+		if err := st.setAnnots(m.editID, m.formAnnots); err != nil {
 			m.formErr = "save failed: " + err.Error()
 			return m, todoRef{}, false
 		}
@@ -4565,10 +4567,13 @@ func (m model) sessValueLabel(row int) string {
 	o := m.formSession
 	switch row {
 	case sessRowPriority:
-		// Named rather than left blank at standard, unlike the launch flags
-		// below, whose blank means "we do not pass this and claude picks". A
-		// prompt always has a priority; standard is a level, not an absence.
-		return priorityLabel(m.formPriority)
+		// Named rather than left blank at none, unlike the launch flags below,
+		// whose blank means "we do not pass this and claude picks". Here the row
+		// is the whole answer: "none" is a level the user chose to leave the
+		// prompt at, and a blank would read as a row that failed to load.
+		return priorityLabel(m.formAnnots.Priority)
+	case sessRowFruit:
+		return yesNo(m.formAnnots.Fruit)
 	case sessRowModel:
 		return firstNonEmpty(o.Model, "default")
 	case sessRowEffort:
@@ -4625,7 +4630,8 @@ func yesNo(b bool) string {
 // The note is what the option actually does — a panel of bare enum names would
 // make the user open the README to find out what "dontAsk" costs them.
 var sessRowLabels = [sessRowCount]struct{ label, note string }{
-	sessRowPriority:   {"Priority", "how much this prompt matters — the coloured dot on its row"},
+	sessRowPriority:   {"Priority", "how much this prompt matters — " + prioHighGlyph + " high, " + prioCriticalGlyph + " critical, on its row"},
+	sessRowFruit:      {"Quick win", "low-hanging fruit — cheap for what it pays, marked " + fruitGlyph + " on its row"},
 	sessRowModel:      {"Model", "--model, on a new claude session"},
 	sessRowEffort:     {"Effort", "--effort, on a new claude session"},
 	sessRowPermission: {"Permission", "--permission-mode, on a new claude session"},
@@ -4648,7 +4654,11 @@ var sessRowLabels = [sessRowCount]struct{ label, note string }{
 // only the two rows that cannot be enumerated get a box at all.
 func (m model) viewSession() string {
 	var b strings.Builder
-	heading := titleStyle.Render("Session options")
+	// Named for both halves. The rows above the seam are the prompt's own
+	// annotations and the rows below are the session's launch flags, and a
+	// heading that claimed only the second would be contradicted by the first
+	// two lines under it.
+	heading := titleStyle.Render("Prompt & session options")
 	b.WriteString(heading)
 	b.WriteString("  ")
 	// The summary is every option joined, so it is the one thing here with no
@@ -4745,6 +4755,15 @@ func (m model) viewSession() string {
 			}
 		}
 		b.WriteString(line.String())
+		// A seam under the annotations. The rows above describe the prompt —
+		// what is true about it, saved on the todo — and every row below
+		// describes the session that will read it. Eleven rows with no break in
+		// them read as one list of options rather than as two answers to two
+		// different questions, and the note column alone was not enough to say
+		// so at a glance.
+		if row == sessRowFruit {
+			b.WriteString("\n")
+		}
 	}
 
 	if !m.sessSkills {
@@ -4854,6 +4873,16 @@ func (m model) viewPrompt() string {
 		} else {
 			meta += " · " + schedStyle.Render(when)
 		}
+	}
+	// The annotations trail the state, the same order the row reads in — and
+	// spelled out as well as drawn, because this is the screen with room for the
+	// word and the one someone opens to find out what a mark on a row meant.
+	for _, sl := range annotSlots {
+		glyph, st, _ := sl.mark(td)
+		if glyph == "" {
+			continue
+		}
+		meta += " · " + st.Render(glyph+" "+sl.label(td))
 	}
 	b.WriteString(descStyle.Render(meta))
 	b.WriteString("\n\n")

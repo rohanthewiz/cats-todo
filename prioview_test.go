@@ -25,30 +25,198 @@ func prioModel(t *testing.T, tds ...Todo) model {
 	return m
 }
 
-// TestEveryRowCarriesAPriorityDot pins the requirement the column exists for:
-// standard is a level and not an absence, so no row is allowed to leave the
-// column blank. A column with holes in it cannot be read down, which is the only
-// thing a color on a row is worth anything for.
-func TestEveryRowCarriesAPriorityDot(t *testing.T) {
+// rowNamed finds the built row with this title, so a test can ask about one
+// row's marks without walking the whole list.
+func rowNamed(t *testing.T, m model, name string) listItem {
+	t.Helper()
+	for _, it := range m.list.items {
+		if it.selectable && it.name == name {
+			return it
+		}
+	}
+	t.Fatalf("no row named %q", name)
+	return listItem{}
+}
+
+// keptSlots recomputes which annotation columns survived the trim, the same way
+// rebuildList decided: a column stays when any visible row fills it. Derived
+// rather than assumed, so these tests keep pointing at the right column as slots
+// are added — and so they fail if the trim ever disagrees with its own rule.
+func keptSlots(m model) []int {
+	used := make([]bool, len(annotSlots))
+	for _, st := range []*store{m.project, m.global} {
+		for _, td := range st.todos {
+			if m.folded(td) {
+				continue
+			}
+			for i, sl := range annotSlots {
+				if glyph, _, _ := sl.mark(td); glyph != "" {
+					used[i] = true
+				}
+			}
+		}
+	}
+	var kept []int
+	for i, u := range used {
+		if u {
+			kept = append(kept, i)
+		}
+	}
+	return kept
+}
+
+// annotMarkFor is the column a named slot occupies on a named row, or a blank
+// mark when the trim dropped that column list-wide — which is the same answer
+// the row gives the reader.
+func annotMarkFor(t *testing.T, m model, name, slot string) annotMark {
+	t.Helper()
+	it := rowNamed(t, m, name)
+	for pos, i := range keptSlots(m) {
+		if annotSlots[i].name != slot {
+			continue
+		}
+		if pos >= len(it.annots) {
+			t.Fatalf("row %q has %d annotation columns, want the %s column at %d",
+				name, len(it.annots), slot, pos)
+		}
+		return it.annots[pos]
+	}
+	return annotMark{}
+}
+
+// prioMark is the priority column of a row.
+func prioMark(t *testing.T, m model, name string) annotMark {
+	t.Helper()
+	return annotMarkFor(t, m, name, "priority")
+}
+
+// TestOnlyRaisedRowsCarryAPriorityMark pins the rule the column changed to.
+// Standard used to draw a dot on every row, which meant the column could not be
+// scanned for the rows that actually wanted attention — every row looked the
+// same. None draws nothing now, so the marks that are there are the answer.
+func TestOnlyRaisedRowsCarryAPriorityMark(t *testing.T) {
 	m := prioModel(t,
-		Todo{ID: "open", Title: "open standard", Prompt: "p"},
+		Todo{ID: "open", Title: "open none", Prompt: "p"},
 		Todo{ID: "crit", Title: "open critical", Prompt: "p", Priority: priorityCritical},
-		Todo{ID: "low", Title: "open low", Prompt: "p", Priority: priorityLow},
+		Todo{ID: "high", Title: "open high", Prompt: "p", Priority: priorityHigh},
+		Todo{ID: "old", Title: "retired low", Prompt: "p", Priority: "low"},
 		Todo{ID: "frozen", Title: "frozen", Prompt: "p", Frozen: true},
 		Todo{ID: "done", Title: "done", Prompt: "p", Done: true},
 	)
-	n := 0
-	for _, it := range m.list.items {
-		if !it.selectable {
-			continue // group headings carry no marks
-		}
-		n++
-		if it.prio != prioGlyph {
-			t.Errorf("row %q carries prio %q, want %q", it.name, it.prio, prioGlyph)
+	want := map[string]string{
+		"open none":     "",
+		"open critical": prioCriticalGlyph,
+		"open high":     prioHighGlyph,
+		// A backlog written by the old scheme draws nothing, which is what
+		// "low" always meant: not raised.
+		"retired low": "",
+		"frozen":      "",
+		"done":        "",
+	}
+	for name, glyph := range want {
+		if got := prioMark(t, m, name).text; got != glyph {
+			t.Errorf("row %q carries priority mark %q, want %q", name, got, glyph)
 		}
 	}
-	if n != 5 {
-		t.Fatalf("checked %d selectable rows, want 5", n)
+	// Group headings carry no columns at all.
+	for _, it := range m.list.items {
+		if !it.selectable && len(it.annots) != 0 {
+			t.Errorf("the %q heading carries annotation columns", it.name)
+		}
+	}
+}
+
+// TestTheBadgeLeadsTheAnnotations pins the row's reading order: state first,
+// then what is true about the prompt. The badge is what the list is grouped by,
+// so it is what the eye arriving at a row wants before anything else.
+func TestTheBadgeLeadsTheAnnotations(t *testing.T) {
+	m := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityCritical, Fruit: true})
+	m.list.filter()
+	// Stripped of its styling, so the order being asserted is the order the
+	// reader sees rather than the order the escape sequences happen to fall in.
+	row := stripANSI(strings.Split(m.list.rowsView("", m.width), "\n")[0])
+	want := []string{"○", prioCriticalGlyph, fruitGlyph, "a"}
+	at := -1
+	for _, seg := range want {
+		i := strings.Index(row, seg)
+		if i < 0 {
+			t.Fatalf("row %q is missing %q", row, seg)
+		}
+		if i <= at {
+			t.Fatalf("row %q has %q out of order — want %s in that order",
+				row, seg, strings.Join(want, " then "))
+		}
+		at = i
+	}
+}
+
+// TestUnusedAnnotationColumnsAreDropped pins what keeps the marks from costing
+// every backlog that does not use them: a list with nothing annotated draws no
+// annotation columns at all, and one that uses a single mark pays for one.
+func TestUnusedAnnotationColumnsAreDropped(t *testing.T) {
+	plain := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p"})
+	if n := len(rowNamed(t, plain, "a").annots); n != 0 {
+		t.Errorf("an unannotated list kept %d annotation columns, want 0", n)
+	}
+
+	one := prioModel(t,
+		Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityCritical},
+		Todo{ID: "b", Title: "b", Prompt: "p"},
+	)
+	// Both rows keep the same one column — the unmarked row's is blank, which is
+	// what holds the names in line.
+	for _, name := range []string{"a", "b"} {
+		if n := len(rowNamed(t, one, name).annots); n != 1 {
+			t.Errorf("row %q has %d annotation columns, want 1", name, n)
+		}
+	}
+	if got := rowNamed(t, one, "b").annots[0]; got.text != "" || got.width != 1 {
+		t.Errorf("the unmarked row's column = %+v, want a blank one cell wide", got)
+	}
+
+	both := prioModel(t,
+		Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityHigh},
+		Todo{ID: "b", Title: "b", Prompt: "p", Fruit: true},
+	)
+	if n := len(rowNamed(t, both, "a").annots); n != len(annotSlots) {
+		t.Errorf("a list using every mark kept %d columns, want %d", n, len(annotSlots))
+	}
+}
+
+// TestFruitMarksTheRow pins the second annotation end to end: the flag is on the
+// todo, the apple is on the row, and it is independent of the priority beside it.
+func TestFruitMarksTheRow(t *testing.T) {
+	m := prioModel(t,
+		Todo{ID: "cheap", Title: "cheap", Prompt: "p", Fruit: true},
+		Todo{ID: "both", Title: "both", Prompt: "p", Fruit: true, Priority: priorityCritical},
+		Todo{ID: "plain", Title: "plain", Prompt: "p"},
+	)
+	if got := annotMarkFor(t, m, "cheap", "low-hanging fruit").text; got != fruitGlyph {
+		t.Errorf("a fruit row carries %q, want %q", got, fruitGlyph)
+	}
+	if got := annotMarkFor(t, m, "plain", "low-hanging fruit").text; got != "" {
+		t.Errorf("an unmarked row carries a fruit %q", got)
+	}
+	// Both at once is the whole reason these are columns rather than one badge.
+	both := rowNamed(t, m, "both")
+	if annotMarkFor(t, m, "both", "priority").text != prioCriticalGlyph ||
+		annotMarkFor(t, m, "both", "low-hanging fruit").text != fruitGlyph {
+		t.Errorf("a critical quick win lost one of its marks: %+v", both.annots)
+	}
+}
+
+// TestFruitGlyphFitsItsColumn pins the emoji against the width annotSlots
+// declares for it. It is the one mark that is not one cell, so a slot width that
+// stopped matching would push every name on the list a column right.
+func TestFruitGlyphFitsItsColumn(t *testing.T) {
+	var width int
+	for _, sl := range annotSlots {
+		if sl.name == "low-hanging fruit" {
+			width = sl.width
+		}
+	}
+	if w := lipgloss.Width(fruitGlyph); w != width {
+		t.Errorf("the fruit glyph is %d cells wide, its column reserves %d", w, width)
 	}
 }
 
@@ -58,33 +226,26 @@ func TestEveryRowCarriesAPriorityDot(t *testing.T) {
 func TestPriorityDotHues(t *testing.T) {
 	m := prioModel(t,
 		Todo{ID: "crit", Title: "critical", Prompt: "p", Priority: priorityCritical},
-		Todo{ID: "std", Title: "standard", Prompt: "p"},
-		Todo{ID: "low", Title: "low", Prompt: "p", Priority: priorityLow},
+		Todo{ID: "high", Title: "high", Prompt: "p", Priority: priorityHigh},
 		Todo{ID: "donecrit", Title: "done critical", Prompt: "p", Priority: priorityCritical, Done: true},
 	)
 	want := map[string]lipgloss.Style{
 		"critical":      prioCriticalStyle,
-		"standard":      prioStandardStyle,
-		"low":           prioLowStyle,
+		"high":          prioHighStyle,
 		"done critical": prioClosedStyle,
 	}
-	for _, it := range m.list.items {
-		w, ok := want[it.name]
-		if !ok {
-			continue
-		}
-		if it.prioStyle.GetForeground() != w.GetForeground() {
-			t.Errorf("row %q dot is %v, want %v", it.name, it.prioStyle.GetForeground(), w.GetForeground())
+	for name, w := range want {
+		got := prioMark(t, m, name)
+		if got.style.GetForeground() != w.GetForeground() {
+			t.Errorf("row %q mark is %v, want %v", name, got.style.GetForeground(), w.GetForeground())
 		}
 	}
 	// A scheduled row is still open work, so it keeps its hue — the case a
 	// priority-tinted state badge would have lost.
 	m2 := prioModel(t, Todo{ID: "s", Title: "sched", Prompt: "p", Priority: priorityCritical,
 		Schedule: &Schedule{Kind: scheduleKindPane}})
-	for _, it := range m2.list.items {
-		if it.name == "sched" && it.prioStyle.GetForeground() != prioCriticalStyle.GetForeground() {
-			t.Error("a scheduled critical row lost its priority hue")
-		}
+	if got := prioMark(t, m2, "sched"); got.style.GetForeground() != prioCriticalStyle.GetForeground() {
+		t.Error("a scheduled critical row lost its priority hue")
 	}
 }
 
@@ -95,7 +256,7 @@ func TestPriorityDotHues(t *testing.T) {
 func TestPriorityOrderIsALensNotARewrite(t *testing.T) {
 	m := prioModel(t,
 		Todo{ID: "a", Title: "a", Prompt: "p"},
-		Todo{ID: "b", Title: "b", Prompt: "p", Priority: priorityLow},
+		Todo{ID: "b", Title: "b", Prompt: "p", Priority: priorityHigh},
 		Todo{ID: "c", Title: "c", Prompt: "p", Priority: priorityCritical},
 		Todo{ID: "d", Title: "d", Prompt: "p"},
 	)
@@ -106,9 +267,9 @@ func TestPriorityOrderIsALensNotARewrite(t *testing.T) {
 
 	m.orderByPriority = true
 	m.rebuildList()
-	// Critical first, then the two standards in the order the file holds them
-	// (a stable sort), then low.
-	want := []string{"c", "a", "d", "b"}
+	// Critical first, then high, then the two unmarked ones in the order the
+	// file holds them (a stable sort).
+	want := []string{"c", "b", "a", "d"}
 	if got := ids(m.rows); !equalIDs(got, want) {
 		t.Fatalf("rows under the lens = %v, want %v", got, want)
 	}
@@ -133,7 +294,7 @@ func TestPriorityOrderIsALensNotARewrite(t *testing.T) {
 // above open work would be the lens answering a question nobody asked.
 func TestPriorityOrderStaysInsideGroups(t *testing.T) {
 	m := prioModel(t,
-		Todo{ID: "open", Title: "open", Prompt: "p", Priority: priorityLow},
+		Todo{ID: "open", Title: "open", Prompt: "p"},
 		Todo{ID: "donecrit", Title: "done", Prompt: "p", Priority: priorityCritical, Done: true},
 	)
 	m.orderByPriority = true
@@ -283,7 +444,7 @@ func TestViewOptsPersist(t *testing.T) {
 
 // TestPriorityRowCyclesAndSaves walks the whole editor path: open a prompt, open
 // the ⚙ panel, cycle the Priority row, save — and the level is on the todo and
-// on its row's dot. It also pins that the row cycles formPriority and not the
+// on its row's mark. It also pins that the row cycles formAnnots and not the
 // session record, which are two different places a value could wrongly land.
 func TestPriorityRowCyclesAndSaves(t *testing.T) {
 	m := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p"})
@@ -291,8 +452,8 @@ func TestPriorityRowCyclesAndSaves(t *testing.T) {
 
 	mm, _ := m.beginEdit()
 	m = mm.(model)
-	if m.formPriority != priorityStandard {
-		t.Fatalf("the form opened on %q, want standard", m.formPriority)
+	if m.formAnnots.Priority != priorityNone {
+		t.Fatalf("the form opened on %q, want none", m.formAnnots.Priority)
 	}
 	mm, _ = m.beginSession()
 	m = mm.(model)
@@ -300,22 +461,24 @@ func TestPriorityRowCyclesAndSaves(t *testing.T) {
 		t.Fatalf("the panel opened on row %d, want Priority (%d) first", m.sessCursor, sessRowPriority)
 	}
 
-	// → once: standard → critical, and the value column says so.
-	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeyRight})
-	m = mm.(model)
-	if m.formPriority != priorityCritical {
-		t.Fatalf("one press left %q, want critical", m.formPriority)
+	// → twice: none → high → critical, and the value column says so.
+	for range 2 {
+		mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeyRight})
+		m = mm.(model)
+	}
+	if m.formAnnots.Priority != priorityCritical {
+		t.Fatalf("two presses left %q, want critical", m.formAnnots.Priority)
 	}
 	if got := m.sessValueLabel(sessRowPriority); got != "critical" {
 		t.Errorf("value column reads %q, want %q", got, "critical")
 	}
-	// The session record is untouched — priority is the Todo's, not its.
+	// The session record is untouched — the annotations are the Todo's, not its.
 	if m.formSession.configured() {
 		t.Error("cycling Priority wrote into the session options")
 	}
 
 	// Nothing is stored until the form is saved.
-	if td, _ := m.project.find("a"); td.Priority != priorityStandard {
+	if td, _ := m.project.find("a"); td.Priority != priorityNone {
 		t.Error("the panel wrote to the backlog before the form was saved")
 	}
 
@@ -328,10 +491,55 @@ func TestPriorityRowCyclesAndSaves(t *testing.T) {
 	if td, _ := m.project.find("a"); td.Priority != priorityCritical {
 		t.Errorf("saved priority is %q, want critical", td.Priority)
 	}
-	for _, it := range m.list.items {
-		if it.name == "a" && it.prioStyle.GetForeground() != prioCriticalStyle.GetForeground() {
-			t.Error("the row's dot did not follow the saved priority")
-		}
+	if got := prioMark(t, m, "a"); got.text != prioCriticalGlyph {
+		t.Errorf("the row's mark is %q, want it to follow the saved priority", got.text)
+	}
+}
+
+// TestFruitRowTogglesAndSaves is the same walk for the other annotation, and the
+// reason the two are one set: the panel's second row flips it, the save writes
+// it, and it lands beside the priority rather than instead of it.
+func TestFruitRowTogglesAndSaves(t *testing.T) {
+	m := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityHigh})
+	m.list.cursor = 0
+
+	mm, _ := m.beginEdit()
+	m = mm.(model)
+	mm, _ = m.beginSession()
+	m = mm.(model)
+	if m.formAnnots.Fruit {
+		t.Fatal("the form opened with the fruit already set")
+	}
+	// Down onto the Quick win row, then space to flip it.
+	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = mm.(model)
+	if m.sessCursor != sessRowFruit {
+		t.Fatalf("one press down landed on row %d, want Quick win (%d)", m.sessCursor, sessRowFruit)
+	}
+	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeySpace})
+	m = mm.(model)
+	if !m.formAnnots.Fruit {
+		t.Fatal("space on the Quick win row did not set it")
+	}
+	if got := m.sessValueLabel(sessRowFruit); got != "yes" {
+		t.Errorf("value column reads %q, want %q", got, "yes")
+	}
+
+	m.stage = stageForm
+	saved, _, ok := m.persistForm()
+	if !ok {
+		t.Fatalf("save refused: %s", saved.formErr)
+	}
+	m = saved
+	td, _ := m.project.find("a")
+	if !td.Fruit {
+		t.Error("the saved todo did not keep the fruit")
+	}
+	if td.Priority != priorityHigh {
+		t.Errorf("saving the fruit clobbered the priority: %q", td.Priority)
+	}
+	if got := annotMarkFor(t, m, "a", "low-hanging fruit").text; got != fruitGlyph {
+		t.Errorf("the row carries %q, want the apple", got)
 	}
 }
 
@@ -347,17 +555,25 @@ func TestFormSessionLineShowsPriority(t *testing.T) {
 		t.Errorf("⚙ line = %q, want it to lead with the priority", got)
 	}
 
-	// Standard stays silent — the line says what is not ordinary.
+	// Both annotations, in slot order, ahead of the session summary.
+	m3 := prioModel(t, Todo{ID: "c", Title: "c", Prompt: "p", Priority: priorityHigh, Fruit: true})
+	m3.list.cursor = 0
+	mm, _ = m3.beginEdit()
+	if got := mm.(model).sessionNote(); !strings.HasPrefix(got, "high · low-hanging fruit · ") {
+		t.Errorf("⚙ line = %q, want both annotations ahead of the session summary", got)
+	}
+
+	// An unannotated prompt stays silent — the line says what is not ordinary.
 	m2 := prioModel(t, Todo{ID: "b", Title: "b", Prompt: "p"})
 	m2.list.cursor = 0
 	mm, _ = m2.beginEdit()
-	if got := mm.(model).sessionNote(); strings.Contains(got, "standard") {
-		t.Errorf("⚙ line = %q, want standard to say nothing", got)
+	if got := mm.(model).sessionNote(); strings.Contains(got, "none") || strings.Contains(got, "fruit") {
+		t.Errorf("⚙ line = %q, want an unannotated prompt to say nothing", got)
 	}
 }
 
 // TestCancellingTheFormLeavesPriorityAlone pins the promise every other field on
-// this form makes: an abandoned edit changes nothing. formPriority is held by
+// this form makes: an abandoned edit changes nothing. formAnnots is held by
 // value for exactly this reason.
 func TestCancellingTheFormLeavesPriorityAlone(t *testing.T) {
 	m := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityCritical})
@@ -369,10 +585,19 @@ func TestCancellingTheFormLeavesPriorityAlone(t *testing.T) {
 	m = mm.(model)
 	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = mm.(model)
+	// And the other annotation, so the cancel is pinned for the whole set.
+	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = mm.(model)
+	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeySpace})
+	m = mm.(model)
 	m.cancelForm()
 
-	if td, _ := m.project.find("a"); td.Priority != priorityCritical {
+	td, _ := m.project.find("a")
+	if td.Priority != priorityCritical {
 		t.Errorf("a cancelled edit left priority %q, want it untouched at critical", td.Priority)
+	}
+	if td.Fruit {
+		t.Error("a cancelled edit set the low-hanging-fruit mark")
 	}
 }
 
@@ -391,25 +616,34 @@ func TestCtrlPStillNavigatesTheList(t *testing.T) {
 	if got.list.cursor != 0 {
 		t.Errorf("ctrl+p left the cursor at %d, want it moved up to 0", got.list.cursor)
 	}
-	if td, _ := got.project.find("b"); td.Priority != priorityStandard {
+	if td, _ := got.project.find("b"); td.Priority != priorityNone {
 		t.Errorf("ctrl+p on the list changed a priority to %q — the list does not set them", td.Priority)
 	}
 }
 
-// TestPriorityDotUsesTheBrownForLow pins low's hue. It is the one dot whose
-// colour is not taken from an existing palette entry, so a change to it is a
-// deliberate act rather than a knock-on from something else moving.
-func TestPriorityDotUsesTheBrownForLow(t *testing.T) {
-	if got := prioLowStyle.GetForeground(); got != lipgloss.Color(colBrown) {
-		t.Errorf("low dot is %v, want the brown %v", got, lipgloss.Color(colBrown))
+// TestPriorityRampIsInOrder pins the two hues against each other and against the
+// tone closed rows recede to. Lightness is what separates the marks at one cell
+// on a terminal that has flattened the palette, so the order is worth pinning:
+// high lightest, then critical, both clear of the greys.
+//
+// Neither hue is invented — high takes cats' own todo yellow and critical the
+// error red — so this test is what notices if the palette moves underneath them.
+func TestPriorityRampIsInOrder(t *testing.T) {
+	if got := prioHighStyle.GetForeground(); got != lipgloss.Color(colTodo) {
+		t.Errorf("the high mark is %v, want cats' todo yellow %v", got, lipgloss.Color(colTodo))
 	}
-	// The ramp the three are read by: standard lightest, then critical, then
-	// low, all clear of the tone closed rows recede to. Lightness is what
-	// separates them at one cell, so the order is worth pinning.
-	for _, pair := range [][2]string{{colTodo, colErr}, {colErr, colBrown}, {colBrown, colFaint}} {
+	if got := prioCriticalStyle.GetForeground(); got != lipgloss.Color(colErr) {
+		t.Errorf("the critical mark is %v, want the error red %v", got, lipgloss.Color(colErr))
+	}
+	for _, pair := range [][2]string{{colTodo, colErr}, {colErr, colFaint}} {
 		if relLum(pair[0]) <= relLum(pair[1]) {
 			t.Errorf("%s is not lighter than %s — the priority ramp is out of order", pair[0], pair[1])
 		}
+	}
+	// And the shapes carry the level on their own, for the reader the hues do
+	// not reach: hollow for high, solid for critical.
+	if prioHighGlyph == prioCriticalGlyph {
+		t.Error("the two priority marks share a glyph — colour is then the only thing telling them apart")
 	}
 }
 
@@ -448,4 +682,49 @@ func equalIDs(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestPromptViewSpellsOutTheAnnotations pins the one screen that has room for
+// both: the marks a row draws are also named in words on the prompt view, which
+// is where someone goes to find out what a glyph on a row was trying to say.
+//
+// It also pins the agreement the slot table exists to guarantee — a mark that
+// draws nothing says nothing, so a prompt cannot read as unmarked on its row and
+// as ranked here.
+func TestPromptViewSpellsOutTheAnnotations(t *testing.T) {
+	m := prioModel(t,
+		Todo{ID: "a", Title: "marked", Prompt: "p", Priority: priorityCritical, Fruit: true},
+		Todo{ID: "b", Title: "plain", Prompt: "p"},
+		Todo{ID: "c", Title: "retired", Prompt: "p", Priority: "low"},
+	)
+	m.height = 30
+
+	view := func(row int) string {
+		t.Helper()
+		mm := m
+		mm.list.cursor = row
+		next, _ := mm.beginView()
+		return stripANSI(next.(model).viewPrompt())
+	}
+
+	got := view(0)
+	for _, want := range []string{
+		prioCriticalGlyph + " critical", fruitGlyph + " low-hanging fruit",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the view of a marked prompt is missing %q:\n%s", want, got)
+		}
+	}
+	// And the state still leads the annotations, the same order the row reads in.
+	if i, j := strings.Index(got, "backlog"), strings.Index(got, "critical"); i > j {
+		t.Error("the annotations came before the backlog and date on the meta line")
+	}
+
+	if got := view(1); strings.Contains(got, "critical") || strings.Contains(got, "fruit") {
+		t.Errorf("an unannotated prompt's view named a mark:\n%s", got)
+	}
+	// The retired "low" draws no mark, so it names none either.
+	if got := view(2); strings.Contains(got, "low") {
+		t.Errorf(`the view named the retired "low", which draws nothing:\n%s`, got)
+	}
 }

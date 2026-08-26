@@ -63,6 +63,17 @@ type Todo struct {
 	// unless someone has actually said otherwise, so an untouched backlog is
 	// byte-identical to what it was before the field existed.
 	Priority string `json:"priority,omitempty"`
+	// Fruit marks a "low-hanging fruit" — a prompt whose payoff is out of
+	// proportion to what it costs, the thing worth grabbing while waiting on
+	// something else. It is an annotation rather than a priority level because
+	// it answers a different question: priority says how much this matters,
+	// fruit says how cheap it is, and the two are independent (a critical
+	// one-liner is both). See annotations.go for the family it belongs to.
+	//
+	// Same compat contract as the fields above — omitted from the JSON when
+	// false, so a backlog nobody has marked reads exactly as it did before the
+	// field existed, and an older binary ignores the key rather than choking.
+	Fruit bool `json:"fruit,omitempty"`
 }
 
 // Schedule is a one-shot auto-drop waiting to fire: at time At, the todo's
@@ -107,15 +118,24 @@ const (
 // The three priorities, in the order they escalate. Stored in backlog files —
 // like the schedule kinds, these names are wire format and not just code.
 //
-// Standard is the empty string rather than "standard" for the reason ctxNone is
-// (see session.go): "never said" and "explicitly ordinary" are deliberately the
-// same value, so a hand-edited backlog has one fewer state to guess about, most
-// todos write no key at all, and every todo that existed before this field
-// decodes as standard without a migration pass.
+// None is the empty string rather than "none" for the reason ctxNone is (see
+// session.go): "never said" and "explicitly ordinary" are deliberately the same
+// value, so a hand-edited backlog has one fewer state to guess about, most todos
+// write no key at all, and every todo that existed before this field decodes as
+// unmarked without a migration pass.
+//
+// The levels used to be standard / critical / low, with standard the drawn
+// default. They are none / high / critical now, which is the same three slots
+// read the other way up: the old scheme spent a mark on every ordinary row and
+// had "low" mean nothing more than "not raised", so the column it filled could
+// not be scanned for the rows that actually wanted attention. Raising is now the
+// only thing that leaves a mark. A backlog still holding "low" from the old
+// scheme reads as none — which is what it always meant — and keeps its key until
+// something rewrites the todo.
 const (
-	priorityStandard = ""
+	priorityNone     = ""
+	priorityHigh     = "high"
 	priorityCritical = "critical"
-	priorityLow      = "low"
 )
 
 // The three states a todo can be in, in the order the list draws them within a
@@ -359,21 +379,27 @@ func (s *store) setSession(id string, o *SessionOpts) error {
 	return errTodoNotFound
 }
 
-// setPriority replaces the priority of the todo with id and persists.
-// priorityStandard clears it, which is what writes the key back out of the file
-// rather than storing "standard" — see the Priority field.
+// setAnnots replaces the annotations of the todo with id — its priority and its
+// low-hanging-fruit mark — and persists. Zero values clear them, which is what
+// writes the keys back out of the file rather than storing "none"/false (see the
+// Priority and Fruit fields).
 //
-// Its own method rather than a field on update, for the reason setImages and
+// One method for the whole set rather than one per mark: they are saved together
+// by every caller that saves them at all (the form's ⚙ panel edits both), and two
+// methods would mean two reload-and-save round trips for one edit — with a window
+// between them where the file holds half of it.
+//
+// Its own method rather than fields on update, for the reason setImages and
 // setSession each have one: update is deliberately text-only, so a caller that
 // saves a title and a prompt cannot silently reset a triage decision it knows
 // nothing about.
-func (s *store) setPriority(id, p string) error {
+func (s *store) setAnnots(id string, a annots) error {
 	if err := s.reload(); err != nil {
 		return err
 	}
 	for i := range s.todos {
 		if s.todos[i].ID == id {
-			s.todos[i].Priority = p
+			a.applyTo(&s.todos[i])
 			return s.save()
 		}
 	}

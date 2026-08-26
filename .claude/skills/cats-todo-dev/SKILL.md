@@ -31,7 +31,8 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
 | `drop.go` / `client.go` / `launch.go` | performing a drop; cats control-socket client (`pane.list`, `tab.create`, `pane.wait_for_output`, `pane.send_input`), `waitForAgentReady`, `claudeReadyProbes` |
 | `worktree.go` | "on a new worktree" drops (`todo/<slug>-<4hex>` branches via cats) |
 | `session.go` | `SessionOpts`, normalizers (`normalizeModel/Effort/Permission/Finish/Review`, `foldOption`), launch flags, prompt wrapping |
-| `priority.go` | `normalizePriority`, labels, rank; standard = `""` |
+| `annotations.go` | the `annots` set, the `annotSlot` table (priority, low-hanging fruit), `trimAnnotColumns` |
+| `priority.go` | `normalizePriority`, labels, rank; none = `""` (levels: none/high/critical) |
 | `schedule.go` | parse `15:30` / `in 2h` / `tomorrow 9:00`; `Schedule` ⇄ dropTarget |
 | `cli.go` | `add` flags (incl. `expandSessLoad`, `optString`, `stringList`) |
 | `init.go` | `init [-f] [--post-install]` with the show-then-ask overwrite guard |
@@ -53,6 +54,11 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
    byte-identical and an older binary ignores the key. `done` and `frozen` are
    mutually exclusive (open / frozen / done = the three list groups). Array order is
    the user's order — never sort the file; sort only as a lens in the list.
+   Annotations (`priority`, `fruit`) are one set, edited and saved together
+   (`annots`, `store.setAnnots`); a new mark is a field on `Todo`, a field on
+   `annots`, a line in its three methods and an entry in `annotSlots`. The row
+   reads badge → annotation columns → name, each column fixed-width and dropped
+   list-wide when nobody fills it.
 2. **Two-place version bump.** `const version` in `main.go` **and** `version =` in
    `cats-plugin.toml` must match (the title chip shows it). Release = bump both,
    commit `chore(release): vX.Y.Z`. Bump the minor for a feature, patch for a fix.
@@ -89,8 +95,9 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
 - **Form:** `ctrl+s` save (also `cmd+s` as `super+s`/`meta+s`, which only a terminal
   that reports Cmd — cats does — can send; and `enter` from the title field) ·
   `enter`/`shift+enter`/`alt+enter`/`ctrl+j` newline in the prompt · `ctrl+o` (and
-  `ctrl+i`) images · `ctrl+r` ⚙ Session panel (moved off `ctrl+e`, which is the
-  caret's end-of-line) · `ctrl+l` Spelling · `ctrl+g` toggle project/global scope (add mode,
+  `ctrl+i`) images · `ctrl+r` ⚙ panel — annotations (Priority,
+  Quick win) above the seam, session options below (moved off `ctrl+e`, which is
+  the caret's end-of-line) · `ctrl+l` Spelling · `ctrl+g` toggle project/global scope (add mode,
   both backlogs available) · `tab` title⇄prompt · `@` file picker ·
   **Send** is click-only by design.
 - `shift+enter` needs the kitty keyboard protocol; `alt+enter` is the universal alias

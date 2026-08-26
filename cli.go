@@ -60,10 +60,14 @@ func addFromCLI(args []string) {
 	// person as an abbreviation of it, and a flag that looks like it means
 	// permissions while meaning priority is the kind of thing that gets found
 	// out at the wrong moment.
-	priority := fs.String("priority", "", "how much it matters: critical|standard|low (default standard)")
+	priority := fs.String("priority", "", "how much it matters: critical|high|none (default none)")
+	// The other annotation (see annotations.go). Long-only like --priority, and
+	// for the same reason: it is a fact about the prompt rather than one of the
+	// short flags that say where the prompt goes.
+	fruit := fs.Bool("fruit", false, "mark as low-hanging fruit — cheap for what it pays")
 
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [--priority p] [session options] [prompt...]")
+		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [--priority p] [--fruit] [session options] [prompt...]")
 		fmt.Fprintln(os.Stderr, "  the prompt is the remaining args joined; with none it is read from a piped stdin")
 		fmt.Fprintln(os.Stderr, "  session options: --model --effort --perm --clear --sess-load[=n] --sess-use --ctx")
 		fmt.Fprintln(os.Stderr, "                   --finish --review --release")
@@ -84,6 +88,7 @@ func addFromCLI(args []string) {
 	if err != nil {
 		errExit(err)
 	}
+	ann := annots{Priority: prio, Fruit: *fruit}
 
 	prompt := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if prompt == "" {
@@ -129,12 +134,15 @@ func addFromCLI(args []string) {
 	if err != nil {
 		errExit("could not attach image:", err)
 	}
-	if err := st.add(Todo{
+	td := Todo{
 		ID: id, Title: t, Prompt: prompt, Images: attached,
-		Session:  sessionPtr(opts),
-		Priority: prio,
-		Created:  time.Now(),
-	}); err != nil {
+		Session: sessionPtr(opts),
+		Created: time.Now(),
+	}
+	// Applied as a set for the reason persistForm does it: a mark added to
+	// annots later cannot be forgotten on one of the two paths that write a todo.
+	ann.applyTo(&td)
+	if err := st.add(td); err != nil {
 		// The copies are already on disk but no todo will ever reference them.
 		st.removeImages(id)
 		errExit("could not save:", err)
@@ -146,19 +154,20 @@ func addFromCLI(args []string) {
 	} else if n > 1 {
 		note = fmt.Sprintf(" with %d images", n)
 	}
-	// The priority rides on the same line rather than with the session options
-	// below: it is a fact about the prompt, like the images, not part of how the
-	// agent that receives it will be set up. It trails the backlog clause rather
-	// than joining the image note, so both halves stay readable together
+	// The annotations ride on the same line rather than with the session options
+	// below: they are facts about the prompt, like the images, not part of how
+	// the agent that receives it will be set up. They trail the backlog clause
+	// rather than joining the image note, so both halves stay readable together
 	// ("added with 1 image to the project backlog, marked critical").
 	//
-	// Standard says nothing at all — the default announcing itself on every add
-	// is noise, and silence is what "ordinary" should sound like.
-	prioNote := ""
-	if prio != priorityStandard {
-		prioNote = ", marked " + priorityLabel(prio)
+	// An unannotated prompt says nothing at all — the defaults announcing
+	// themselves on every add is noise, and silence is what "nothing said"
+	// should sound like.
+	annNote := ""
+	if s := ann.summary(); s != "" {
+		annNote = ", marked " + s
 	}
-	fmt.Printf("added%s to the %s backlog%s (%s)\n", note, strings.ToLower(st.scope.String()), prioNote, st.path)
+	fmt.Printf("added%s to the %s backlog%s (%s)\n", note, strings.ToLower(st.scope.String()), annNote, st.path)
 	// Echoed on its own line, and only when there is something to echo: the
 	// options are the part of this command that is easiest to get subtly wrong
 	// (a folded spelling, a --sess-load count that landed as a count rather than
