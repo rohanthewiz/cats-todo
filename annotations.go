@@ -56,14 +56,15 @@ func (a annots) applyTo(t *Todo) {
 }
 
 // any reports whether anything has actually been said. It is what lets a screen
-// stay silent about a prompt nobody has annotated — the ⚙ line, the CLI's echo —
-// rather than announce the defaults on every one.
+// stay silent about a prompt nobody has annotated — the CLI's echo — rather
+// than announce the defaults on every one.
 func (a annots) any() bool {
 	return a.Priority != priorityNone || a.Fruit
 }
 
 // summary is the annotations in words, for the screens with no room to draw
-// them: the form's ⚙ line, the CLI's echo after an add. Empty when nothing has
+// them — the CLI's echo after an add. (The form no longer needs it: its
+// annotation bar draws the marks live, annotbar.go.) Empty when nothing has
 // been said, so the caller can decide whether a line is worth spending at all.
 //
 // Built by walking the slot table rather than by a switch of its own, so the
@@ -98,8 +99,8 @@ func (a annots) summary() string {
 // value to be drawn.
 //
 // label is the same fact in words, for the screens that have room to spell it
-// out (the prompt view) and the ones with no room to draw a glyph at all (the ⚙
-// line, the CLI's echo). Empty exactly when mark's glyph is, so one table answers
+// out (the prompt view) and the ones with no room to draw a glyph at all (the
+// CLI's echo). Empty exactly when mark's glyph is, so one table answers
 // both and the words cannot drift from the columns. It is the *value* rather
 // than the column — "critical", not "priority" — because a reader who needed the
 // word instead of the mark needed the whole fact.

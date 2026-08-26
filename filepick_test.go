@@ -117,7 +117,7 @@ func TestAtOpensThePickerOnlyAtAWordStart(t *testing.T) {
 func TestAtInTheTitleDoesNotOpenThePicker(t *testing.T) {
 	m := withForm(t, "", "", 100, 30)
 	m.ctx.WorkDir = pickerTree(t)
-	next, _ := m.toggleFormFocus() // to the title
+	next, _ := m.cycleFormFocus(-1) // back one stop: prompt → title
 	m = next.(model)
 	if m.formFocus != formFieldTitle {
 		t.Fatalf("formFocus = %v, want the title", m.formFocus)

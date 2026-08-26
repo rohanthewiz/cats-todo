@@ -44,6 +44,7 @@ func TestFormRowsMatchWhatIsDrawn(t *testing.T) {
 	}{
 		{formTitleLabelRow, "Title", "the Title label"},
 		{formTitleRow, "the title", "the title field"},
+		{formAnnotRow, "Quick win", "the annotation bar"},
 		{formPromptLabelRow, "Prompt", "the Prompt label"},
 		{formPromptRow, "first line", "the editor's first line"},
 		{formPromptRow + 1, "second line", "the editor's second line"},

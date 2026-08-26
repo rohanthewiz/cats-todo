@@ -32,6 +32,7 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
 | `worktree.go` | "on a new worktree" drops (`todo/<slug>-<4hex>` branches via cats) |
 | `session.go` | `SessionOpts`, normalizers (`normalizeModel/Effort/Permission/Finish/Review`, `foldOption`), launch flags, prompt wrapping |
 | `annotations.go` | the `annots` set, the `annotSlot` table (priority, low-hanging fruit), `trimAnnotColumns` |
+| `annotbar.go` | the form's segmented annotation bar (Quick-win checkbox, Priority radios) between title and prompt |
 | `priority.go` | `normalizePriority`, labels, rank; none = `""` (levels: none/high/critical) |
 | `schedule.go` | parse `15:30` / `in 2h` / `tomorrow 9:00`; `Schedule` ⇄ dropTarget |
 | `cli.go` | `add` flags (incl. `expandSessLoad`, `optString`, `stringList`) |
@@ -95,10 +96,11 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
 - **Form:** `ctrl+s` save (also `cmd+s` as `super+s`/`meta+s`, which only a terminal
   that reports Cmd — cats does — can send; and `enter` from the title field) ·
   `enter`/`shift+enter`/`alt+enter`/`ctrl+j` newline in the prompt · `ctrl+o` (and
-  `ctrl+i`) images · `ctrl+r` ⚙ panel — annotations (Priority,
-  Quick win) above the seam, session options below (moved off `ctrl+e`, which is
+  `ctrl+i`) images · `ctrl+r` ⚙ panel — session options only (moved off `ctrl+e`, which is
   the caret's end-of-line) · `ctrl+l` Spelling · `ctrl+g` toggle project/global scope (add mode,
-  both backlogs available) · `tab` title⇄prompt · `@` file picker ·
+  both backlogs available) · `tab` walks title → prompt → annotation bar (the
+  segmented Quick-win/Priority menu between title and prompt, `annotbar.go`;
+  on it `←/→` move, `space`/`enter` press) · `@` file picker ·
   **Send** is click-only by design.
 - `shift+enter` needs the kitty keyboard protocol; `alt+enter` is the universal alias
   (`m.modEnter()` picks which to advertise). `ctrl+c` in the form copies a selection

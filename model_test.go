@@ -1009,8 +1009,8 @@ func TestFormEnterInsertsNewlineAndCtrlSSaves(t *testing.T) {
 		next, _ := m.beginAdd()
 		m = next.(model)
 		m.promptArea.SetValue("ship it")
-		// tab moves the focus off the prompt; the title is the other field.
-		next, _ = m.toggleFormFocus()
+		// shift+tab walks the ring backwards from the prompt to the title.
+		next, _ = m.cycleFormFocus(-1)
 		m = next.(model)
 		if m.formFocus == formFieldPrompt {
 			t.Fatalf("focus did not leave the prompt field")

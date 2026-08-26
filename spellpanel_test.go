@@ -346,9 +346,9 @@ func TestSpellPanelClosesBothWays(t *testing.T) {
 
 	// From the title field it comes back to the title field.
 	m := withSpellForm(t, "fix teh")
-	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.formFocus != formFieldTitle {
-		t.Fatalf("tab did not reach the title field (focus %d)", m.formFocus)
+		t.Fatalf("shift+tab did not reach the title field (focus %d)", m.formFocus)
 	}
 	m = openSpell(t, m)
 	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyEscape})

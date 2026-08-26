@@ -442,11 +442,12 @@ func TestViewOptsPersist(t *testing.T) {
 	}
 }
 
-// TestPriorityRowCyclesAndSaves walks the whole editor path: open a prompt, open
-// the ⚙ panel, cycle the Priority row, save — and the level is on the todo and
-// on its row's mark. It also pins that the row cycles formAnnots and not the
-// session record, which are two different places a value could wrongly land.
-func TestPriorityRowCyclesAndSaves(t *testing.T) {
+// TestPriorityRadioSetsAndSaves walks the whole editor path: open a prompt, tab
+// onto the annotation bar, walk to a level, press it, save — and the level is on
+// the todo and on its row's mark. It also pins that the bar edits formAnnots and
+// not the session record, which are two different places a value could wrongly
+// land.
+func TestPriorityRadioSetsAndSaves(t *testing.T) {
 	m := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p"})
 	m.list.cursor = 0
 
@@ -455,34 +456,36 @@ func TestPriorityRowCyclesAndSaves(t *testing.T) {
 	if m.formAnnots.Priority != priorityNone {
 		t.Fatalf("the form opened on %q, want none", m.formAnnots.Priority)
 	}
-	mm, _ = m.beginSession()
+	// The ring runs title → prompt → annotation bar, and the form opens in the
+	// prompt — so one tab lands on the bar.
+	mm, _ = m.updateForm(pressKey("tab"))
 	m = mm.(model)
-	if m.sessCursor != sessRowPriority {
-		t.Fatalf("the panel opened on row %d, want Priority (%d) first", m.sessCursor, sessRowPriority)
+	if m.formFocus != formFieldAnnots {
+		t.Fatalf("tab from the prompt left focus %d, want the annotation bar (%d)", m.formFocus, formFieldAnnots)
 	}
-
-	// → twice: none → high → critical, and the value column says so.
-	for range 2 {
-		mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeyRight})
+	// → three times from the checkbox, across none and high, onto critical.
+	for range 3 {
+		mm, _ = m.updateForm(pressKey("right"))
 		m = mm.(model)
 	}
-	if m.formAnnots.Priority != priorityCritical {
-		t.Fatalf("two presses left %q, want critical", m.formAnnots.Priority)
+	if m.annotCursor != annotSegPrioCritical {
+		t.Fatalf("three presses landed on segment %d, want critical (%d)", m.annotCursor, annotSegPrioCritical)
 	}
-	if got := m.sessValueLabel(sessRowPriority); got != "critical" {
-		t.Errorf("value column reads %q, want %q", got, "critical")
+	mm, _ = m.updateForm(pressKey("space"))
+	m = mm.(model)
+	if m.formAnnots.Priority != priorityCritical {
+		t.Fatalf("pressing the critical radio left %q, want critical", m.formAnnots.Priority)
 	}
 	// The session record is untouched — the annotations are the Todo's, not its.
 	if m.formSession.configured() {
-		t.Error("cycling Priority wrote into the session options")
+		t.Error("pressing a radio wrote into the session options")
 	}
 
 	// Nothing is stored until the form is saved.
 	if td, _ := m.project.find("a"); td.Priority != priorityNone {
-		t.Error("the panel wrote to the backlog before the form was saved")
+		t.Error("the bar wrote to the backlog before the form was saved")
 	}
 
-	m.stage = stageForm
 	saved, _, ok := m.persistForm()
 	if !ok {
 		t.Fatalf("save refused: %s", saved.formErr)
@@ -496,36 +499,33 @@ func TestPriorityRowCyclesAndSaves(t *testing.T) {
 	}
 }
 
-// TestFruitRowTogglesAndSaves is the same walk for the other annotation, and the
-// reason the two are one set: the panel's second row flips it, the save writes
-// it, and it lands beside the priority rather than instead of it.
-func TestFruitRowTogglesAndSaves(t *testing.T) {
+// TestQuickWinTogglesAndSaves is the same walk for the other annotation, and the
+// reason the two are one set: the bar's checkbox flips it, the save writes it,
+// and it lands beside the priority rather than instead of it. Enter presses a
+// segment too — it is the other key that means "push this button".
+func TestQuickWinTogglesAndSaves(t *testing.T) {
 	m := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityHigh})
 	m.list.cursor = 0
 
 	mm, _ := m.beginEdit()
 	m = mm.(model)
-	mm, _ = m.beginSession()
-	m = mm.(model)
 	if m.formAnnots.Fruit {
 		t.Fatal("the form opened with the fruit already set")
 	}
-	// Down onto the Quick win row, then space to flip it.
-	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeyDown})
+	mm, _ = m.updateForm(pressKey("tab"))
 	m = mm.(model)
-	if m.sessCursor != sessRowFruit {
-		t.Fatalf("one press down landed on row %d, want Quick win (%d)", m.sessCursor, sessRowFruit)
+	if m.annotCursor != annotSegFruit {
+		t.Fatalf("the bar opened on segment %d, want the checkbox (%d) first", m.annotCursor, annotSegFruit)
 	}
-	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeySpace})
+	mm, _ = m.updateForm(pressKey("enter"))
 	m = mm.(model)
 	if !m.formAnnots.Fruit {
-		t.Fatal("space on the Quick win row did not set it")
+		t.Fatal("enter on the Quick win checkbox did not set it")
 	}
-	if got := m.sessValueLabel(sessRowFruit); got != "yes" {
-		t.Errorf("value column reads %q, want %q", got, "yes")
+	if m.stage != stageForm {
+		t.Fatalf("enter on the bar left stage %v — it must press the segment, not save", m.stage)
 	}
 
-	m.stage = stageForm
 	saved, _, ok := m.persistForm()
 	if !ok {
 		t.Fatalf("save refused: %s", saved.formErr)
@@ -543,32 +543,39 @@ func TestFruitRowTogglesAndSaves(t *testing.T) {
 	}
 }
 
-// TestFormSessionLineShowsPriority pins the one place a priority would otherwise
-// be invisible: the editor is the only screen without the dot on it, and it is
-// the screen that sets the level.
-func TestFormSessionLineShowsPriority(t *testing.T) {
-	m := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityCritical})
+// TestFormShowsAnnotationsOnTheBar pins the fix the bar exists for: the editor
+// used to be the one screen a priority was invisible on, and now it is drawn
+// there live — the chosen radio filled, the checkbox ticked — while the ⚙ line
+// stays out of it rather than reading the same facts aloud one line down.
+func TestFormShowsAnnotationsOnTheBar(t *testing.T) {
+	m := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityCritical, Fruit: true})
 	m.list.cursor = 0
 	mm, _ := m.beginEdit()
 	m = mm.(model)
-	if got := m.sessionNote(); !strings.HasPrefix(got, "critical · ") {
-		t.Errorf("⚙ line = %q, want it to lead with the priority", got)
+
+	lines := strings.Split(m.viewForm(), "\n")
+	if len(lines) <= formAnnotRow {
+		t.Fatalf("the form renders %d lines, none at formAnnotRow (%d)", len(lines), formAnnotRow)
+	}
+	bar := lines[formAnnotRow]
+	if !strings.Contains(bar, "☑") {
+		t.Errorf("bar %q — want the Quick win checkbox ticked", bar)
+	}
+	if !strings.Contains(bar, "(•) "+prioCriticalGlyph) {
+		t.Errorf("bar %q — want the critical radio filled", bar)
+	}
+	if got := m.sessionNote(); strings.Contains(got, "critical") || strings.Contains(got, "fruit") {
+		t.Errorf("⚙ line = %q — the bar already shows the annotations; the line must not repeat them", got)
 	}
 
-	// Both annotations, in slot order, ahead of the session summary.
-	m3 := prioModel(t, Todo{ID: "c", Title: "c", Prompt: "p", Priority: priorityHigh, Fruit: true})
-	m3.list.cursor = 0
-	mm, _ = m3.beginEdit()
-	if got := mm.(model).sessionNote(); !strings.HasPrefix(got, "high · low-hanging fruit · ") {
-		t.Errorf("⚙ line = %q, want both annotations ahead of the session summary", got)
-	}
-
-	// An unannotated prompt stays silent — the line says what is not ordinary.
+	// An unannotated prompt: the box empty, and only the none radio filled.
 	m2 := prioModel(t, Todo{ID: "b", Title: "b", Prompt: "p"})
 	m2.list.cursor = 0
 	mm, _ = m2.beginEdit()
-	if got := mm.(model).sessionNote(); strings.Contains(got, "none") || strings.Contains(got, "fruit") {
-		t.Errorf("⚙ line = %q, want an unannotated prompt to say nothing", got)
+	m2 = mm.(model)
+	bar = strings.Split(m2.viewForm(), "\n")[formAnnotRow]
+	if !strings.Contains(bar, "☐") || !strings.Contains(bar, "(•) none") {
+		t.Errorf("bar %q — want an empty box and the none radio filled", bar)
 	}
 }
 
@@ -581,15 +588,17 @@ func TestCancellingTheFormLeavesPriorityAlone(t *testing.T) {
 
 	mm, _ := m.beginEdit()
 	m = mm.(model)
-	mm, _ = m.beginSession()
+	mm, _ = m.updateForm(pressKey("tab")) // prompt → the annotation bar
 	m = mm.(model)
-	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeyRight})
+	mm, _ = m.updateForm(pressKey("space")) // set the fruit…
 	m = mm.(model)
-	// And the other annotation, so the cancel is pinned for the whole set.
-	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeyDown})
+	mm, _ = m.updateForm(pressKey("right")) // …and walk onto none to clear the level
 	m = mm.(model)
-	mm, _ = m.updateSession(tea.KeyPressMsg{Code: tea.KeySpace})
+	mm, _ = m.updateForm(pressKey("space"))
 	m = mm.(model)
+	if m.formAnnots.Priority != priorityNone || !m.formAnnots.Fruit {
+		t.Fatalf("the bar holds %+v, want the edit staged before cancelling", m.formAnnots)
+	}
 	m.cancelForm()
 
 	td, _ := m.project.find("a")

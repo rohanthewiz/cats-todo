@@ -480,9 +480,9 @@ func TestPromptSelectionSurvivesAResize(t *testing.T) {
 // through to the field, and ctrl+c still quits.
 func TestPromptSelectionOnlyInTheEditor(t *testing.T) {
 	m := withForm(t, "a title", "alpha beta", 100, 40)
-	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // onto the title
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}) // back a stop, onto the title
 	if m.formFocus != formFieldTitle {
-		t.Fatal("tab did not move the focus to the title")
+		t.Fatal("shift+tab did not move the focus to the title")
 	}
 	m = typeInForm(t, m, shiftKey(tea.KeyLeft))
 	if m.promptSel.active {

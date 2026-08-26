@@ -240,7 +240,7 @@ type model struct {
 	editID     string
 	titleInput textinput.Model
 	promptArea textarea.Model
-	formFocus  int // 0 = title, 1 = prompt
+	formFocus  int // the formField* stop holding the keys (title, prompt, annotation bar)
 	formErr    string
 	// formNote is the form's one non-error message, drawn on the same line
 	// formErr uses and yielding to it when both are set. Today it says a
@@ -323,13 +323,16 @@ type model struct {
 	// its own rather than a member of formSession, because they are not session
 	// options: they say what is true about the prompt, not how the agent that
 	// reads it will be set up, and they are stored on the Todo rather than in its
-	// Session record. They share the panel with them (see sessRowPriority) and
-	// nothing else.
+	// Session record. They are edited on the form's own annotation bar
+	// (annotbar.go), not in the ⚙ panel.
 	//
 	// Held by value for the same reason formSession is copied: an abandoned form
 	// must leave the stored annotations exactly as they were.
 	formAnnots annots
-	sessCursor int
+	// annotCursor is the annotation bar's own cursor — which segment ←/→ and
+	// space act on while the bar holds the form's focus (see annotbar.go).
+	annotCursor int
+	sessCursor  int
 	// sessInput is the box the two free-text rows share: the context argument
 	// on one, the file being added on the other. One input rather than two
 	// because only ever one row holds the keys, and the value is committed to
@@ -947,6 +950,8 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		cmd := m.focusForm(formFieldTitle)
 		m.placeTitleCursor(msg.X)
 		return m, cmd
+	case msg.Y == formAnnotRow:
+		return m.clickAnnotBar(msg)
 	case msg.Y == formPromptLabelRow:
 		return m, m.focusForm(formFieldPrompt)
 	case msg.Y >= formPromptRow && msg.Y < formPromptRow+m.promptArea.Height():
@@ -1832,6 +1837,7 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	// behaviour a drop had before options existed.
 	m.formSession = SessionOpts{}
 	m.formAnnots = annots{}
+	m.annotCursor = 0
 	m.discardClipboardCaptures()
 	// Start in the prompt — that's the point of an entry.
 	cmd := m.focusForm(formFieldPrompt)
@@ -1874,6 +1880,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 		m.formSession = td.Session.clone()
 	}
 	m.formAnnots = annotsOf(td)
+	m.annotCursor = 0
 	m.discardClipboardCaptures()
 	cmd := m.focusForm(formFieldPrompt)
 	m.formErr, m.formNote = "", ""
@@ -1883,11 +1890,11 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 }
 
 // formChromeHeight is how many lines the form spends on everything that isn't
-// the prompt editor, so the editor gets the rest: the six above it (see
+// the prompt editor, so the editor gets the rest: the eight above it (see
 // formPromptRow), then the attachment note, the session note, the toolbar, an
-// error line, a blank, and the footer — twelve — plus two of slack for a footer
-// that needs a second line in a narrow pane.
-const formChromeHeight = 14
+// error line, a blank, and the footer — fourteen — plus two of slack for a
+// footer that needs a second line in a narrow pane.
+const formChromeHeight = 16
 
 // newFormInputs builds the title field and prompt editor, sized to the screen
 // and pre-filled with the given values.
@@ -1961,19 +1968,27 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		return m.cancelForm()
 	case "enter":
-		// Enter belongs to whichever field is focused, and the two fields want
-		// opposite things from it. The prompt is a text editor: enter is a
-		// newline there, so the key falls through to the textarea (see
-		// newFormInputs, which binds it on InsertNewline). The title is one
-		// line and cannot hold a newline at all, so enter does what enter does
-		// in every single-line form — commits it. Save is ctrl+s from either
-		// field, and the ✔ Save chip from neither.
+		// Enter belongs to whichever stop is focused, and they want different
+		// things from it. The prompt is a text editor: enter is a newline
+		// there, so the key falls through to the textarea (see newFormInputs,
+		// which binds it on InsertNewline). On the annotation bar it presses
+		// the segment under the cursor, which is what enter does on anything
+		// shaped like a button. The title is one line and cannot hold a
+		// newline at all, so enter does what enter does in every single-line
+		// form — commits it. Save is ctrl+s from any stop, and the ✔ Save
+		// chip from none.
 		if m.formFocus == formFieldPrompt {
 			break
 		}
+		if m.formFocus == formFieldAnnots {
+			m.activateAnnotSeg(m.annotCursor)
+			return m, nil
+		}
 		return m.saveForm()
-	case "tab", "shift+tab":
-		return m.toggleFormFocus()
+	case "tab":
+		return m.cycleFormFocus(1)
+	case "shift+tab":
+		return m.cycleFormFocus(-1)
 	case "ctrl+s", "super+s", "meta+s":
 		// ctrl+s is the binding that always works; super+s is the mac mnemonic
 		// that mostly cannot — same shape of answer as ctrl+o vs ctrl+i above.
@@ -2050,6 +2065,11 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		opened, blink := m.beginFiles()
 		return opened, tea.Batch(cmd, blink)
 	}
+	// On the annotation bar the remaining keys walk and press its segments
+	// rather than reaching any editor (see annotbar.go).
+	if m.formFocus == formFieldAnnots {
+		return m.updateAnnotBar(msg)
+	}
 	return m.forwardForm(msg)
 }
 
@@ -2092,42 +2112,67 @@ func (m model) cancelForm() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// The two fields of the form, in tab order — the values m.formFocus holds.
+// The form's focus stops, in tab order — the values m.formFocus holds. The
+// annotation bar is a stop of its own so its segments are reachable without a
+// pointer, but it comes after the prompt rather than in its visual place
+// between the two fields: the gesture this form lives on is "type a title,
+// tab, type the prompt", and a stop inserted into that walk would spray the
+// prompt's first keystrokes — spaces included, which the bar treats as a
+// toggle — into a row that is not a text field. Tab from the prompt reaches
+// the bar; shift+tab from the title reaches it directly.
 const (
 	formFieldTitle = iota
 	formFieldPrompt
+	formFieldAnnots
+	formFieldCount
 )
 
-// focusForm puts the keys on one field and takes them off the other, returning
-// that field's cursor-blink command. It is idempotent by design: focusing the
-// field that already holds the keys still restarts its blink, which is what a
-// click inside it should do.
+// focusForm puts the keys on one stop and takes them off the others, returning
+// that field's cursor-blink command (nil on the annotation bar, which has no
+// caret — its focus is drawn as an underline instead). It is idempotent by
+// design: focusing the field that already holds the keys still restarts its
+// blink, which is what a click inside it should do.
 func (m *model) focusForm(field int) tea.Cmd {
 	m.formFocus = field
-	if field == formFieldTitle {
-		m.promptArea.Blur()
-		return m.titleInput.Focus()
-	}
 	m.titleInput.Blur()
-	return m.promptArea.Focus()
+	m.promptArea.Blur()
+	switch field {
+	case formFieldTitle:
+		return m.titleInput.Focus()
+	case formFieldPrompt:
+		return m.promptArea.Focus()
+	}
+	return nil
 }
 
-func (m model) toggleFormFocus() (tea.Model, tea.Cmd) {
-	next := formFieldTitle
-	if m.formFocus == formFieldTitle {
-		next = formFieldPrompt
-	}
+// cycleFormFocus walks the tab ring one stop in either direction.
+func (m model) cycleFormFocus(delta int) (tea.Model, tea.Cmd) {
+	next := (m.formFocus + delta + formFieldCount) % formFieldCount
 	// The command is taken before m is returned: a returned value is a copy, and
 	// taking it first would hand back the model as it was before the focus moved.
 	cmd := m.focusForm(next)
 	return m, cmd
 }
 
+// restoreFormFocus re-arms whichever stop held the keys, for the sub-stages
+// (images, session, spelling, files) handing them back: a sub-stage that gave
+// the keys back somewhere else would make the form feel like it moved.
+func (m *model) restoreFormFocus() tea.Cmd {
+	switch m.formFocus {
+	case formFieldTitle:
+		return m.titleInput.Focus()
+	case formFieldPrompt:
+		return m.promptArea.Focus()
+	}
+	return nil
+}
+
 func (m model) forwardForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	if m.formFocus == formFieldTitle {
+	switch m.formFocus {
+	case formFieldTitle:
 		m.titleInput, cmd = m.titleInput.Update(msg)
-	} else {
+	case formFieldPrompt:
 		m.promptArea, cmd = m.promptArea.Update(msg)
 	}
 	return m, cmd
@@ -2180,10 +2225,7 @@ func (m *model) setImgStatus(s string, isErr bool) {
 func (m model) closeImages() (tea.Model, tea.Cmd) {
 	m.setImgStatus("", false)
 	m.stage = stageForm
-	if m.formFocus == formFieldTitle {
-		return m, m.titleInput.Focus()
-	}
-	return m, m.promptArea.Focus()
+	return m, m.restoreFormFocus()
 }
 
 func (m model) updateImages(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -2398,18 +2440,11 @@ func (m model) droppedRels() []string {
 // what it does, how it ends. The cursor is an index into this set, so the
 // numbering is the layout and nothing else; it is not stored anywhere.
 const (
-	// The annotations lead, and are the rows here that are not launch flags.
-	// They describe the prompt — how much it matters, how cheap it is — where
-	// every row below them describes the session that will read it.
-	//
-	// They share this panel anyway because this is where a prompt's per-todo
-	// settings are edited, and a second panel holding two rows would be a worse
-	// answer than two first rows that say what they are. The note column carries
-	// the distinction, and the blank line the renderer draws under them separates
-	// the two halves.
-	sessRowPriority   = iota // how much this prompt matters
-	sessRowFruit             // …and how cheaply it can be had
-	sessRowModel             // --model
+	// The prompt's own annotations (priority, quick win) are not here: they
+	// describe the prompt rather than the session that will read it, and they
+	// are set on the form's annotation bar (annotbar.go), in sight of the
+	// title they qualify. Every row of this panel is about the session.
+	sessRowModel      = iota // --model
 	sessRowEffort            // --effort
 	sessRowPermission        // --permission-mode
 	sessRowClear             // /clear an existing pane first
@@ -2485,10 +2520,7 @@ func (m model) closeSession() (tea.Model, tea.Cmd) {
 	m.commitSessInput()
 	m.setSessStatus("", false)
 	m.stage = stageForm
-	if m.formFocus == formFieldTitle {
-		return m, m.titleInput.Focus()
-	}
-	return m, m.promptArea.Focus()
+	return m, m.restoreFormFocus()
 }
 
 // sessRowIsText reports whether row i is one of the two free-text rows. They are
@@ -2610,11 +2642,6 @@ func (m model) updateSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *model) cycleSessRow(delta int) {
 	o := &m.formSession
 	switch m.sessCursor {
-	case sessRowPriority:
-		// Not on o: the annotations are the Todo's, not the session record's.
-		m.formAnnots.Priority = cycleValue(prioValues, m.formAnnots.Priority, delta)
-	case sessRowFruit:
-		m.formAnnots.Fruit = !m.formAnnots.Fruit
 	case sessRowModel:
 		o.Model = cycleValue(sessModelValues, o.Model, delta)
 	case sessRowEffort:
@@ -2694,19 +2721,11 @@ func (m model) removeSessFile() (tea.Model, tea.Cmd) {
 // reason the 📎 line is always drawn — a panel nobody knows about is a panel
 // nobody uses.
 //
-// The priority leads it when it is not standard. The dot on the list is where a
-// priority is normally read, and the form is the one screen that does not show
-// that dot — so without this, the level a prompt was given would be invisible
-// on the very screen that sets it unless the panel were opened to look.
-//
-// Standard says nothing, the same silence the CLI's echo keeps: the ⚙ line has
-// one job, which is to say what is not ordinary about this prompt.
+// The annotations are deliberately not on it any more: the bar between the
+// title and the prompt draws them live (annotbar.go), and a line that repeated
+// what is already lit two inches up would be the form reading itself aloud.
 func (m model) sessionNote() string {
-	note := firstNonEmpty(m.formSession.summary(), "default session")
-	if a := m.formAnnots.summary(); a != "" {
-		note = a + " · " + note
-	}
-	return note
+	return firstNonEmpty(m.formSession.summary(), "default session")
 }
 
 // imageCountNote describes the form's attachment list for a heading or status
@@ -4147,19 +4166,21 @@ const actionBarRow = 2
 const listRowsRow = actionBarRow + 1
 
 // The form's fixed rows, counting from the top of that view: the heading (0), a
-// blank (1), the Title label (2), the title field (3), a blank (4), the Prompt
-// label (5), then the prompt editor. Every one of those is exactly one line, so
-// a click's Y is compared against these constants instead of the view being
-// re-measured. TestFormRowsMatchWhatIsDrawn finds each of them in the rendered
-// frame and fails if the layout ever grows a line.
+// blank (1), the Title label (2), the title field (3), a blank (4), the
+// annotation bar (5), a blank (6), the Prompt label (7), then the prompt
+// editor. Every one of those is exactly one line, so a click's Y is compared
+// against these constants instead of the view being re-measured.
+// TestFormRowsMatchWhatIsDrawn finds each of them in the rendered frame and
+// fails if the layout ever grows a line.
 //
 // Everything below the editor moves with its height, so those rows are computed
 // (see formBarRow) rather than named here.
 const (
 	formTitleLabelRow  = 2
 	formTitleRow       = 3
-	formPromptLabelRow = 5
-	formPromptRow      = 6
+	formAnnotRow       = 5
+	formPromptLabelRow = 7
+	formPromptRow      = 8
 )
 
 // formBarRow is the line the form's toolbar sits on: under the editor, with the
@@ -4186,6 +4207,12 @@ func (m model) viewForm() string {
 	b.WriteString(promptStyle.Render("Title"))
 	b.WriteString("\n")
 	b.WriteString(m.titleInput.View())
+	b.WriteString("\n\n")
+
+	// The annotation bar — the prompt's own marks, between the title they
+	// qualify and the body (annotbar.go). One line by construction, which
+	// formAnnotRow and every row constant below it depend on.
+	b.WriteString(m.annotBar())
 	b.WriteString("\n\n")
 
 	b.WriteString(promptStyle.Render("Prompt"))
@@ -4566,14 +4593,6 @@ func (m model) viewImages() string {
 func (m model) sessValueLabel(row int) string {
 	o := m.formSession
 	switch row {
-	case sessRowPriority:
-		// Named rather than left blank at none, unlike the launch flags below,
-		// whose blank means "we do not pass this and claude picks". Here the row
-		// is the whole answer: "none" is a level the user chose to leave the
-		// prompt at, and a blank would read as a row that failed to load.
-		return priorityLabel(m.formAnnots.Priority)
-	case sessRowFruit:
-		return yesNo(m.formAnnots.Fruit)
 	case sessRowModel:
 		return firstNonEmpty(o.Model, "default")
 	case sessRowEffort:
@@ -4630,8 +4649,6 @@ func yesNo(b bool) string {
 // The note is what the option actually does — a panel of bare enum names would
 // make the user open the README to find out what "dontAsk" costs them.
 var sessRowLabels = [sessRowCount]struct{ label, note string }{
-	sessRowPriority:   {"Priority", "how much this prompt matters — " + prioHighGlyph + " high, " + prioCriticalGlyph + " critical, on its row"},
-	sessRowFruit:      {"Quick win", "low-hanging fruit — cheap for what it pays, marked " + fruitGlyph + " on its row"},
 	sessRowModel:      {"Model", "--model, on a new claude session"},
 	sessRowEffort:     {"Effort", "--effort, on a new claude session"},
 	sessRowPermission: {"Permission", "--permission-mode, on a new claude session"},
@@ -4654,11 +4671,7 @@ var sessRowLabels = [sessRowCount]struct{ label, note string }{
 // only the two rows that cannot be enumerated get a box at all.
 func (m model) viewSession() string {
 	var b strings.Builder
-	// Named for both halves. The rows above the seam are the prompt's own
-	// annotations and the rows below are the session's launch flags, and a
-	// heading that claimed only the second would be contradicted by the first
-	// two lines under it.
-	heading := titleStyle.Render("Prompt & session options")
+	heading := titleStyle.Render("Session options")
 	b.WriteString(heading)
 	b.WriteString("  ")
 	// The summary is every option joined, so it is the one thing here with no
@@ -4755,15 +4768,6 @@ func (m model) viewSession() string {
 			}
 		}
 		b.WriteString(line.String())
-		// A seam under the annotations. The rows above describe the prompt —
-		// what is true about it, saved on the todo — and every row below
-		// describes the session that will read it. Eleven rows with no break in
-		// them read as one list of options rather than as two answers to two
-		// different questions, and the note column alone was not enough to say
-		// so at a glance.
-		if row == sessRowFruit {
-			b.WriteString("\n")
-		}
 	}
 
 	if !m.sessSkills {

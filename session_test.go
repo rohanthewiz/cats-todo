@@ -414,18 +414,12 @@ func stepSession(t *testing.T, m model, key string) model {
 // cycle it, and find the record changed.
 func TestSessionPanelCycles(t *testing.T) {
 	m, _ := openSessionPanel(t)
-	// The annotations lead the panel — the rows here that describe the prompt
-	// rather than the session that will read it (see annotations.go).
-	if m.sessCursor != sessRowPriority {
-		t.Fatalf("the panel opened on row %d, want Priority (%d) first", m.sessCursor, sessRowPriority)
+	// The panel is launch flags only now — the annotations moved to the form's
+	// own bar (annotbar.go) — so it opens on Model, the first of them.
+	if m.sessCursor != sessRowModel {
+		t.Fatalf("the panel opened on row %d, want Model (%d) first", m.sessCursor, sessRowModel)
 	}
 
-	// Down past both annotation rows to the first launch flag, rather than a
-	// fixed number of presses: a row added above Model must not silently retarget
-	// the rest of this walk.
-	for m.sessCursor < sessRowModel {
-		m = stepSession(t, m, "down")
-	}
 	m = stepSession(t, m, "right")
 	if m.formSession.Model != sessModelValues[1] {
 		t.Errorf("right on the model row = %q, want %q", m.formSession.Model, sessModelValues[1])
@@ -527,10 +521,10 @@ func TestSessionPanelEscRestoresFocus(t *testing.T) {
 	}
 
 	// And from the title field, back to the title field.
-	next, _ := m.updateForm(pressKey("tab"))
+	next, _ := m.updateForm(pressKey("shift+tab"))
 	m = next.(model)
 	if m.formFocus != formFieldTitle {
-		t.Fatal("tab did not move the focus to the title")
+		t.Fatal("shift+tab did not move the focus to the title")
 	}
 	next, _ = m.updateForm(pressKey("ctrl+r"))
 	m = stepSession(t, next.(model), "esc")
@@ -545,9 +539,6 @@ func TestSessionPanelEscRestoresFocus(t *testing.T) {
 // key at all.
 func TestSessionSavedWithTodo(t *testing.T) {
 	m, project := openSessionPanel(t)
-	for m.sessCursor < sessRowModel { // past the annotation rows, which lead the panel
-		m = stepSession(t, m, "down")
-	}
 	m = stepSession(t, m, "right") // model → the first alias
 	m = stepSession(t, m, "down")
 	m = stepSession(t, m, "right") // effort → low

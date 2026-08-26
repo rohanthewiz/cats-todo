@@ -16,15 +16,11 @@ package main
 
 import "fmt"
 
-// prioValues is the ring the ⚙ panel's Priority row steps through, in the order
-// it steps: none, then up. None leads because it is the default and therefore
-// where every cycle starts, and the two raised levels follow in the order they
-// escalate — so one press means "this matters" and two mean "this matters most",
-// which is the order a person thinks in when they reach for the row at all.
-//
-// cycleValue keeps a value that is not in the ring (session.go), so a backlog
-// hand-edited to an unknown priority — or holding the retired "low" — is stepped
-// off rather than clobbered.
+// prioValues is the levels in the order they escalate: none, then up. The
+// form's annotation bar lays them out as radios in this same order (see
+// annotbar.go), so one step right of "none" means "this matters" and two mean
+// "this matters most" — the order a person thinks in when they reach for the
+// control at all.
 var prioValues = []string{priorityNone, priorityHigh, priorityCritical}
 
 // normalizePriority folds what a person would type onto the stored spelling and
@@ -54,10 +50,10 @@ func normalizePriority(s string) (string, error) {
 	return "", fmt.Errorf("priority %q is not one of critical, high, none", s)
 }
 
-// priorityLabel is the word for a priority wherever one is shown — the ⚙
-// panel's value column, the CLI's echo. None is named rather than left blank:
-// the empty string is a storage detail, and a panel row that went blank would
-// read as broken rather than as "nothing said".
+// priorityLabel is the word for a priority wherever one is spelled out — the
+// prompt view's meta line, the CLI's echo (via priorityAnnotLabel). None is
+// named rather than left blank: the empty string is a storage detail, and a
+// value that went blank would read as broken rather than as "nothing said".
 func priorityLabel(p string) string {
 	switch p {
 	case priorityCritical:

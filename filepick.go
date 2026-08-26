@@ -540,10 +540,7 @@ func (m model) closeFiles() (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	}
 	m.stage = stageForm
-	if m.formFocus == formFieldTitle {
-		return m, m.titleInput.Focus()
-	}
-	return m, m.promptArea.Focus()
+	return m, m.restoreFormFocus()
 }
 
 // chooseFile inserts the highlighted entry into the prompt and closes the

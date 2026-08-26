@@ -205,8 +205,8 @@ Two annotations exist today:
 
 | Mark | Means | Set by |
 |---|---|---|
-| `▲` `△` | **priority** — critical, high | the ⚙ panel's **Priority** row, `--priority` |
-| `🍏` | **low-hanging fruit** — a quick win | the ⚙ panel's **Quick win** row, `--fruit` |
+| `▲` `△` | **priority** — critical, high | the editor's **Priority** radios, `--priority` |
+| `🍏` | **low-hanging fruit** — a quick win | the editor's **Quick win** checkbox, `--fruit` |
 
 Freezing is *not* an annotation. It is a state, mutually exclusive with done, and
 it stays in the badge (`❄`) where the three groups are read from.
@@ -263,34 +263,42 @@ and two reds on a row read as one signal repeated.
 
 #### Where they are set
 
-Both live where the rest of a prompt's settings do: open the prompt, `ctrl+r` for
-the ⚙ panel, and they are its first two rows — `←`/`→` or `space` changes the row
-under the cursor, exactly like the rows below.
+Both are set on the editor itself, on a segmented bar between the title and the
+prompt body — a checkbox and a radio group, because that is what the two facts
+are: the fruit is independent, and the priority is exactly one of three levels.
 
 ```
-Prompt & session options   default session
+Title
+fix the drop path
 
-❯ Priority    critical   how much this prompt matters — △ high, ▲ critical, on its row
-  Quick win   yes        low-hanging fruit — cheap for what it pays, marked 🍏 on its row
+☐ 🍏 Quick win   Priority  (•) none   ( ) △ high   ( ) ▲ critical
 
-  Model       default
-  Effort      default
-  …
+Prompt
+…
 ```
 
-`ctrl+v` on a row spells them out in words as well — `▲ critical · 🍏
-low-hanging fruit` on the prompt view's meta line — which is where to look when a
-glyph on a row is not yet familiar.
+They used to be the first two rows of the ⚙ session panel, above a seam —
+accurate, but a screen away: the marks describe **the prompt**, the panel
+describes **the session that will read it**, and the one screen where a prompt
+is actually written showed neither. Now the mark is made in sight of the title
+it qualifies, and each segment carries the glyph its choice will draw on the
+list row, so the bar teaches the legend at the moment it is used. `none` is a
+hole of its own rather than the absence of one, which makes clearing a level
+the same gesture as setting it.
 
-The blank line is a seam: everything above it describes **the prompt**, and
-everything below it describes **the session that will read it**. The annotations
-share the panel because that is where a prompt's own settings are edited, and a
-second panel holding two rows would be a worse answer than two first rows that
-say what they are. Nothing is written until the form is saved, so an abandoned
-edit leaves the marks as they were. The ⚙ line on the form itself leads with
-whatever has been said — `critical · low-hanging fruit · …` — since the editor is
-the one screen the marks are not drawn on, and it stays silent about a prompt
-nobody has annotated.
+A click presses a segment without taking the keys from whichever field you are
+typing in; from the keyboard, `tab` walks the form's ring (prompt → bar →
+title), and on the bar `←`/`→` move between segments — the one under the
+cursor is underlined — while `space` or `enter` presses. The bar joins the
+ring *after* the prompt rather than in its visual place between the fields, on
+purpose: the gesture this form lives on is "type a title, tab, type the
+prompt", and a stop inserted into that walk would spray the prompt's first
+keystrokes into a row that is not a text field.
+
+Nothing is written until the form is saved, so an abandoned edit leaves the
+marks as they were. `ctrl+v` on a list row spells the marks out in words as
+well — `▲ critical · 🍏 low-hanging fruit` on the prompt view's meta line —
+which is where to look when a glyph on a row is not yet familiar.
 
 #### Priority order
 
@@ -551,13 +559,12 @@ In the editor, `ctrl+r` opens the ⚙ panel (or click the **Session** chip).
 list marks a configured prompt with `⚙`, and nothing is written until you save
 the prompt itself.
 
-The panel's first two rows are above the seam and are not session options at all:
-they are the prompt's own [annotations](#annotations). Everything below the blank
-line describes the session that will read the prompt.
+Every row of the panel describes the session that will read the prompt. The
+prompt's own marks — priority, quick win — are not here: they are set on the
+editor's [annotation bar](#annotations), in sight of the title they qualify.
 
 | Row | What it does |
 |---|---|
-| *Priority, Quick win* | *the prompt's own marks — see [Annotations](#annotations)* |
 | Model, Effort, Permission | `--model`, `--effort`, `--permission-mode` on the launch |
 | Clear first | sends `/clear` as its own message before the prompt |
 | Context | starts with `/sess-load [n]` or `/sess-use <pattern>` |

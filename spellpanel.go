@@ -305,10 +305,7 @@ func (m model) addToDictionary(c spellChoice) (tea.Model, tea.Cmd) {
 func (m model) closeSpell() (tea.Model, tea.Cmd) {
 	m.spellErr = ""
 	m.stage = stageForm
-	if m.formFocus == formFieldTitle {
-		return m, m.titleInput.Focus()
-	}
-	return m, m.promptArea.Focus()
+	return m, m.restoreFormFocus()
 }
 
 // replacePromptRunes swaps the editor's runes [start, end) for with, and leaves
