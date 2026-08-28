@@ -491,6 +491,18 @@ arrow, a click, a save — simply drops the highlight, because a highlight left
 standing over text the caret has walked away from is a lie about what the next
 `ctrl+c` would copy.
 
+`cmd+d` **duplicates the line the caret is on**, dropping the copy directly
+below it and leaving the caret on the copy in the column it held — so holding the
+chord stacks copies the way it does in a code editor, and the press after it
+carries on where your hand already was. A line here is a logical row (a run
+between newlines), not a drawn one: a long paragraph that soft-wraps over three
+display lines duplicates whole, because splitting it at a wrap would cut it at a
+boundary the text does not contain. There is deliberately no `ctrl+d` fallback —
+`ctrl+d` is the editor's delete-character-forward, and a duplicate bound over a
+delete is the one collision a text editor must not ship. Cmd only reaches a TUI
+from a terminal that reports it (cats does; see `ctrl+s`/`cmd+s` below), so on a
+terminal that eats the chord this is simply unavailable rather than wrong.
+
 `alt+enter` is bound everywhere `shift+enter` is, and in the editor
 `shift+enter`, `alt+enter` and `ctrl+j` all insert a newline alongside plain
 `enter` — the chords the form taught first still work, and a hand that learned

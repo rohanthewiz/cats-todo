@@ -2030,6 +2030,17 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// their side. meta+s rides along because a terminal that reports Cmd as
 		// the meta bit rather than the super bit spells the same press that way.
 		return m.saveForm()
+	case "super+d", "meta+d":
+		// Cmd+D duplicates the caret's line — the chord every editor on this
+		// machine puts a line copy on, and the reason it is Cmd-only is the
+		// mirror of the ctrl+o/ctrl+i story above: the obvious fallback, ctrl+d,
+		// is the textarea's own delete-character-forward (its DefaultKeyMap),
+		// and a duplicate bound over a delete is the one collision a text editor
+		// must not ship. So this rides the same road ctrl+s's cmd spelling
+		// does — see the comment there for which terminals forward Cmd at all —
+		// and every terminal that cannot send it is left with a chord that
+		// deletes nothing rather than one that deletes a character.
+		return m.duplicatePromptLine()
 	case "ctrl+o", "ctrl+i":
 		// ctrl+o is the binding that always works; ctrl+i is the mnemonic that
 		// mostly cannot. ctrl+i *is* tab on the wire — both are 0x09 — so a
@@ -2101,6 +2112,52 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateAnnotBar(msg)
 	}
 	return m.forwardForm(msg)
+}
+
+// duplicatePromptLine copies the logical line the caret sits on and inserts the
+// copy directly below it, leaving the caret in the same column of the new line.
+// Landing on the copy rather than staying on the original is what lets a held
+// Cmd+D stack copies the way it does in a code editor; landing in the same
+// column is what lets the press that follows carry on editing where the hand
+// already was.
+//
+// "Line" here is a logical row of the value — a run between newlines — not a
+// drawn one. A long row that soft-wraps over three display lines is a single
+// line to duplicate, which is what someone looking at a wrapped paragraph means
+// by the word; duplicating a wrap segment would cut a sentence at a boundary the
+// value does not contain.
+//
+// The insertion goes through replacePromptRunes (spellpanel.go) rather than
+// through the library's InsertString, for the reason that helper exists: the
+// textarea only edits at its caret, so inserting at the row's end would mean
+// walking the caret there first and then walking it back, and a walk that lands
+// a character off is a bug that shows up only on soft-wrapped rows.
+func (m model) duplicatePromptLine() (tea.Model, tea.Cmd) {
+	if m.formFocus != formFieldPrompt {
+		// Say why rather than no-op. The title is one line by construction — it
+		// cannot hold a second — and the annotation bar is not text at all.
+		m.formNote = "duplicate line works in the prompt"
+		return m, nil
+	}
+	rows := strings.Split(m.promptArea.Value(), "\n")
+	row := min(max(m.promptArea.Line(), 0), len(rows)-1)
+	col := min(max(m.promptArea.Column(), 0), len([]rune(rows[row])))
+
+	// The absolute rune offset of the caret's row-end, which is where the copy
+	// is spliced in: every row above it plus the newline that ended each, then
+	// the row itself.
+	end := 0
+	for i := range row {
+		end += len([]rune(rows[i])) + 1
+	}
+	end += len([]rune(rows[row]))
+
+	m.replacePromptRunes(end, end, "\n"+rows[row])
+	// +1 steps over the newline just inserted, so the caret lands on the copy at
+	// the column it held on the original.
+	setPromptCaretOffset(&m.promptArea, end+1+col)
+	m.formNote = "duplicated line"
+	return m, nil
 }
 
 // copyPromptSelection puts the highlighted run of the prompt on the system
@@ -4519,10 +4576,16 @@ func (m model) formFooter() string {
 	// line, for the reason "@ file" is here at all: no chip on the toolbar
 	// stands for it — ☑ Spell is the toggle, not the panel — so a pane wide
 	// enough to silence the chords line would otherwise leave the key
-	// unadvertised. Last, after scope, because it is the one segment that is
-	// about the editor rather than about this prompt, and so the first that can
-	// be given up when the pane narrows.
-	segs = append(segs, "ctrl+l spelling")
+	// unadvertised. After scope, because it is the one segment that is about the
+	// editor rather than about this prompt, and so among the first that can be
+	// given up when the pane narrows.
+	//
+	// cmd+d (duplicatePromptLine) rides along for the same reason — no chip
+	// stands for it either — and takes the very end of the line, because it is
+	// the one segment here that a terminal may not be able to send at all. If
+	// the pane is narrow enough to cost a segment, the chord that might never
+	// arrive is the right one to lose first.
+	segs = append(segs, "ctrl+l spelling", "cmd+d dup line")
 	lines = append(lines, m.fitFooter(segs))
 
 	for i, ln := range lines {

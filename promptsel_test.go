@@ -640,3 +640,103 @@ func TestPromptSelectionSurvivesKeysThatAreNotEdits(t *testing.T) {
 		})
 	}
 }
+
+// --- Cmd+D: duplicate the caret's line ----------------------------------------
+
+// cmdD is Cmd+D as the two terminals that can send it spell it: a kitty-protocol
+// terminal sets the super bit for the Command key, and a terminal that reports
+// the same press on the meta bit sends the other. Both have to work, because
+// which one arrives is the terminal's choice and not the user's — the same
+// reasoning the Cmd+S test in model_test.go runs on.
+var cmdD = map[string]tea.KeyPressMsg{
+	"super+d": {Code: 'd', Mod: tea.ModSuper},
+	"meta+d":  {Code: 'd', Mod: tea.ModMeta},
+}
+
+// TestDuplicatePromptLine: the copy lands directly below the original, and the
+// caret lands on the copy in the column it held — so the hand carries on editing
+// where it already was.
+func TestDuplicatePromptLine(t *testing.T) {
+	for name, key := range cmdD {
+		t.Run(name, func(t *testing.T) {
+			m := withForm(t, "", "alpha\nbeta\ngamma", 100, 40)
+			m.focusForm(formFieldPrompt)
+			setPromptCaretOffset(&m.promptArea, 8) // row 1 ("beta"), column 2
+
+			got := typeInForm(t, m, key)
+			if want := "alpha\nbeta\nbeta\ngamma"; got.promptArea.Value() != want {
+				t.Errorf("value = %q, want %q", got.promptArea.Value(), want)
+			}
+			// Offset 13 is column 2 of the copy: "alpha\n" (6) + "beta\n" (5) + 2.
+			if off := promptCaretOffset(got.promptArea); off != 13 {
+				t.Errorf("caret at offset %d, want 13 — column 2 of the new line", off)
+			}
+			if !strings.Contains(got.formNote, "duplicated") {
+				t.Errorf("form note is %q, want it to report the duplication", got.formNote)
+			}
+		})
+	}
+}
+
+// TestDuplicatePromptLineStacks: holding the chord stacks copies rather than
+// re-copying the original, which is what leaving the caret on the copy buys.
+func TestDuplicatePromptLineStacks(t *testing.T) {
+	m := withForm(t, "", "one", 100, 40)
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 3)
+
+	for range 3 {
+		m = typeInForm(t, m, cmdD["super+d"])
+	}
+	if want := "one\none\none\none"; m.promptArea.Value() != want {
+		t.Errorf("after three presses value = %q, want %q", m.promptArea.Value(), want)
+	}
+}
+
+// TestDuplicatePromptLineDuplicatesLogicalRows: a row long enough to soft-wrap is
+// still one line. Duplicating what the eye sees as a line — a wrap segment —
+// would cut the sentence at a boundary the value does not contain.
+func TestDuplicatePromptLineDuplicatesLogicalRows(t *testing.T) {
+	long := "the quick brown fox jumps over the lazy dog"
+	m := withForm(t, "", long, 30, 40) // narrow enough that the row wraps
+	m.focusForm(formFieldPrompt)
+	if lines := promptDisplayLines(m.promptArea); len(lines) < 2 {
+		t.Fatalf("the fixture drew %d display lines, want a row that soft-wraps", len(lines))
+	}
+	setPromptCaretOffset(&m.promptArea, 4) // inside the first wrap segment
+
+	got := typeInForm(t, m, cmdD["super+d"])
+	if want := long + "\n" + long; got.promptArea.Value() != want {
+		t.Errorf("value = %q, want the whole logical row copied", got.promptArea.Value())
+	}
+}
+
+// TestDuplicatePromptLineOffTheEditorSaysWhy: the chord is about a line of text,
+// and the title field holds exactly one by construction. Refusing in words is the
+// house rule — a chord that silently does nothing teaches nothing.
+func TestDuplicatePromptLineOffTheEditorSaysWhy(t *testing.T) {
+	m := withForm(t, "a title", "alpha", 100, 40)
+	m.focusForm(formFieldTitle)
+
+	got := typeInForm(t, m, cmdD["super+d"])
+	if got.titleInput.Value() != "a title" || got.promptArea.Value() != "alpha" {
+		t.Errorf("the title press edited something: title=%q prompt=%q", got.titleInput.Value(), got.promptArea.Value())
+	}
+	if !strings.Contains(got.formNote, "prompt") {
+		t.Errorf("form note is %q, want it to say where the chord works", got.formNote)
+	}
+}
+
+// TestCtrlDStillDeletesForward guards the reason Cmd+D has no ctrl fallback:
+// ctrl+d is the textarea's own delete-character-forward. Binding the duplicate
+// there would have made a copy out of every press meant to delete.
+func TestCtrlDStillDeletesForward(t *testing.T) {
+	m := withForm(t, "", "abc", 100, 40)
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 0)
+
+	got := typeInForm(t, m, tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	if got.promptArea.Value() != "bc" {
+		t.Errorf("ctrl+d left %q, want %q — the editor's delete-forward", got.promptArea.Value(), "bc")
+	}
+}
