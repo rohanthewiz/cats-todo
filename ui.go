@@ -505,6 +505,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.promptSelDrag = false
 			return m, nil
 		}
+	case tea.PasteMsg:
+		// A bracketed paste is an insertion like a typed character, so it
+		// replaces a standing selection rather than landing beside it. The
+		// editor is the only place here that has one, which is why it is the
+		// only stage named; everything else falls through to forward unchanged.
+		if m.stage == stageForm && m.formFocus == formFieldPrompt {
+			m.deletePromptSelection()
+		}
+		return m.forward(msg)
 	case tea.KeyPressMsg:
 		switch m.stage {
 		case stageList:
@@ -1951,6 +1960,27 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if msg.String() == "ctrl+c" && m.selectedPromptText() != "" {
 			return m.copyPromptSelection()
+		}
+		// Typing over a selection replaces it, and backspace or delete takes it
+		// out — what a highlight is for besides copying it, and what every other
+		// editor on the machine does with one. The span is removed first and the
+		// key then takes its ordinary path below: an insertion lands at the
+		// caret the deletion left behind (so 'x' over a swept "alpha" leaves
+		// "x"), while a delete key has nothing left to do and is answered here.
+		//
+		// This has to sit above clearPromptSel, which is what these keys would
+		// otherwise meet first. The anchor is dropped either way; dropping it
+		// *without* acting on it is what left typed text sitting beside the run
+		// it was meant to replace.
+		if _, _, ok := m.promptSelSpan(); ok {
+			switch {
+			case promptSelDeleteKey(msg, m.promptArea.KeyMap):
+				m.deletePromptSelection()
+				m.formNote = ""
+				return m, nil
+			case promptSelInsertKey(msg, m.promptArea.KeyMap):
+				m.deletePromptSelection()
+			}
 		}
 	}
 	// Anything else ends the selection. This is on the way in rather than spread

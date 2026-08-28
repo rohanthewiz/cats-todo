@@ -479,6 +479,18 @@ attachment that has since been deleted is left out of the delivered prompt and
 flagged in the `ctrl+v` view rather than sent for the agent to chase. Accepted
 formats are `.png`, `.jpg`/`.jpeg`, `.gif` and `.webp`, up to 10 MiB each.
 
+In the editor, holding `shift` with any caret motion **selects**: `shift+←`/`→`
+by the character, `shift+alt+←`/`→` by the word, `shift+home`/`end` to the ends
+of the line, `shift+↑`/`↓` across lines — and sweeping with the mouse button
+held down selects too. `ctrl+c` copies what is highlighted, and only while
+something is (with nothing selected it still quits, as it does everywhere else).
+Typing replaces the selection the way it does in every other editor: the next
+character, newline or paste lands *on* the highlighted run rather than beside
+it, and `backspace` or `delete` takes the run out. Anything else — a plain
+arrow, a click, a save — simply drops the highlight, because a highlight left
+standing over text the caret has walked away from is a lie about what the next
+`ctrl+c` would copy.
+
 `alt+enter` is bound everywhere `shift+enter` is, and in the editor
 `shift+enter`, `alt+enter` and `ctrl+j` all insert a newline alongside plain
 `enter` — the chords the form taught first still work, and a hand that learned

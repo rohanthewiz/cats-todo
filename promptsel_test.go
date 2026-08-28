@@ -493,3 +493,150 @@ func TestPromptSelectionOnlyInTheEditor(t *testing.T) {
 		t.Error("ctrl+c in the title field should quit")
 	}
 }
+
+// selectAlpha returns the add form holding "alpha beta" with the first word
+// swept from the keyboard — the state every overwrite test starts from.
+func selectAlpha(t *testing.T) model {
+	t.Helper()
+	m := withForm(t, "", "alpha beta", 100, 40)
+	m.promptArea.SetCursorColumn(0)
+	for range 5 {
+		m = typeInForm(t, m, shiftKey(tea.KeyRight))
+	}
+	if got := m.selectedPromptText(); got != "alpha" {
+		t.Fatalf("setup selected %q, want %q", got, "alpha")
+	}
+	return m
+}
+
+// TestPromptTypingReplacesTheSelection is the rule a selection is worth having
+// for: what is highlighted is what the next character lands on. Before this, the
+// anchor was simply dropped and the typed character went in beside the run it
+// was meant to replace.
+func TestPromptTypingReplacesTheSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  tea.KeyPressMsg
+		want string
+	}{
+		{"a letter", tea.KeyPressMsg{Code: 'x', Text: "x"}, "x beta"},
+		{"a capital", tea.KeyPressMsg{Code: 'x', ShiftedCode: 'X', Mod: tea.ModShift, Text: "X"}, "X beta"},
+		{"a space", tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}, "  beta"},
+		{"enter, which is a newline here", tea.KeyPressMsg{Code: tea.KeyEnter}, "\n beta"},
+		{"alt+enter, the same newline", tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}, "\n beta"},
+		{"@, which also opens the file picker", tea.KeyPressMsg{Code: '@', Text: "@"}, "@ beta"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := typeInForm(t, selectAlpha(t), tc.key)
+			if got := m.promptArea.Value(); got != tc.want {
+				t.Errorf("typing over the selection left %q, want %q", got, tc.want)
+			}
+			if got := m.selectedPromptText(); got != "" {
+				t.Errorf("%q is still selected after typing over it", got)
+			}
+		})
+	}
+}
+
+// TestPromptTypingLandsWhereTheSelectionWas: the replacement goes in at the
+// start of what was removed, not wherever the caret happened to be. A selection
+// swept backwards ends with the caret at its *low* end, so both directions have
+// to put the character in the same place.
+func TestPromptTypingLandsWhereTheSelectionWas(t *testing.T) {
+	m := withForm(t, "", "alpha beta", 100, 40)
+	m.promptArea.SetCursorColumn(5) // just past "alpha"
+	for range 5 {
+		m = typeInForm(t, m, shiftKey(tea.KeyLeft))
+	}
+	if got := m.selectedPromptText(); got != "alpha" {
+		t.Fatalf("sweeping backwards selected %q, want %q", got, "alpha")
+	}
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: 'x', Text: "x"})
+	if got := m.promptArea.Value(); got != "x beta" {
+		t.Errorf("typing over a backwards selection left %q, want %q", got, "x beta")
+	}
+	if got := promptCaretOffset(m.promptArea); got != 1 {
+		t.Errorf("caret at %d after the replacement, want 1 (just past what was typed)", got)
+	}
+}
+
+// TestPromptBackspaceDeletesTheSelection: a delete key with a highlight standing
+// takes out the highlight and nothing more — it must not also eat the character
+// beside it, which is what forwarding the key to the editor after dropping the
+// anchor would do.
+func TestPromptBackspaceDeletesTheSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{"backspace", tea.KeyPressMsg{Code: tea.KeyBackspace}},
+		{"ctrl+h, backspace's other spelling", tea.KeyPressMsg{Code: 'h', Mod: tea.ModCtrl}},
+		{"delete", tea.KeyPressMsg{Code: tea.KeyDelete}},
+		{"ctrl+d, delete's other spelling", tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}},
+		{"alt+backspace, the word behind", tea.KeyPressMsg{Code: tea.KeyBackspace, Mod: tea.ModAlt}},
+		{"alt+d, the word ahead", tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := typeInForm(t, selectAlpha(t), tc.key)
+			if got := m.promptArea.Value(); got != " beta" {
+				t.Errorf("%s over the selection left %q, want %q", tc.name, got, " beta")
+			}
+			if got := m.selectedPromptText(); got != "" {
+				t.Errorf("%q is still selected after %s", got, tc.name)
+			}
+		})
+	}
+}
+
+// TestPromptSweptSelectionIsTypedOver: the pointer's half of the gesture ends up
+// in the same place as the keyboard's, since both leave the same anchor behind.
+func TestPromptSweptSelectionIsTypedOver(t *testing.T) {
+	m := withForm(t, "", "alpha beta", 100, 40)
+	gutter := promptGutterWidth(m.promptArea)
+	m = clickForm(m, gutter, formPromptRow)
+	m = dragFormTo(t, m, gutter+5, formPromptRow)
+	m = releaseForm(t, m, gutter+5, formPromptRow)
+	if got := m.selectedPromptText(); got != "alpha" {
+		t.Fatalf("the sweep selected %q, want %q", got, "alpha")
+	}
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: 'x', Text: "x"})
+	if got := m.promptArea.Value(); got != "x beta" {
+		t.Errorf("typing over a swept selection left %q, want %q", got, "x beta")
+	}
+}
+
+// TestPromptPasteReplacesTheSelection: a paste is an insertion like any other,
+// and arrives on its own message rather than through the key path — so it needs
+// saying separately that it lands *on* the selection.
+func TestPromptPasteReplacesTheSelection(t *testing.T) {
+	m := selectAlpha(t)
+	next, _ := m.Update(tea.PasteMsg{Content: "omega"})
+	m = next.(model)
+	if got := m.promptArea.Value(); got != "omega beta" {
+		t.Errorf("pasting over the selection left %q, want %q", got, "omega beta")
+	}
+	if got := m.selectedPromptText(); got != "" {
+		t.Errorf("%q is still selected after the paste", got)
+	}
+}
+
+// TestPromptSelectionSurvivesKeysThatAreNotEdits: only insertions and deletes
+// act on the highlight. A motion still just drops it, and the chords the form
+// claims for itself must not lose the text they were pressed over.
+func TestPromptSelectionSurvivesKeysThatAreNotEdits(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{"a plain arrow", tea.KeyPressMsg{Code: tea.KeyLeft}},
+		{"tab to the annotation bar", tea.KeyPressMsg{Code: tea.KeyTab}},
+		{"ctrl+c, which copies it", tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := typeInForm(t, selectAlpha(t), tc.key)
+			if got := m.promptArea.Value(); got != "alpha beta" {
+				t.Errorf("%s changed the value to %q", tc.name, got)
+			}
+		})
+	}
+}

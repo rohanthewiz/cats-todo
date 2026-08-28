@@ -31,6 +31,7 @@ import (
 	"strings"
 	"unicode"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -453,4 +454,70 @@ func paintPromptSelection(line string, a, b, caretCell int, base lipgloss.Style)
 		}
 	}
 	return head + sel + base.Render(tail)
+}
+
+// --- Typing over a selection ----------------------------------------------------
+
+// promptSelInsertKey answers whether msg is a key that would put text into the
+// editor: a printable character, or one of the spellings of "newline". Those are
+// the keys that *replace* a selection — the run comes out and what was typed
+// goes in where it was.
+//
+// The two halves are recognized differently because the library recognizes them
+// differently. A newline is a binding — the form rebinds it to five chords (see
+// newFormInputs) — so it is matched against that binding rather than against a
+// list repeated here that would drift from it. Everything else falls to the
+// textarea's default branch, which inserts msg.Text, and Text is populated only
+// for keys that carry printable characters. Testing it is therefore not an
+// approximation of what the editor will do with the key: it is the same test,
+// which is what keeps "the selection was replaced" and "a character was typed"
+// from ever disagreeing.
+//
+// No modifier is filtered out here, and deliberately so. A chord's binding is
+// matched on Key.String(), which *is* Key.Text whenever the key carries text —
+// so a hypothetical alt+d arriving with a printable 'd' would miss the
+// delete-word binding inside the textarea too, and be inserted there. Filtering
+// it out here would leave that character going in beside the selection instead
+// of over it, which is the exact bug this exists to fix. The delete keys are
+// still safe: the caller tests them first, and the real ones carry no text.
+func promptSelInsertKey(msg tea.KeyPressMsg, km textarea.KeyMap) bool {
+	return key.Matches(msg, km.InsertNewline) || msg.Text != ""
+}
+
+// promptSelDeleteKey answers whether msg is a key that removes text to one side
+// of the caret. With a selection standing, all four mean the same thing — take
+// out what is highlighted — which is what backspace and delete do in every
+// editor that has a selection at all.
+//
+// The bindings are read off the editor's own keymap rather than named here, so
+// every spelling the library gives them comes along: ctrl+h for backspace,
+// ctrl+d for delete, ctrl+w and alt+backspace for the word behind.
+//
+// The line kills (ctrl+k, ctrl+u) are deliberately left out. They are not "erase
+// what is marked" in a smaller or larger amount; they are a different operation
+// with its own meaning — everything to one side of the caret — and a hand
+// reaching for one wants that, selection or no selection.
+func promptSelDeleteKey(msg tea.KeyPressMsg, km textarea.KeyMap) bool {
+	return key.Matches(msg,
+		km.DeleteCharacterBackward, km.DeleteCharacterForward,
+		km.DeleteWordBackward, km.DeleteWordForward)
+}
+
+// deletePromptSelection takes the selected run out of the value and drops the
+// anchor, leaving the caret where the run began — which is where the next
+// inserted character belongs. It reports whether there was anything to delete,
+// so a caller that only wanted the side effect can ignore it.
+//
+// The edit goes through replacePromptRunes (spellpanel.go) for the reason given
+// there: the library has no "replace this range", and walking the caret to one
+// end of the span to send as many backspaces as it is long is the same result by
+// a longer road, one that goes wrong quietly if the walk lands a character off.
+func (m *model) deletePromptSelection() bool {
+	lo, hi, ok := m.promptSelSpan()
+	if !ok {
+		return false
+	}
+	m.replacePromptRunes(lo, hi, "")
+	m.clearPromptSel()
+	return true
 }
