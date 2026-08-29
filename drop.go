@@ -13,8 +13,9 @@ import (
 
 // performDrop carries out the chosen drop. For an existing pane it types the
 // prompt straight in; for a new session it opens a tab, launches the agent, and
-// feeds the prompt. In both cases dropRun submits with Enter while dropPaste
-// leaves the text unsubmitted for the user to review.
+// feeds the prompt. In both cases dropRun — the picker's default, since a drop
+// is a request for the work to start — submits with Enter, while dropPaste is
+// the opt-in pause that leaves the text unsubmitted for the user to review.
 func performDrop(client *catsClient, act pendingAction) error {
 	if client == nil {
 		return errors.New("cats control socket unavailable")

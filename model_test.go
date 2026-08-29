@@ -1027,13 +1027,16 @@ func TestFormEnterInsertsNewlineAndCtrlSSaves(t *testing.T) {
 	})
 }
 
-// TestTargetPickerModifierEnterRuns pins the picker's key routing: enter and
-// the chord each reach chooseTarget and dispatch a drop, rather than being
-// swallowed by the filter box. Which mode each one passes (paste vs run) is
-// sealed inside the returned command's pendingAction and only observable by
-// performing the drop, which needs a live socket — so that half is covered by
-// the handlers' own single-line dispatch, not asserted here.
-func TestTargetPickerModifierEnterRuns(t *testing.T) {
+// TestTargetPickerEnterRunsChordPauses pins the picker's key routing and the
+// mode each key chooses. Enter is the default drop and submits; the
+// modifier+enter chord is the opt-in "pause after drop" that leaves the prompt
+// unsubmitted; ctrl+r stays a spelling of run.
+//
+// The mode itself is sealed inside the returned command's pendingAction, which
+// only a live socket could unseal — so the assertion rides on the status line
+// chooseTarget writes synchronously, which exists precisely because the two
+// modes are two different promises and have to say which one they made.
+func TestTargetPickerEnterRunsChordPauses(t *testing.T) {
 	build := func(t *testing.T) model {
 		t.Helper()
 		m, project, _ := newModelInTemp(t)
@@ -1049,30 +1052,39 @@ func TestTargetPickerModifierEnterRuns(t *testing.T) {
 		return m
 	}
 
-	// chooseTarget hands the drop off to a command; the mode lives in the
-	// pendingAction it closes over, so assert on the observable proxy — that
-	// both keys dispatch a drop — plus the modes the handlers pass.
-	for name, key := range map[string]tea.KeyPressMsg{
-		"shift+enter": enterKey(tea.ModShift),
-		"alt+enter":   enterKey(tea.ModAlt),
-		"ctrl+r":      {Code: 'r', Mod: tea.ModCtrl},
+	for name, tc := range map[string]struct {
+		key  tea.KeyPressMsg
+		verb string
+	}{
+		"enter":       {enterKey(0), "dropping into "},
+		"ctrl+r":      {tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl}, "dropping into "},
+		"shift+enter": {enterKey(tea.ModShift), "pasting into "},
+		"alt+enter":   {enterKey(tea.ModAlt), "pasting into "},
 	} {
-		t.Run(name+" dispatches a drop", func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			m := build(t)
-			next, cmd := m.updateTarget(key)
+			next, cmd := m.updateTarget(tc.key)
 			m = next.(model)
 			if !m.dropping || cmd == nil {
-				t.Errorf("%s: dropping=%v cmd=%v, want a dispatched drop", name, m.dropping, cmd != nil)
+				t.Fatalf("%s: dropping=%v cmd=%v, want a dispatched drop", name, m.dropping, cmd != nil)
+			}
+			if !strings.HasPrefix(m.status, tc.verb) {
+				t.Errorf("%s: status = %q, want it to start with %q", name, m.status, tc.verb)
 			}
 		})
 	}
 
-	t.Run("plain enter still pastes", func(t *testing.T) {
+	// The pointer takes the default too — a click on a row is the same choice
+	// enter makes, mode included (see clickTarget).
+	t.Run("click runs", func(t *testing.T) {
 		m := build(t)
-		next, cmd := m.updateTarget(enterKey(0))
+		next, cmd := m.clickTarget(tea.MouseClickMsg{Y: targetRowsRow})
 		m = next.(model)
 		if !m.dropping || cmd == nil {
-			t.Errorf("enter: dropping=%v cmd=%v, want a dispatched drop", m.dropping, cmd != nil)
+			t.Fatalf("click: dropping=%v cmd=%v, want a dispatched drop", m.dropping, cmd != nil)
+		}
+		if !strings.HasPrefix(m.status, "dropping into ") {
+			t.Errorf("click: status = %q, want a run drop", m.status)
 		}
 	})
 }

@@ -56,8 +56,9 @@ linking, and the first-install `init` offer.
 In the manager, `enter` opens what is in front of you — the highlighted prompt
 into the editor, or a brand-new entry when the list is empty — and `shift+enter`
 drops the prompt into an agent. That opens the target picker, where `enter`
-pastes the prompt staged for review and `shift+enter` submits it to run (and
-marks the todo done). Inside the editor `enter` inserts a newline — the prompt
+hands the prompt over **and lets it run**, and `shift+enter` does the same drop
+but **pauses**, leaving the prompt sitting unsubmitted in the agent's input.
+Either way the todo is marked done. Inside the editor `enter` inserts a newline — the prompt
 is a text editor, so enter means there what it means in every other one — and
 `ctrl+s` saves. Outside cats it still manages backlogs; only drops need the
 socket.
@@ -78,6 +79,24 @@ session, a new **GitHub Copilot** session when `copilot` is on your `PATH`, a
 new session for any other agent cats currently has running somewhere, then the
 same set again **on a new worktree**, and finally each live agent pane with its
 state and location.
+
+Picking a row is two decisions in one key. `enter` — or a click on the row —
+**drops & runs**: the prompt is typed into the agent and submitted, because
+dropping a prompt is asking for the work to start, and the default should be
+the thing you came here to do. `shift+enter` (`alt+enter` where the terminal
+cannot send shift+enter, and `ctrl+r` is still a spelling of run) **drops &
+pauses**: the same delivery, stopping one keystroke short, for a prompt that
+wants a last read — or a line of context only you can add — in the agent's own
+input before it goes. The status line says which promise it made, "dropping
+into…" against "pasting into…", and a paused drop's result says so too, because
+a prompt that is merely *sitting* in a pane looks exactly like one that is
+already working. A scheduled drop always runs; there is nobody standing by to
+press enter for it.
+
+This is a reversal of how the picker used to behave, when the paste was the
+rule and running was the chord. An old reflex now pauses a drop instead of
+running one — nothing starts that you did not ask to start — and pressing enter
+in the agent's pane finishes the job.
 
 ### Dropping onto a new worktree
 
@@ -130,9 +149,11 @@ mouse — they act on the highlight), a **double-click** on a prompt opens it fo
 editing, and holding the button down and moving **drags the prompt into a new
 place in the list** (below). To send one, click the prompt and then the **Send**
 button, which opens the drop picker, where a click on a target hands the prompt
-over. So a prompt gets from the backlog into an agent without the keyboard — but
-never on one stray gesture, and nothing is *sent* by clicking either: the picker
-still asks where, and pastes without running. Submitting stays on `shift+enter`.
+over and starts it — a click on a row is the same choice `enter` makes, mode
+and all. So a prompt gets from the backlog into an agent without the keyboard,
+and never on one stray gesture: it takes a click on the prompt, a click on
+**Send**, and then a click on the target you meant. Pausing instead of running
+is the one thing the pointer does not offer, because it is a modifier chord.
 Mouse reporting is only asked for on the screens with something to click; the
 prompt view leaves the terminal's own text selection alone.
 

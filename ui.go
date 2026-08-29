@@ -100,12 +100,20 @@ type dropTarget struct {
 	desc     string
 }
 
-// dropMode is the per-drop submit choice.
+// dropMode is the per-drop submit choice. Dropping a prompt is asking for the
+// work to start, so dropRun — type it, then press Enter — is what the picker
+// does unless told otherwise. dropPaste is the opt-in "pause after drop": the
+// prompt lands in the agent's input and stops there, for the times it wants one
+// last read (or a line of context only you can add) before it goes.
+//
+// dropPaste stays the zero value on purpose. A pendingAction assembled without
+// naming a mode should be the one that starts nothing by itself; every path
+// that means to run says so.
 type dropMode int
 
 const (
-	dropPaste dropMode = iota // type the prompt but don't press Enter
-	dropRun                   // type the prompt and submit it
+	dropPaste dropMode = iota // type the prompt and stop — you press Enter
+	dropRun                   // type the prompt and submit it (the default)
 )
 
 // todoRef identifies a todo by its scope and id, so the list can map a row back
@@ -149,6 +157,11 @@ type dropResultMsg struct {
 	desc string  // human description of the destination, for the status line
 	ref  todoRef // the dropped todo, so a successful drop can auto-mark it done
 	err  error
+	// mode is carried back only so the success line can say whether the prompt
+	// is already running or is sitting in the agent's input waiting on an Enter
+	// that only the user can press. A paused drop that reported itself the same
+	// way a run does is a prompt that quietly never starts.
+	mode dropMode
 	// sched is set when this drop was a schedule firing rather than a
 	// keystroke. The claim already cleared the schedule from disk, so on
 	// failure this copy is what gets written back — as Missed, keeping the
@@ -462,6 +475,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		status := "dropped → " + msg.desc
+		if msg.mode == dropPaste {
+			// Paused: the prompt is delivered but nothing is running yet, and
+			// the only place that can be said is here — the agent's pane looks
+			// exactly like a session someone typed into and walked away from.
+			status = "pasted → " + msg.desc + " · press enter there to run"
+		}
 		// Handing a prompt to an agent is what "done" means here, so any successful
 		// drop closes the todo out — paste drops included. The prompt now lives in
 		// the agent's input where the user can see it; leaving a duplicate open in
@@ -913,21 +932,24 @@ func (m model) clickActionBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 }
 
 // clickTarget picks the agent whose row was clicked and drops into it, which is
-// what enter on that row does: the prompt is pasted into the agent's input and
-// left unsubmitted. Clicking a target is choosing it — the same bargain the
-// action bar makes, where a click presses the button rather than merely lighting
-// it. The whole row answers, not just the text on it: the row is the target, and
-// asking the user to land on the label would make the pointer worse than the
-// keyboard it is there to replace.
+// exactly what enter on that row does — including submitting it. Clicking a
+// target is choosing it: the same bargain the action bar makes, where a click
+// presses the button rather than merely lighting it. The whole row answers, not
+// just the text on it, since asking the user to land on the label would make the
+// pointer worse than the keyboard it is there to replace.
 //
-// Drop & run stays on the modifier chord. Nothing on this screen submits a
-// prompt to an agent on one click.
+// The click deliberately carries the same mode as plain enter rather than the
+// cautious one. Reaching this row with the mouse already took two considered
+// clicks (the prompt, then ✉ Send), so the pointer is not one stray gesture from
+// an agent run — and a mouse that quietly did something *different* from the key
+// beside it in the footer would be the worse surprise. Pausing is the chord, for
+// both hands.
 func (m model) clickTarget(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	i, ok := m.targetList.rowAtLine(msg.Y - targetRowsRow)
 	if !ok || !m.targetList.focusRow(i) {
 		return m, nil
 	}
-	return m.chooseTarget(dropPaste)
+	return m.chooseTarget(dropRun)
 }
 
 // clickForm is the pointer on the edit form: a click in either field puts the
@@ -3294,11 +3316,22 @@ func (m model) updateTarget(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.targetList.moveDown()
 		return m, nil
 	case "enter":
+		return m.chooseTarget(dropRun)
+	case "shift+enter", "alt+enter":
+		// Pause after drop. The picker's two enters are one choice with two
+		// answers, and this is the rarer one: plain enter does what dropping a
+		// prompt means, and the chord is for when you want to read it in the
+		// agent's own input first.
+		//
+		// These two chords used to carry the opposite meaning, back when the
+		// paste was the rule rather than the option. An old reflex now pauses a
+		// drop instead of running one — the harmless direction for the mistake
+		// to go, and the reason the swap is worth making rather than inventing
+		// a third chord nobody would find.
 		return m.chooseTarget(dropPaste)
-	case "shift+enter", "alt+enter", "ctrl+r":
-		// modifier+enter keeps its meaning from the list — the more committing
-		// of the two things enter could do here — so the picker's "submit it to
-		// run" sits on the same chord. ctrl+r stays as the older spelling.
+	case "ctrl+r":
+		// The older spelling of "run", still bound to running: r means the same
+		// thing here as it does on the form's ⚙ panel one screen over.
 		return m.chooseTarget(dropRun)
 	}
 	cmd := m.targetList.editQuery(msg)
@@ -3331,7 +3364,14 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 	// tab, leaving this manager alive in the background to reuse later.
 	m.dropping = true
 	m.backToList()
-	m.setStatus("dropping into "+targetDesc(target)+"…", false)
+	// The status names the mode, not just the destination: "dropping" and
+	// "pasting" are two different promises about what happens next, and the
+	// paused one is the one with a step still owed by the user.
+	verb := "dropping into "
+	if mode == dropPaste {
+		verb = "pasting into "
+	}
+	m.setStatus(verb+targetDesc(target)+"…", false)
 	return m, m.performDropCmd(m.dropTodo, pendingAction{
 		todo:       td,
 		target:     target,
@@ -3352,7 +3392,7 @@ func (m model) performDropCmd(ref todoRef, act pendingAction) tea.Cmd {
 	client := m.client
 	desc := targetDesc(act.target)
 	return func() tea.Msg {
-		return dropResultMsg{desc: desc, ref: ref, err: performDrop(client, act)}
+		return dropResultMsg{desc: desc, ref: ref, mode: act.mode, err: performDrop(client, act)}
 	}
 }
 
@@ -3611,7 +3651,9 @@ func (m model) performScheduledDropCmd(ref todoRef, sc Schedule, td Todo) tea.Cm
 	}
 	desc := targetDesc(act.target)
 	return func() tea.Msg {
-		return dropResultMsg{desc: desc, ref: ref, err: performScheduledDrop(client, sc, act), sched: &sc}
+		// mode is stated even though act.mode already says it: a fire always
+		// runs, and the success line reads off this field.
+		return dropResultMsg{desc: desc, ref: ref, mode: dropRun, err: performScheduledDrop(client, sc, act), sched: &sc}
 	}
 }
 
@@ -5055,7 +5097,7 @@ func (m model) viewTarget() string {
 	var b strings.Builder
 	td, _ := m.resolve(m.dropTodo)
 	title := firstNonEmpty(td.Title, firstLine(td.Prompt, 50))
-	heading, foot := "Drop into…", "enter paste (don't submit) · "+m.modEnter()+" drop & run · esc back"
+	heading, foot := "Drop into…", "enter drop & run · "+m.modEnter()+" drop & pause (don't submit) · esc back"
 	if m.pickForSchedule {
 		// Same picker, schedule flavor: enter stores the target instead of
 		// firing, and the paste/run split disappears — a fire with nobody at
