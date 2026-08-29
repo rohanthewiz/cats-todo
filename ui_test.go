@@ -1549,6 +1549,49 @@ func TestRowDescMarks(t *testing.T) {
 	}
 }
 
+// TestAttachMarkRecedesOffTheOpenList pins the other half of the attachment
+// hue's rule: the cyan marks work that still needs doing, so a done or frozen
+// row's 📎N drops to the description's grey. Without this a finished row's count
+// stayed fully saturated and drew the eye past the open todos above it — the
+// exact opposite of what a receding row is for.
+func TestAttachMarkRecedesOffTheOpenList(t *testing.T) {
+	m := newTestModel()
+	// One todo per state, all carrying an attachment. Frozen rows are folded
+	// out by default, so the list has to be told to draw them.
+	m.showFrozen = true
+	m.project.todos = []Todo{
+		{ID: "t1", Title: "open", Prompt: "p", Images: []string{"a.png"}},
+		{ID: "t2", Title: "frozen", Prompt: "p", Images: []string{"a.png"}, Frozen: true},
+		{ID: "t3", Title: "done", Prompt: "p", Images: []string{"a.png"}, Done: true},
+	}
+	m.rebuildList()
+
+	// The list renders open, then frozen, then done — the group order, which is
+	// what makes indexing by position meaningful here.
+	const probe = "x"
+	for i, tc := range []struct {
+		name string
+		want lipgloss.Style
+	}{
+		{"open", attachStyle},
+		{"frozen", descStyle},
+		{"done", descStyle},
+	} {
+		it := m.list.items[i]
+		if it.name != tc.name {
+			t.Fatalf("row %d is %q, want %q — the group order moved", i, it.name, tc.name)
+		}
+		if len(it.descMarks) != 1 {
+			t.Fatalf("row %q has %d marks, want just the 📎", tc.name, len(it.descMarks))
+		}
+		// Compared by what they draw: lipgloss.Style is not comparable, and the
+		// escape sequence is what actually reaches the terminal.
+		if got, want := it.descMarks[0].style.Render(probe), tc.want.Render(probe); got != want {
+			t.Errorf("the %s row's 📎 renders %q, want %q", tc.name, got, want)
+		}
+	}
+}
+
 // TestScheduledRowShowsItself pins the row's schedule marks: the ◷ badge and
 // the ⏰ time leading the description, with "missed" spelled out when it is.
 func TestScheduledRowShowsItself(t *testing.T) {

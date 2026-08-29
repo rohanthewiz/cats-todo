@@ -1596,8 +1596,21 @@ func (m *model) rebuildList() {
 			// cyan, the same color the editor's ❐ Images chip carries — so
 			// "this one has a picture" is answered by a glance down the list
 			// rather than by reading each row's greys.
+			//
+			// But only while the row is still work. A done or frozen row recedes
+			// on purpose — faint name, quiet badge, no strike-through of the
+			// cyan — and a mark holding full saturation there would out-shout
+			// the open todos above it, which is the exact opposite of what the
+			// hue is for: it points at prompts that still need a picture
+			// understood. On those rows the count drops to the description's
+			// grey, the same tier the ⚙ beside it already sits in, so the row
+			// recedes as one thing rather than as a grey row with a lit flag.
 			if n := len(t.Images); n > 0 {
-				marks = append(marks, descMark{text: fmt.Sprintf("📎%d", n), style: attachStyle})
+				attach := attachStyle
+				if t.Done || t.Frozen {
+					attach = descStyle
+				}
+				marks = append(marks, descMark{text: fmt.Sprintf("📎%d", n), style: attach})
 			}
 			tag := ""
 			if tagGlobal && s.scope == scopeGlobal {
@@ -4351,7 +4364,19 @@ func (m model) viewForm() string {
 	// nobody knows about is one nobody uses, and "none" is also the answer to
 	// "did my screenshot make it in". It no longer names ctrl+o — the toolbar's
 	// ❐ Images chip, one line below, says that and is clickable besides.
-	b.WriteString(descStyle.Render("📎 " + firstNonEmpty(m.imageCountNote(), "no images")))
+	//
+	// The 📎 glyph alone takes the attachment cyan, the count text stays grey:
+	// the icon is the thing the eye looks for when scanning the form, and it is
+	// the same hue the list's 📎N mark and the toolbar's ❐ Images chip carry, so
+	// all three screens answer "images" with one color. Tinting the words too
+	// would have made a standing line read as a status message — this line is
+	// always here, and only the icon is the label.
+	//
+	// Two Renders rather than one styled string: each emits its own reset, which
+	// is safe because this line is not run through a width wrap (unlike the ⚙
+	// line below, where a pre-styled span would lose its reset at the wrap).
+	b.WriteString(attachStyle.Render("📎"))
+	b.WriteString(descStyle.Render(" " + firstNonEmpty(m.imageCountNote(), "no images")))
 	b.WriteString("\n")
 
 	// And the session line, on the same terms: always drawn, so "how will this
