@@ -118,15 +118,15 @@ type fuzzyList struct {
 	// the file picker draws its whole list and lets the pane clip it, and they
 	// still do. The window is opt-in because it is only worth having where the
 	// list can plausibly outgrow the pane and the caller wants the highlight to
-	// stay on screen as it walks — a home directory of sixty entries, say —
-	// and because a windowed list has to reserve a line for the "… N more"
-	// marker, which the callers that never scroll should not pay for.
+	// stay on screen as it walks — a home directory of sixty entries, say, or a
+	// backlog longer than the pane.
 	//
 	// The window is counted in filtered items, not screen lines: a separator
 	// row draws one or two lines of its own, so a windowed list that carries
-	// separators can overshoot the cap by a line or two. The picker has none, so
-	// item and line agree there; a future caller with headings can live with the
-	// slack or grow the cap by its heading count.
+	// separators would overshoot a cap set from a pane's height. The picker has
+	// none, so item and line agree there; a caller with headings hands the
+	// difference back itself (see separatorLines), which is what the manager's
+	// list does.
 	maxRows int
 	top     int
 	// prefixFirst, when set, ranks the rows whose name begins with the query
@@ -505,6 +505,103 @@ func (l fuzzyList) view(emptyMsg, bar string, width int) string {
 	return b.String()
 }
 
+// The overflow markers: what a windowed list says about the rows it is not
+// drawing. A '▴' rides the FIRST row of the window and a '▾' the LAST, each
+// carrying the count of what lies that way, right-aligned into the row's own
+// trailing space.
+//
+// This replaced a "… N more" line under the list, and the two differences are
+// the whole point. It SPENDS NO LINE: a marker that cost one would take a row
+// of backlog away from a pane exactly when the pane has run out of room, which
+// is the one moment the list can least afford it — and it would have to be
+// reserved whether or not there was anything to say, or the rows below would
+// jump a line every time the window reached the end. Sharing the row it
+// annotates costs nothing while the list fits and a few blank columns while it
+// does not. And it points BOTH WAYS: the old marker said nothing at all about
+// the rows scrolled off the TOP, so a list scrolled into the middle looked
+// exactly like a list read from the beginning.
+//
+// The count rides the glyph rather than waiting on a hover, because there is
+// nothing to hover here — this is a keyboard-and-click TUI with no pointer
+// dwell — and "there is more" without "how much" is the half of the answer the
+// reader can already see for themselves.
+const (
+	overflowUpGlyph   = "▴"
+	overflowDownGlyph = "▾"
+)
+
+// overflowMarks builds the marker text for one drawn row: the up marker when it
+// is the window's first row and something is above, the down marker when it is
+// the last and something is below, and both — on the one row that is both, in a
+// window a single row tall — joined so neither is silently dropped.
+func overflowMarks(above, below int) string {
+	var parts []string
+	if above > 0 {
+		parts = append(parts, fmt.Sprintf("%s %d", overflowUpGlyph, above))
+	}
+	if below > 0 {
+		parts = append(parts, fmt.Sprintf("%s %d", overflowDownGlyph, below))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// withOverflowMark right-aligns mark into what is left of the row's width, and
+// returns the line untouched when there is not enough of it.
+//
+// Refusing is deliberate, and it is about the click map rather than about
+// looks: rowAtLine counts the lines this function's caller writes, so a row
+// pushed past the pane's edge would wrap in the terminal, put every row below
+// it one physical line lower than the hit test believes, and hand clicks to the
+// wrong prompts. A marker may annotate a row; it may never move one. A pane too
+// narrow for the row plus four columns is already a pane the row itself does
+// not fit in, so the case this gives up on is one where the list is mis-drawn
+// anyway — and the header's own N/M count still says how much is being held
+// back.
+//
+// selected carries the highlighted row's field across the padding and the mark,
+// so a marked highlight still runs unbroken to the edge.
+func withOverflowMark(line, mark string, width int, selected bool) string {
+	if mark == "" || width <= 0 {
+		return line
+	}
+	pad := width - lipgloss.Width(line) - lipgloss.Width(mark)
+	if pad < 1 {
+		return line
+	}
+	st := descStyle
+	if selected {
+		st = onRow(descStyle, true)
+	}
+	return line +
+		onRow(lipgloss.NewStyle(), selected).Render(strings.Repeat(" ", pad)) +
+		st.Render(mark)
+}
+
+// separatorLines is how many screen lines this list's non-selectable rows cost
+// on top of the one line each filtered row is budgeted for: a spacer draws its
+// blank, and a group heading draws a blank and a title.
+//
+// It exists because the scroll window is counted in ITEMS while a pane is
+// measured in LINES (see maxRows), so a caller sizing the window to a pane has
+// to hand back the difference or the list overruns its own chrome. It counts
+// over items rather than over the filtered set on purpose: a query drops the
+// separators entirely, so the unfiltered count is the larger of the two and
+// using it means the answer stays safe as the query comes and goes, without
+// the caller having to re-size the window on every keystroke.
+func (l fuzzyList) separatorLines() int {
+	n := 0
+	for _, it := range l.items {
+		if it.selectable {
+			continue
+		}
+		n++ // the blank spacer every separator opens with
+		if it.name != "" {
+			n++ // …and the heading, when it has one
+		}
+	}
+	return n
+}
+
 // rowsView renders just the result rows (or the empty message) — the block
 // rowAtLine hit-tests against, with no query line above it. Callers that
 // compose their own chrome around the list start from here.
@@ -517,15 +614,38 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 		b.WriteString("\n")
 	}
 	lo, hi := l.window()
+	above, below := lo, len(l.filtered)-hi
 	for i := lo; i < hi; i++ {
 		s := l.filtered[i]
 		it := s.item
+		// The overflow markers, resolved for this row. The '▴' rides the
+		// window's FIRST row and the '▾' its LAST, which is where the eye is
+		// standing when it runs out of list — the same two places a viewport
+		// with a scrollbar would put the ends of its rail, minus the rail.
+		//
+		// One row can be both ends at once, in a window a single row tall, so
+		// the two are resolved together rather than one overwriting the other.
+		up, down := 0, 0
+		if i == lo {
+			up = above
+		}
+		if i == hi-1 {
+			down = below
+		}
+		mark := overflowMarks(up, down)
 		if !it.selectable {
-			b.WriteString("\n")
+			// A separator's marker goes on its HEADING, which is the line the
+			// eye reads; a nameless spacer has only its blank line to carry
+			// one. Either way it is one line where the row drew one, so
+			// rowAtLine's count is untouched.
 			if it.name != "" {
-				b.WriteString(headingStyle.Render(it.name))
 				b.WriteString("\n")
+				b.WriteString(withOverflowMark(headingStyle.Render(it.name), mark, width, false))
+				b.WriteString("\n")
+				continue
 			}
+			b.WriteString(withOverflowMark("", mark, width, false))
+			b.WriteString("\n")
 			continue
 		}
 		selected := i == l.cursor
@@ -592,22 +712,16 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 		if it.desc != "" {
 			r.WriteString(onRow(descStyle, selected).Render("  " + it.desc))
 		}
-		row := r.String()
+		// The marker is right-aligned into the row's own trailing space, so
+		// it eats the highlight's padding rather than adding to it — a marked
+		// selected row still runs to the edge, and the pad below then has
+		// nothing left to do.
+		row := withOverflowMark(r.String(), mark, width, selected)
 
 		b.WriteString(row)
 		if pad := width - lipgloss.Width(row); selected && pad > 0 {
 			b.WriteString(onRow(lipgloss.NewStyle(), true).Render(strings.Repeat(" ", pad)))
 		}
-		b.WriteString("\n")
-	}
-	// A windowed list says how much lies below the fold, so a list that stops
-	// at the pane's edge reads as scrolled rather than short. It comes after the
-	// rows — never before them — so rowAtLine's line count stays untouched: a
-	// line past the window already answers "no row here". Nothing marks the rows
-	// above; the highlight sitting on the first drawn line, and the up arrow
-	// pulling more into view, say it.
-	if hidden := len(l.filtered) - hi; hidden > 0 {
-		b.WriteString(descStyle.Render(fmt.Sprintf("  … %d more", hidden)))
 		b.WriteString("\n")
 	}
 	return b.String()

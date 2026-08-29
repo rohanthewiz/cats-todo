@@ -136,6 +136,21 @@ still asks where, and pastes without running. Submitting stays on `shift+enter`.
 Mouse reporting is only asked for on the screens with something to click; the
 prompt view leaves the terminal's own text selection alone.
 
+A backlog longer than the pane **scrolls**, and says so. The list keeps a window
+sized to whatever the pane has left once the header, the buttons, the status line
+and the footer are paid for, and the highlight pulls that window along as it
+walks — so `↑`/`↓` can no longer stroll off the bottom of the screen with nothing
+left to say where they went. What the window is not drawing is reported by a
+single **▴** or **▾** carrying its count, right-aligned into the first and last
+row it *is* drawing: `▴ 5` at the top means five prompts above, `▾ 19` at the
+bottom means nineteen below.
+
+The marker spends no line of its own — it shares the row it annotates, and it is
+there only while there is something to say — because a pane that has run out of
+room is the one place a row of backlog cannot be given up for a row of chrome.
+It points both ways for the same reason it carries a number: "there is more" is
+the half of the answer you can already see for yourself.
+
 The list's order is the backlog's own running order, and it is yours to set:
 **drag a prompt** with the mouse to put it where it belongs — the row takes a
 `⠿` grip while you hold it, and the rest of the list parts around it — or nudge

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1573,4 +1574,123 @@ func TestScheduledRowShowsItself(t *testing.T) {
 	if !strings.Contains(m.viewList(), "⏰ missed") {
 		t.Fatal("a missed schedule must say so on the row")
 	}
+}
+
+// withBacklog returns a test model whose project backlog holds n prompts,
+// resized to a pane of the given height — the fixture the list's scroll window
+// and its overflow markers need, since neither exists until there is a pane to
+// fit to.
+func withBacklog(n, height int) model {
+	m := newTestModel()
+	m.project.todos = make([]Todo, n)
+	for i := range m.project.todos {
+		m.project.todos[i] = Todo{
+			ID:     fmt.Sprintf("t%02d", i),
+			Title:  fmt.Sprintf("todo-%02d", i),
+			Prompt: "do the thing",
+		}
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: height})
+	m = next.(model)
+	m.rebuildList()
+	return m
+}
+
+// drawnTodoRows counts the backlog rows a rendered frame actually drew.
+func drawnTodoRows(view string) int {
+	return strings.Count(view, "todo-")
+}
+
+// TestListWindowFitsThePane pins the half of the overflow fix that had to come
+// first: the backlog had no scroll window at all, so a list longer than the
+// pane was simply rendered whole and clipped by the terminal — no bottom, no
+// count, and a highlight that could walk off the screen and keep going. The
+// frame must now fit the pane it was measured for, chrome included, and what it
+// could not draw must be named rather than dropped.
+func TestListWindowFitsThePane(t *testing.T) {
+	const height = 24
+	m := withBacklog(60, height)
+
+	if m.list.maxRows <= 0 || m.list.maxRows >= 60 {
+		t.Fatalf("maxRows = %d, want a window smaller than the 60-row backlog", m.list.maxRows)
+	}
+	view := m.viewList()
+	if n := strings.Count(view, "\n") + 1; n > height {
+		t.Errorf("the list view is %d lines in a %d-line pane:\n%s", n, height, view)
+	}
+
+	// The marker is the whole report, so what it says has to add up: the rows
+	// on screen plus the rows it claims are below must be the backlog.
+	drawn := drawnTodoRows(view)
+	if drawn == 0 || drawn >= 60 {
+		t.Fatalf("drew %d of 60 rows, want a windowed subset", drawn)
+	}
+	below := markerCount(t, view, overflowDownGlyph)
+	if drawn+below != 60 {
+		t.Errorf("%d rows drawn + %q %d below = %d, want the whole 60-row backlog",
+			drawn, overflowDownGlyph, below, drawn+below)
+	}
+	// Nothing is above yet, and a marker for rows that do not exist is worse
+	// than no marker at all.
+	if strings.Contains(stripANSI(view), overflowUpGlyph) {
+		t.Errorf("an unscrolled list drew an up marker:\n%s", view)
+	}
+}
+
+// TestListOverflowMarkersReportBothWays pins the other half. The old "… N more"
+// line said nothing whatever about the rows scrolled off the TOP, so a list
+// read from the middle looked exactly like one read from the beginning. Walking
+// the highlight down past the window has to light the up marker, and the two
+// counts plus the drawn rows still have to be the backlog.
+func TestListOverflowMarkersReportBothWays(t *testing.T) {
+	m := withBacklog(60, 24)
+	for range m.list.maxRows + 5 {
+		m = pressList(t, m, "down")
+	}
+	if m.list.top == 0 {
+		t.Fatal("the window did not scroll when the highlight walked past it")
+	}
+
+	view := m.viewList()
+	above := markerCount(t, view, overflowUpGlyph)
+	below := markerCount(t, view, overflowDownGlyph)
+	drawn := drawnTodoRows(view)
+	if above != m.list.top {
+		t.Errorf("up marker says %d above, want the window's top %d", above, m.list.top)
+	}
+	if above+drawn+below != 60 {
+		t.Errorf("%d above + %d drawn + %d below = %d, want 60", above, drawn, below, above+drawn+below)
+	}
+	// And the frame still fits: a marked row is annotated, never widened onto a
+	// second line (the click map depends on it — see withOverflowMark).
+	if n := strings.Count(view, "\n") + 1; n > 24 {
+		t.Errorf("the scrolled list view is %d lines in a 24-line pane:\n%s", n, view)
+	}
+}
+
+// TestListFittingPaneDrawsNoMarkers pins the quiet case: a backlog the pane can
+// hold says nothing at all, the way the list did before it had a window.
+func TestListFittingPaneDrawsNoMarkers(t *testing.T) {
+	view := withBacklog(3, 40).viewList()
+	if drawnTodoRows(view) != 3 {
+		t.Fatalf("a 3-row backlog drew %d rows:\n%s", drawnTodoRows(view), view)
+	}
+	plain := stripANSI(view)
+	if strings.Contains(plain, overflowUpGlyph) || strings.Contains(plain, overflowDownGlyph) {
+		t.Errorf("a list that fits drew an overflow marker:\n%s", view)
+	}
+}
+
+// markerCount reads the number a marker is carrying out of a rendered frame.
+func markerCount(t *testing.T, view, glyph string) int {
+	t.Helper()
+	mt := regexp.MustCompile(regexp.QuoteMeta(glyph) + ` (\d+)`).FindStringSubmatch(stripANSI(view))
+	if mt == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(mt[1])
+	if err != nil {
+		t.Fatalf("marker %q carries %q: %v", glyph, mt[1], err)
+	}
+	return n
 }

@@ -503,7 +503,7 @@ func TestPickerWindowFitsThePane(t *testing.T) {
 	if n := strings.Count(view, "\n") + 1; n > 15 {
 		t.Errorf("view is %d lines in a 15-line pane:\n%s", n, view)
 	}
-	if !strings.Contains(view, "more") {
+	if !strings.Contains(view, overflowDownGlyph+" ") {
 		t.Errorf("a clipped list should say how many rows are below the fold:\n%s", view)
 	}
 	// Walking past the window scrolls it, and the highlight stays drawn.

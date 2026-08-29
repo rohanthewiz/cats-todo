@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 // sampleItems is two groups of selectable rows separated by non-selectable
@@ -199,8 +201,15 @@ func TestWindowFollowsTheCursor(t *testing.T) {
 	if n := drawnRows(l.rowsView("none", 40)); n != 3 {
 		t.Errorf("windowed rowsView drew %d rows, want 3", n)
 	}
-	if !strings.Contains(l.rowsView("none", 40), "4 more") {
-		t.Errorf("rowsView does not say what is below the fold:\n%s", l.rowsView("none", 40))
+	// The overflow markers say what lies each way, and both directions are
+	// reported: the window is in the middle of the list, so there are three
+	// rows above it as well as four below.
+	v := l.rowsView("none", 40)
+	if !strings.Contains(v, overflowDownGlyph+" 4") {
+		t.Errorf("rowsView does not say what is below the fold:\n%s", v)
+	}
+	if !strings.Contains(v, overflowUpGlyph+" 3") {
+		t.Errorf("rowsView does not say what is above the fold:\n%s", v)
 	}
 	for range 5 {
 		l.moveUp()
@@ -242,8 +251,11 @@ func TestWindowClampsWhenTheListShrinks(t *testing.T) {
 	if l.top != 0 || l.cursor > 1 {
 		t.Errorf("after shrinking to 2 rows: top %d cursor %d", l.top, l.cursor)
 	}
-	// A window taller than the list draws it all, and says nothing about more.
-	if v := l.rowsView("none", 40); drawnRows(v) != 2 || strings.Contains(v, "more") {
+	// A window taller than the list draws it all, and marks neither end: a
+	// marker that outstayed its content would be a glyph in the corner meaning
+	// nothing, which is worse than no marker at all.
+	if v := l.rowsView("none", 40); drawnRows(v) != 2 ||
+		strings.Contains(v, overflowUpGlyph) || strings.Contains(v, overflowDownGlyph) {
 		t.Errorf("rowsView on a short list:\n%s", v)
 	}
 }
@@ -297,5 +309,62 @@ func TestPrefixFirstLeadsWithNamesThatStartWithTheQuery(t *testing.T) {
 	// A prefix row highlights its prefix.
 	if m := pf.filtered[0].matched; len(m) != 3 || m[0] != 0 || m[2] != 2 {
 		t.Errorf("prefix highlight = %v, want [0 1 2]", m)
+	}
+}
+
+// TestOverflowMarkRefusesToMoveARow pins the one rule the marker cannot bend.
+// rowAtLine counts the lines rowsView writes, so a marker that pushed a row
+// past the pane's edge would wrap it in the terminal, put every row below it a
+// physical line lower than the hit test believes, and hand clicks to the wrong
+// prompts. Annotating a row is allowed; moving one is not.
+func TestOverflowMarkRefusesToMoveARow(t *testing.T) {
+	const row = "  a prompt"
+	mark := overflowMarks(0, 12)
+
+	// Room to spare: the marker lands flush with the right edge, and the line
+	// is exactly as wide as the pane — never wider.
+	got := withOverflowMark(row, mark, 40, false)
+	if w := lipgloss.Width(got); w != 40 {
+		t.Errorf("marked row is %d columns wide, want the pane's 40:\n%q", w, got)
+	}
+	if !strings.HasSuffix(stripANSI(got), mark) {
+		t.Errorf("the marker is not at the right edge: %q", stripANSI(got))
+	}
+
+	// No room: the row comes back untouched rather than growing.
+	for _, width := range []int{len(row) + 1, len(row), 4, 0, -1} {
+		if got := withOverflowMark(row, mark, width, false); got != row {
+			t.Errorf("width %d: row was changed to %q", width, got)
+		}
+	}
+
+	// Nothing to say, nothing drawn.
+	if got := withOverflowMark(row, "", 40, false); got != row {
+		t.Errorf("an empty mark still changed the row: %q", got)
+	}
+}
+
+// TestSeparatorLinesCountsWhatHeadingsCost pins the conversion a caller needs
+// to size an item-counted window against a line-counted pane: a heading costs
+// two lines (its blank and its title), a bare spacer one, and a selectable row
+// costs nothing extra because the window already budgets one line for it.
+func TestSeparatorLinesCountsWhatHeadingsCost(t *testing.T) {
+	l := newFuzzyList("", []listItem{
+		{name: "Project"},                     // blank + heading = 2
+		{name: "a", selectable: true, ref: 0}, // already budgeted
+		{},                                    // a bare spacer = 1
+		{name: "Global"},                      // 2
+		{name: "b", selectable: true, ref: 1},
+	})
+	if got := l.separatorLines(); got != 5 {
+		t.Errorf("separatorLines = %d, want 5", got)
+	}
+	// It counts over ITEMS, not the filtered set, so a query that drops every
+	// separator does not shrink the answer — that is what lets a caller size
+	// the window once instead of on every keystroke.
+	l.input.SetValue("a")
+	l.filter()
+	if got := l.separatorLines(); got != 5 {
+		t.Errorf("separatorLines under a filter = %d, want the unfiltered 5", got)
 	}
 }

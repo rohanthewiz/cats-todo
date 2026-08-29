@@ -1694,6 +1694,12 @@ func (m *model) rebuildList() {
 	// (setItems re-filters and clamps), so an add/edit/toggle doesn't disturb
 	// what the user has typed or where they were.
 	m.list.setItems(items)
+	// The window budget moves with the list too, and for a reason the width has
+	// no equivalent of: the group headings are items, they come and go with the
+	// two backlogs, and each one costs the pane a line the window is not
+	// counting (see sizeListWindow). Sized here rather than only on resize,
+	// because nothing resizes when a heading appears.
+	m.sizeListWindow()
 	// The header budget moves with the list — the count's reserved digits and
 	// the done-hidden tag both feed it — so the query input is re-sized here,
 	// not only on resize. Before the first WindowSizeMsg there is no budget to
@@ -4252,6 +4258,36 @@ const actionBarRow = 2
 // TestListRowsMatchWhatIsDrawn holds it to the frame.
 const listRowsRow = actionBarRow + 1
 
+// listChromeBelow is how many lines the list view spends UNDER the rows: the
+// blank that separates them from the status line, the status line itself (drawn
+// empty when quiet, so the footer never moves), the blank under that, and the
+// footer — two lines of it in a pane too narrow for the action bar to teach its
+// own chords, which is the case that has to be budgeted for or the footer is
+// what falls off the bottom.
+const listChromeBelow = 5
+
+// sizeListWindow fits the backlog's scroll window to the pane: the lines left
+// once the chrome above the rows (listRowsRow) and below them (listChromeBelow)
+// is spent, minus the lines this list's group headings cost on top of one line
+// per row (separatorLines — the window is counted in items, the pane in lines).
+//
+// Before this the list had no window at all: every row was rendered and the
+// terminal clipped whatever ran past the bottom, which meant a backlog longer
+// than the pane simply had no bottom — no marker, no count, and a highlight
+// that could walk off the screen and keep going with nothing left to say where
+// it was. A window is what gives the overflow markers something true to report.
+//
+// A height that is not known yet — before the first WindowSizeMsg, and in tests
+// that never send one — leaves the list unwindowed, which is the behavior every
+// caller had before and is still the right one when there is no pane to fit to.
+func (m *model) sizeListWindow() {
+	if m.height <= 0 {
+		m.list.setMaxRows(0)
+		return
+	}
+	m.list.setMaxRows(max(m.height-listRowsRow-listChromeBelow-m.list.separatorLines(), 1))
+}
+
 // The form's fixed rows, counting from the top of that view: the heading (0), a
 // blank (1), the Title label (2), the title field (3), a blank (4), the
 // annotation bar (5), a blank (6), the Prompt label (7), then the prompt
@@ -5019,8 +5055,13 @@ func (m model) viewTarget() string {
 // like textarea.SetWidth on a zero-value model dereferences nil internal state.
 func (m *model) applySizes() {
 	// The query input is budgeted by headerLayout, which self-clamps to narrow
-	// panes — so it is sized before, and regardless of, the floor below.
+	// panes — so it is sized before, and regardless of, the floor below. The
+	// list's scroll window is sized here for the same reason: it answers to the
+	// pane's HEIGHT, which a width too narrow for the form's fields says
+	// nothing about, and a list left unwindowed on a narrow pane is exactly the
+	// one that runs off the bottom.
 	m.sizeSearchInput()
+	m.sizeListWindow()
 	w := m.width - 4
 	if w < 20 {
 		return
