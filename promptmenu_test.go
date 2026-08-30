@@ -132,10 +132,10 @@ func TestPromptMenuKeyboard(t *testing.T) {
 	if m.menu.cursor != menuSplit {
 		t.Fatalf("cursor on row %d after ↑, want back on the split", m.menu.cursor)
 	}
-	// ↑ from the top wraps rather than sticking, which is what a four-row menu
+	// ↑ from the top wraps rather than sticking, which is what a short menu
 	// wants — the last row is one key away from the first.
 	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
-	if m.menu.cursor != menuSpell {
+	if m.menu.cursor != menuActionCount-1 {
 		t.Fatalf("cursor on row %d after wrapping, want the last row", m.menu.cursor)
 	}
 

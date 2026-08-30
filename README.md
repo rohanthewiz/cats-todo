@@ -485,6 +485,7 @@ a chord anybody would guess. So they live where every editor keeps that list:
 │ ⇅ Sort lines                 │
 │ ⌶ Caret on every line        │
 │ ✓ Spelling…           ctrl+l │
+│ ≡ Insert a prompt…    ctrl+p │
 ╰──────────────────────────────╯
 ```
 
@@ -646,6 +647,109 @@ inside it. Nothing is undone on the way out: everything typed is already in the
 prompt, exactly as if it had been typed once per line by hand.
 
 The footer belongs to the mode for as long as it lasts, because the keys do.
+
+
+## The prompt library
+
+The same paragraphs get typed into the editor over and over: the way you like a
+bug reproduced, the review checklist you always paste, the `/sess-load` that
+opens every session on this machine. The library is where those live, once.
+
+Press **`ctrl+p`** (`cmd+P` inside cats, which forwards it) in the prompt and it
+opens over the form — the same fuzzy list every other picker here uses. Type to
+narrow, `↑`/`↓` to walk, `enter` (or a click) to insert at the caret.
+
+```
+Insert a prompt  ~/.config/cats-todo/prompts.json
+
+│ 🔍 sess                                   1/3 │
+
+❯ load session · /sess-load  pick up where we left off
+
+enter insert · ctrl+s saves the selection under the typed name · esc back
+```
+
+The query matches the name, the description **and the body**, because an entry is
+as often remembered by a phrase inside it as by what it was called.
+
+### Where it lives
+
+`~/.config/cats-todo/prompts.json` — beside `settings.json`, in the global config
+directory (`$CATS_TODO_CONFIG_DIR` or `$XDG_CONFIG_HOME/cats-todo` if you set
+either). It is deliberately **user-level, not per-project**: a phrasing worth
+keeping is a habit of the person, not of the repository, and the same wording
+goes into a prompt whichever checkout the manager was launched from. Backlogs
+stay per-project; the words you write them with do not.
+
+```json
+{
+  "prompts": [
+    {"name": "repro steps", "desc": "how to file a bug", "body": "Steps to reproduce:\n1. "},
+    {"name": "load session", "desc": "pick up where we left off", "body": "/sess-load"},
+    {"name": "wrap up", "body": "/sess-wrap"}
+  ]
+}
+```
+
+Only `body` is load-bearing; `name` and `desc` are how you find the entry again.
+A bare top-level array works too, since that is what a hand-written file
+naturally looks like. The file is **read fresh every time the picker opens**, so
+editing it in another window needs no restart — and a typo in it is reported on
+the picker rather than silently read as an empty library, because a library that
+looks lost and a library that is lost should not look the same.
+
+### Commands (skills) like `/sess-load`
+
+An entry whose body starts with `/` is a **command** rather than a snippet, and
+nothing has to declare that — deriving it from the text is what keeps a
+hand-written file from having to say the same thing twice. The distinction is not
+cosmetic: a slash command only *is* one when it begins a line, so a command is
+inserted **on a line of its own**, opening one above it when there is text in the
+way and leaving the caret on a fresh line below:
+
+```
+fix the crash in drop.go     →     fix the crash in drop.go
+                     ▲                 /sess-load
+                     caret              ▲ caret
+```
+
+A snippet, by contrast, lands exactly at the caret and changes nothing around it.
+Its author already decided where its newlines are, and an entry ending in `"1. "`
+means to leave the cursor after that space.
+
+Because a command is written at a line start, that is also where it can be asked
+for: typing **`/` at the start of a line** opens the picker with the commands
+alone, and the entry you choose replaces the slash you typed rather than doubling
+it. `esc` leaves the plain `/` behind, so nothing is lost by opening it.
+
+Two guards keep that out of the way of ordinary writing, and a slash needs them
+where `@` does not — `and/or`, `src/ui`, `3/4` are all just text. It fires only
+at a line start (indentation still counts), and only when the library actually
+holds a command: if you keep none, `/Users/ro/…` typed at a line start is left
+completely alone.
+
+`ctrl+p` remains the way to reach prose snippets and commands together, and the
+one that works from anywhere in the prompt.
+
+### Saving what you just wrote
+
+A library you can only grow by opening another editor is a library that stays
+empty, so the picker is also where entries are made. Sweep a run of the prompt
+(or write the whole thing), press `ctrl+p`, type a **name in the query box**, and
+press **`ctrl+s`**:
+
+- with something swept, the selection is what gets saved;
+- with nothing swept, the whole prompt is.
+
+The footer says which of the two before you commit to it, and the entry is on
+disk — in the shape above — before the keys come back. A name already in the
+library is refused rather than overwritten, in those words: overwriting is the
+destructive reading of an ambiguous gesture, and renaming is one keystroke.
+
+`ctrl+s` means "save the prompt" one screen up and "save this snippet" here. That
+is the same idea — commit what is in front of me — applied to what the screen is
+about; the form's own save is not reachable from the picker, so there is no
+press that gets the wrong one.
 
 
 ## Images

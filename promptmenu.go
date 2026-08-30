@@ -11,6 +11,7 @@
 //	│ ⇅ Sort lines                 │
 //	│ ⌶ Caret on every line        │
 //	│ ✓ Spelling…           ctrl+l │
+//	│ ≡ Insert a prompt…    ctrl+p │
 //	╰──────────────────────────────╯
 //
 // It is built fresh on every press, from what the press was actually aimed at:
@@ -45,6 +46,13 @@ const (
 	menuSort
 	menuCarets
 	menuSpell
+	// menuInsert opens the prompt library (promptpick.go). It is last because
+	// it is the one row that is not about the text under the pointer — every
+	// other item acts on what was swept or clicked, and this one brings text in
+	// — and because it is always live: putting an always-live row first would
+	// make it the default the keyboard lands on, ahead of the items the press
+	// was almost certainly aimed at.
+	menuInsert
 	menuActionCount
 )
 
@@ -105,6 +113,9 @@ func (m model) openPromptMenu(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		{act: menuSort, label: "⇅ Sort lines", why: rowsWhy},
 		{act: menuCarets, label: "⌶ Caret on every line", why: rowsWhy},
 		{act: menuSpell, label: "✓ Spelling…", hint: "ctrl+l"},
+		// Never dim: an empty library still opens a screen that says where
+		// entries go, which is the answer someone with none actually needs.
+		{act: menuInsert, label: "≡ Insert a prompt…", hint: "ctrl+p"},
 	}
 
 	// The spell row is the one item that is about the cell the pointer is on
@@ -252,6 +263,11 @@ func (m model) pressPromptMenu(i int) (tea.Model, tea.Cmd) {
 		// Straight into the panel on the word the press was aimed at, with the
 		// ✚ Add row highlighted (openSpellPanelOn, spellpanel.go).
 		return m.openSpellPanelOn(word)
+	case menuInsert:
+		// The same call the chord makes. Anything swept is still standing here —
+		// the menu does not clear it — so the picker's ctrl+s can offer to save
+		// exactly the run the right-click was aimed at.
+		return m.beginSnippets(loadPromptLib(), snippetsAll)
 	}
 	return m, nil
 }

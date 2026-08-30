@@ -34,6 +34,7 @@ const (
 	stageSchedule                // set (or clear) a prompt's auto-drop time
 	stageSession                 // edit the form's per-todo session options
 	stageFiles                   // browse the file system for an @mention in the prompt, or a folder to export to
+	stageSnippets                // pick a prompt (or a slash command) out of the user's library to insert
 	stageExport                  // pick another project's backlog to copy / move the chosen prompt into
 	stageSpell                   // correct, or accept, the misspelled word nearest the prompt's caret
 	// stageViewOpts is the list's View panel: how the list is drawn, as against
@@ -324,6 +325,12 @@ type model struct {
 	// gesture that asked for it.
 	files filePicker
 
+	// Prompt-library picker — the form's fourth sub-stage, opened by ctrl+p
+	// (cmd+P) or by a '/' at the start of a line (see promptpick.go). Rebuilt on
+	// every open over a freshly read library, so nothing here outlives the
+	// gesture that asked for it and a hand-edited file is never stale.
+	snips snippetPicker
+
 	// Attachment editor (a sub-stage of the form, so its state lives and dies
 	// with the form's).
 	formImages []formImage
@@ -608,6 +615,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSession(msg)
 		case stageFiles:
 			return m.updateFiles(msg)
+		case stageSnippets:
+			return m.updateSnippets(msg)
 		case stageExport:
 			return m.updateExport(msg)
 		case stageSpell:
@@ -639,6 +648,10 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The blink and a paste both land here; edit is the one way into the
 		// picker's query, so a pasted path is normalized like a typed one.
 		cmd = m.files.edit(msg)
+	case stageSnippets:
+		// The blink and a paste both land here; the query box is the only thing
+		// on the screen that takes text, so both go straight to it.
+		cmd = m.snips.list.editQuery(msg)
 	case stageExport:
 		cmd = m.exportList.editQuery(msg)
 	case stageSpell:
@@ -805,6 +818,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.clickForm(msg)
 	case stageFiles:
 		return m.clickFiles(msg)
+	case stageSnippets:
+		return m.clickSnippets(msg)
 	case stageExport:
 		return m.clickExport(msg)
 	case stageSpell:
@@ -2123,6 +2138,15 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if dir, ok := promptLineMoveKey(msg); ok {
 			return m.movePromptLines(dir)
 		}
+		// ctrl+p (cmd+P) opens the prompt library (promptpick.go). It is up here
+		// with the other selection readers because the picker OFFERS TO SAVE
+		// what is swept: by the time the switch below is reached the highlight
+		// would already have been dropped, and the offer with it. The switch
+		// keeps a case of its own for the title field, where the chord has no
+		// editor caret to insert at and says so.
+		if snippetLibChord(msg.String()) {
+			return m.beginSnippets(loadPromptLib(), snippetsAll)
+		}
 		// Typing over a selection replaces it, and backspace or delete takes it
 		// out — what a highlight is for besides copying it, and what every other
 		// editor on the machine does with one. The span is removed first and the
@@ -2247,6 +2271,14 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// in the list, remove in the attachment editor, and here the list that
 		// leaves the prompt to become prompts of its own.
 		return m.splitPromptList()
+	case "ctrl+p", "super+p", "meta+p":
+		// Reached only from the title field or the annotation bar — the prompt's
+		// own presses are answered at the top of this function, where the
+		// selection is still standing. A library entry is inserted at the
+		// editor's caret, and neither of those two stops has one, so this is
+		// refused in words the way the other caret tools refuse from here.
+		m.formNote = "inserting a saved prompt works in the prompt — tab to it first"
+		return m, nil
 	case "ctrl+r":
 		// The session panel — the one thing on the form that is about how the
 		// prompt will *run*, which is what ctrl+r already means one screen over
@@ -2302,6 +2334,25 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m = next.(model)
 		opened, blink := m.beginFiles()
 		return opened, tea.Batch(cmd, blink)
+	}
+	// '/' at the start of a line opens the library's slash commands
+	// (promptpick.go), on exactly the terms '@' opens the file picker on: the
+	// character goes into the editor first, so esc leaves a plain slash behind,
+	// and a chosen command replaces it rather than doubling it (snippetInsertion).
+	//
+	// Two guards instead of '@'s one, because a slash is ordinary punctuation
+	// where an '@' is not (see promptAtLineStart), and because the library is
+	// asked whether it has anything to offer before the screen changes: someone
+	// who keeps no commands never meant to ask, and their "/Users/…" typed at a
+	// line start is left alone. That read is why the library is passed in — the
+	// picker must not answer the same question twice and risk two answers.
+	if m.formFocus == formFieldPrompt && msg.String() == "/" && promptAtLineStart(m.promptArea) {
+		if lib := loadPromptLib(); lib.hasCommands() {
+			next, cmd := m.forwardForm(msg)
+			m = next.(model)
+			opened, blink := m.beginSnippets(lib, snippetsCommands)
+			return opened, tea.Batch(cmd, blink)
+		}
 	}
 	// On the annotation bar the remaining keys walk and press its segments
 	// rather than reaching any editor (see annotbar.go).
@@ -4053,7 +4104,7 @@ func (m model) View() tea.View {
 	// Cell motion is also exactly the mode a drag needs: it reports motion only
 	// while a button is held, so the manager hears the gesture without paying for
 	// a message on every idle sweep of the pointer across the pane.
-	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageExport || m.stage == stageSpell || m.stage == stageViewOpts {
+	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageSpell || m.stage == stageViewOpts {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -4086,6 +4137,8 @@ func (m model) renderStage() string {
 		return m.viewSession()
 	case stageFiles:
 		return m.viewFiles()
+	case stageSnippets:
+		return m.viewSnippets()
 	case stageExport:
 		return m.viewExport()
 	case stageSpell:
@@ -4958,7 +5011,13 @@ func (m model) formFooter() string {
 	// terminal may not be able to send at all. If the pane is narrow enough to
 	// cost a segment, the chord that might never arrive is the right one to lose
 	// first.
-	segs = append(segs, "ctrl+l spelling", "alt+↑/↓ move line", "cmd+d dup line")
+	//
+	// The prompt library (promptpick.go) rides at the very tail, which is where
+	// the skill's rule puts a new standing segment: this line is already full at
+	// 120 cells, so a chord that is genuinely optional — the library is a
+	// convenience, and its other way in is a '/' the user was going to type
+	// anyway — goes where only a wide pane will ever read it.
+	segs = append(segs, "ctrl+l spelling", "alt+↑/↓ move line", "cmd+d dup line", "ctrl+p prompt library")
 	lines = append(lines, m.fitFooter(segs))
 
 	for i, ln := range lines {
@@ -5420,6 +5479,8 @@ func (m *model) applySizes() {
 		m.sessInput.SetWidth(sessInputWidth(m.width))
 	case stageFiles:
 		m.files.resize(m.width, m.height)
+	case stageSnippets:
+		m.snips.resize(m.width, m.height)
 	case stageExport:
 		m.exportList.input.SetWidth(w)
 	case stageSpell:
