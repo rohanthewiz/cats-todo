@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -436,5 +437,172 @@ func TestSpellPanelOnAMultibyteLine(t *testing.T) {
 	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got, want := m.promptArea.Value(), "héllo wörld — fix the now"; got != want {
 		t.Errorf("prompt is %q, want %q", got, want)
+	}
+}
+
+// rightClickPrompt is a right-click at a column of a line of the prompt editor,
+// counted from the editor's first character (past its "┃ " gutter) — the
+// gesture the tests below are all about.
+func rightClickPrompt(m model, col, row int) model {
+	x := promptGutterWidth(m.promptArea) + col
+	next, _ := m.Update(tea.MouseClickMsg{X: x, Y: formPromptRow + row, Button: tea.MouseRight})
+	return next.(model)
+}
+
+// TestSpellRightClickOpensOnTheWordPointedAt is the whole point of the gesture:
+// with several flagged words in one prompt, the pointer says which one, where
+// ctrl+l can only guess from the caret. The caret is deliberately parked beside
+// a different flagged word, so a panel that opened on the caret's word would
+// fail here.
+func TestSpellRightClickOpensOnTheWordPointedAt(t *testing.T) {
+	//         0123456789012345678
+	//         zorbulate and flurgle
+	m := withSpellForm(t, "zorbulate and flurgle")
+	m.promptArea.MoveToEnd() // the caret sits in "flurgle"
+	if _, word, ok := m.promptSpellTarget(); !ok || word != "flurgle" {
+		t.Fatalf("the caret's word is %q (ok=%v); this test needs it to be the other one", word, ok)
+	}
+
+	got := rightClickPrompt(m, 3, 0) // inside "zorbulate"
+	if got.stage != stageSpell {
+		t.Fatalf("a right-click on a flagged word left the form on stage %v", got.stage)
+	}
+	if got.spellWord != "zorbulate" {
+		t.Errorf("the panel opened on %q, want the word under the pointer", got.spellWord)
+	}
+	// It opens on the answer to "this is a word", not on the first correction.
+	idx := got.spellList.selectedIndex()
+	if idx < 0 || idx >= len(got.spellChoices) || got.spellChoices[idx].kind != spellAdd {
+		t.Errorf("the highlighted row is %v, want an ✚ Add row: %v", idx, spellRowNames(got))
+	}
+	// The keys follow the pointer, so a correction would land back in the editor.
+	if got.formFocus != formFieldPrompt {
+		t.Errorf("formFocus = %d, want the prompt", got.formFocus)
+	}
+}
+
+// TestSpellRightClickAddsWithOneKey: the gesture is a right-click and enter —
+// the word is in the user's own dictionary, the mark is gone, and the panel has
+// handed the form back.
+func TestSpellRightClickAddsWithOneKey(t *testing.T) {
+	m := withSpellForm(t, "the zorbulate thing")
+	m = rightClickPrompt(m, 4, 0)
+	if m.stage != stageSpell {
+		t.Fatalf("the right-click did not open the panel (stage %v)", m.stage)
+	}
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if m.stage != stageForm {
+		t.Fatalf("after the add the stage is %v, want the form", m.stage)
+	}
+	if !strings.Contains(m.formNote, "zorbulate") || !strings.Contains(m.formNote, "my dictionary") {
+		t.Errorf("form note is %q, want it to name the word and the list", m.formNote)
+	}
+	data, err := os.ReadFile(m.spellDictGlobalPath())
+	if err != nil {
+		t.Fatalf("reading the dictionary that was written: %v", err)
+	}
+	if !strings.Contains(string(data), "zorbulate") {
+		t.Errorf("the word is not in the file:\n%s", data)
+	}
+	if spans := m.promptSpellSpans(); len(spans) != 0 {
+		t.Errorf("the added word is still flagged: %v", spans)
+	}
+	// The pick does not outlive the panel: ctrl+l afterwards is about the caret
+	// again, not about the word some earlier click pointed at.
+	if m.spellPicked {
+		t.Error("the right-click's target survived the panel closing")
+	}
+}
+
+// TestSpellRightClickOnTheWordBeingTyped: the word under the caret is the one
+// word the underline spares, and the pointer may still ask about it — the
+// gesture is aimed at a word, not at a mark.
+func TestSpellRightClickOnTheWordBeingTyped(t *testing.T) {
+	m := withSpellForm(t, "fix zorbulate")
+	m.promptArea.MoveToEnd()
+	if spans := m.promptSpellSpans(); len(spans) != 0 {
+		t.Fatalf("the word under the caret is marked (%v); this test is about the one that isn't", spans)
+	}
+	if got := rightClickPrompt(m, 6, 0); got.stage != stageSpell || got.spellWord != "zorbulate" {
+		t.Errorf("right-clicking the word being typed gave stage %v word %q", got.stage, got.spellWord)
+	}
+}
+
+// TestSpellRightClickSaysWhyWhenItCannot: a click the gesture cannot answer says
+// so on the note line rather than doing nothing — a gesture that is silently
+// ignored is indistinguishable from one the program never received. The two
+// reasons are told apart, since one of them is a switch the user can flip.
+func TestSpellRightClickSaysWhyWhenItCannot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(model) model
+		col  int
+		want string
+	}{
+		{"on a word the dictionary knows", func(m model) model { return m }, 1, "nothing the dictionary questions"},
+		{"past the end of the line", func(m model) model { return m }, 60, "nothing the dictionary questions"},
+		{"with the check off", func(m model) model { m.spellOn = false; return m }, 8, "spell check is off"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.set(withSpellForm(t, "the zorbulate thing"))
+			got := rightClickPrompt(m, tc.col, 0)
+			if got.stage != stageForm {
+				t.Errorf("stage is %v, want the form to have stayed put", got.stage)
+			}
+			if !strings.Contains(got.formNote, tc.want) {
+				t.Errorf("form note is %q, want it to say %q", got.formNote, tc.want)
+			}
+		})
+	}
+}
+
+// TestSpellRightClickOffTheEditor: the gesture belongs to the editor, so a
+// right-click on the toolbar or the title field is not a spelling question and
+// leaves everything alone — including the note, which may be carrying something
+// the user has not read yet.
+func TestSpellRightClickOffTheEditor(t *testing.T) {
+	m := withSpellForm(t, "the zorbulate thing")
+	m.formNote = "a note worth keeping"
+	for _, y := range []int{formTitleRow, m.formBarRow()} {
+		next, _ := m.Update(tea.MouseClickMsg{X: 4, Y: y, Button: tea.MouseRight})
+		got := next.(model)
+		if got.stage != stageForm || got.formNote != "a note worth keeping" {
+			t.Errorf("a right-click on row %d gave stage %v note %q", y, got.stage, got.formNote)
+		}
+	}
+}
+
+// TestSpellRightClickOnAWrappedLine pins the mapping the gesture rests on: a
+// screen line is not a value line, so the word under the pointer on the second
+// drawn line of a wrapped paragraph has to be found by display line, not by
+// counting newlines.
+func TestSpellRightClickOnAWrappedLine(t *testing.T) {
+	t.Setenv(configDirEnvVar, t.TempDir())
+	// Narrow enough to wrap, with the odd word on the second drawn line.
+	m := withForm(t, "", strings.Repeat("word ", 8)+"zorbulate", 40, 40)
+	m.spellOn = true
+	m.loadSpellDict()
+	if m.spellDict == nil {
+		t.Fatal("the dictionary did not load")
+	}
+	lines := promptDisplayLines(m.promptArea)
+	if len(lines) < 2 {
+		t.Fatalf("the prompt did not wrap: %d display line(s)", len(lines))
+	}
+	// Where "zorbulate" starts, as a cell on the display line that draws it.
+	runes := []rune(m.promptArea.Value())
+	start := len(runes) - len("zorbulate")
+	var row, col int
+	for i, dl := range lines {
+		if start >= dl.start && start < dl.end() {
+			row, col = i, lipgloss.Width(string(runes[dl.start:start]))
+		}
+	}
+	if row == 0 {
+		t.Fatalf("the odd word is on the first display line; this test needs it wrapped: %v", lines)
+	}
+	if got := rightClickPrompt(m, col+1, row); got.spellWord != "zorbulate" {
+		t.Errorf("the panel opened on %q, want the word on the wrapped line", got.spellWord)
 	}
 }

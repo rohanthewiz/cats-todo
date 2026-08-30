@@ -578,6 +578,22 @@ three answers there are to an underline:
 
 Type to filter the rows, `enter` presses one, `esc` or `ctrl+l` goes back.
 
+**Right-click an underlined word** to open the same panel on *that* word. It is
+the gesture every editor has taught for a red squiggle, and it earns its place
+beside `ctrl+l` because the keyboard path can only guess: in a prompt with three
+flagged words in it, "the one nearest the caret" is a guess, and the pointer is
+the one input that can simply say which. Because a hand that points at a
+squiggle is usually about to say *that is a word*, the panel opens with the
+**✚ Add** row already highlighted — right-click, `enter`, and the word is in
+your dictionary. The suggestions are still one `↑` away for the click that turns
+out to have been a typo after all, and this project's dictionary one `↓` away.
+
+The word being typed can be right-clicked too, though it carries no underline:
+the gesture is aimed at a word, not at a mark. A right-click that lands
+somewhere the panel has no answer for says so on the note line rather than doing
+nothing — a word the dictionary knows, or the check being off, are different
+things and are told apart.
+
 The **☑ Spell** chip on the toolbar is the toggle on its own: its box says
 whether the check is on, and clicking it flips it. Either way the choice
 persists across launches (in `~/.config/cats-todo/settings.json`).

@@ -219,6 +219,39 @@ func promptDisplayLines(ta textarea.Model) []promptDisplayLine {
 	return out
 }
 
+// promptOffsetAt is the rune offset into the editor's value that the pointer
+// landed on: row is the clicked line counted from the top of the editor's box,
+// x its column on the screen. ok is false when the click is past the last line
+// the value fills, where there is no text to have pointed at.
+//
+// It is placePromptCursor's question asked without moving anything. That
+// function has to walk the caret, because moving the caret is what it is for;
+// a gesture that only wants to know *which word is under there* must not
+// scroll the view or take the caret off the character the user is typing, so
+// the answer is computed from the display-line table instead. The table is
+// keyed by screen line — the line drawn at screen row y is index
+// ScrollYOffset()+y — which is the whole mapping.
+//
+// A click in the editor's gutter (x left of the first character) resolves to
+// the start of that line: the "┃ " sits one cell from the first letter, and a
+// hand aiming at the first word of a line lands there often enough that the
+// nearest character is the more useful reading of the miss.
+func promptOffsetAt(ta textarea.Model, x, row int) (int, bool) {
+	lines := promptDisplayLines(ta)
+	i := ta.ScrollYOffset() + max(row, 0)
+	if i < 0 || i >= len(lines) {
+		return 0, false
+	}
+	dl := lines[i]
+	runes := []rune(ta.Value())
+	lo := min(dl.start, len(runes))
+	hi := min(dl.end(), len(runes))
+	// colAtWidth sums widths rather than counting runes, so a double-width
+	// glyph earlier on the line does not shift the answer off its word — the
+	// same care the selection and the spell underline take.
+	return lo + colAtWidth(runes[lo:hi], x-promptGutterWidth(ta)), true
+}
+
 // promptCaretDisplayLine is the index into promptDisplayLines of the line the
 // caret is drawn on.
 //

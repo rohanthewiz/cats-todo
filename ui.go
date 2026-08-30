@@ -286,6 +286,16 @@ type model struct {
 	spellChoices []spellChoice
 	spellWord    string
 	spellSpan    spell.Span
+	// spellPick is the word a right-click in the editor pointed at, and
+	// spellPicked says the panel was opened that way. The pointer names its own
+	// target — the panel opened by ctrl+l has to guess one from the caret
+	// (promptSpellTarget), and a gesture aimed at a particular word must not be
+	// answered with a different one. It also decides which row opens
+	// highlighted: a right-click on a word means "this is a word", so the
+	// highlight starts on the ✚ Add row rather than the first correction.
+	// Cleared when the panel closes, so it never outlives the gesture.
+	spellPick   spell.Span
+	spellPicked bool
 	// spellErr is the panel's own message line, for the one thing that can go
 	// wrong while it is up: a dictionary file that could not be written. It is
 	// not the form's formErr because the panel is what is on screen when it
@@ -712,6 +722,18 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // focus where the eye already is, rather than acting from one place while tab or
 // ↑/↓ resumes from another.
 func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if msg.Button == tea.MouseRight {
+		// The right button has exactly one meaning here, and only on the form:
+		// ask about the word under the pointer (see rightClickSpell). It is the
+		// gesture every editor has taught for a red underline, and it is worth
+		// the one exception to "the left button is the pointer" because the
+		// underline is drawn by this program and so is the only thing on screen
+		// a right-click could otherwise be aimed at.
+		if m.stage == stageForm {
+			return m.rightClickSpell(msg)
+		}
+		return m, nil
+	}
 	if msg.Button != tea.MouseLeft {
 		return m, nil
 	}
