@@ -192,3 +192,40 @@ end try`, dst)
 	}
 	return dst, nil
 }
+
+// readClipboardText asks the system pasteboard for the text it is holding.
+//
+// The mirror of copyTextToClipboard, and deliberately not symmetric with it. A
+// copy can be shouted down both channels at once because both carry the same
+// bytes; a read has to come back with an answer, and only one of the two can
+// give one here and now:
+//
+//   - pbpaste answers immediately, and it answers with the pasteboard the user
+//     actually copied into — the same reasoning that put osascript in this file.
+//     It only means the right clipboard when the process is on the user's Mac,
+//     which is the case this tool lives in (a drop targets panes on this
+//     machine).
+//   - OSC 52's read half (tea.ReadClipboard) is the one that survives ssh or a
+//     multiplexer, but the reply arrives later, as a tea.ClipboardMsg, and many
+//     terminals refuse the read outright — letting a program on the far end read
+//     the local clipboard is a leak, so it is off by default nearly everywhere.
+//     That is the caller's fallback, not this function's job.
+//
+// supported=false is "there is no local pasteboard to reach here, ask the
+// terminal instead"; it is not a failure.
+//
+// A variable, like cdxStateFile in export.go and for the same reason: the tests
+// drive the editor's paste and must be handed a clipboard rather than whatever
+// the machine running them happens to be holding.
+var readClipboardText = func() (text string, supported bool, err error) {
+	if runtime.GOOS != "darwin" {
+		return "", false, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), clipboardTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "pbpaste").Output()
+	if err != nil {
+		return "", true, fmt.Errorf("could not read the clipboard: %s", firstLine(err.Error(), 120))
+	}
+	return string(out), true, nil
+}

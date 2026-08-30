@@ -740,3 +740,165 @@ func TestCtrlDStillDeletesForward(t *testing.T) {
 		t.Errorf("ctrl+d left %q, want %q — the editor's delete-forward", got.promptArea.Value(), "bc")
 	}
 }
+
+// --- Cmd+C / Cmd+V: the mac copy and paste ------------------------------------
+
+// cmdKey is a Cmd chord as the two kinds of terminal that can send one spell it:
+// a kitty-protocol terminal sets the super bit for the Command key, another
+// reports the same press on the meta bit. Both have to work — which one arrives
+// is the terminal's choice, not the user's (the same reasoning cmdD runs on).
+func cmdKey(r rune) map[string]tea.KeyPressMsg {
+	return map[string]tea.KeyPressMsg{
+		"super+" + string(r): {Code: r, Mod: tea.ModSuper},
+		"meta+" + string(r):  {Code: r, Mod: tea.ModMeta},
+	}
+}
+
+// stubClipboard points the editor's clipboard read at a fixture for one test.
+func stubClipboard(t *testing.T, text string, supported bool, err error) {
+	t.Helper()
+	prev := readClipboardText
+	readClipboardText = func() (string, bool, error) { return text, supported, err }
+	t.Cleanup(func() { readClipboardText = prev })
+}
+
+// TestPromptCmdCCopies: Cmd+C is ctrl+c's mac spelling over a selection — the
+// chord the hand actually reaches for on this machine.
+func TestPromptCmdCCopies(t *testing.T) {
+	for name, key := range cmdKey('c') {
+		t.Run(name, func(t *testing.T) {
+			copied, cmd := selectAlpha(t).Update(key)
+			got := copied.(model)
+			if got.quitting {
+				t.Fatal("cmd+c quit the manager instead of copying")
+			}
+			if cmd == nil {
+				t.Error("cmd+c over a selection produced no clipboard command")
+			}
+			if !strings.Contains(got.formNote, "copied 5") {
+				t.Errorf("form note is %q, want it to report five characters copied", got.formNote)
+			}
+			if sel := got.selectedPromptText(); sel != "alpha" {
+				t.Errorf("after the copy %q is selected, want it left alone", sel)
+			}
+		})
+	}
+}
+
+// TestPromptCmdCWithNothingSelectedSaysWhy: the quit ctrl+c carries is a liberty
+// taken on the chord that always works, not on this one. A hand reaching for
+// Cmd+C is asking to copy, never to leave the manager.
+func TestPromptCmdCWithNothingSelectedSaysWhy(t *testing.T) {
+	m := withForm(t, "", "alpha beta", 100, 40)
+	got := typeInForm(t, m, cmdKey('c')["super+c"])
+	if got.quitting {
+		t.Fatal("cmd+c with nothing selected quit — that is ctrl+c's job, not this chord's")
+	}
+	if !strings.Contains(got.formNote, "nothing selected") {
+		t.Errorf("form note is %q, want it to say there was nothing to copy", got.formNote)
+	}
+}
+
+// TestPromptCmdVPastes: the clipboard's text lands at the caret. The chord is
+// only reached where the host forwards it — under cats ⌘V arrives as a paste
+// event instead — so this is the fallback road, tested on its own terms.
+func TestPromptCmdVPastes(t *testing.T) {
+	for name, key := range cmdKey('v') {
+		t.Run(name, func(t *testing.T) {
+			stubClipboard(t, "gamma", true, nil)
+			m := withForm(t, "", "alpha ", 100, 40)
+			m.focusForm(formFieldPrompt)
+			setPromptCaretOffset(&m.promptArea, 6)
+
+			got := typeInForm(t, m, key)
+			if want := "alpha gamma"; got.promptArea.Value() != want {
+				t.Errorf("value = %q, want %q", got.promptArea.Value(), want)
+			}
+		})
+	}
+}
+
+// TestPromptCmdVReplacesTheSelection: a paste is an insertion, and every other
+// insertion lands on the highlighted run rather than beside it.
+func TestPromptCmdVReplacesTheSelection(t *testing.T) {
+	stubClipboard(t, "omega", true, nil)
+	got := typeInForm(t, selectAlpha(t), cmdKey('v')["super+v"])
+	if want := "omega beta"; got.promptArea.Value() != want {
+		t.Errorf("value = %q, want the pasted text to have replaced the selection", got.promptArea.Value())
+	}
+}
+
+// TestPromptCmdVPastesIntoTheTitle: the title is a text field too, and a pasted
+// title is the reason a paste is not prompt-only.
+func TestPromptCmdVPastesIntoTheTitle(t *testing.T) {
+	stubClipboard(t, "a pasted title", true, nil)
+	m := withForm(t, "", "", 100, 40)
+	m.focusForm(formFieldTitle)
+
+	got := typeInForm(t, m, cmdKey('v')["super+v"])
+	if want := "a pasted title"; got.titleInput.Value() != want {
+		t.Errorf("title = %q, want %q", got.titleInput.Value(), want)
+	}
+}
+
+// TestPromptCmdVSaysWhyWhenItCannot: the house rule — anything the form will not
+// do says so. An empty clipboard and the annotation bar are the two ways this
+// chord comes up empty.
+func TestPromptCmdVSaysWhyWhenItCannot(t *testing.T) {
+	t.Run("empty clipboard", func(t *testing.T) {
+		stubClipboard(t, "", true, nil)
+		m := withForm(t, "", "alpha", 100, 40)
+		got := typeInForm(t, m, cmdKey('v')["super+v"])
+		if got.promptArea.Value() != "alpha" {
+			t.Errorf("value = %q, want it untouched", got.promptArea.Value())
+		}
+		if !strings.Contains(got.formNote, "no text") {
+			t.Errorf("form note is %q, want it to say the clipboard held no text", got.formNote)
+		}
+	})
+	t.Run("on the annotation bar", func(t *testing.T) {
+		stubClipboard(t, "gamma", true, nil)
+		m := withForm(t, "a title", "alpha", 100, 40)
+		m.focusForm(formFieldAnnots)
+
+		got := typeInForm(t, m, cmdKey('v')["super+v"])
+		if got.promptArea.Value() != "alpha" || got.titleInput.Value() != "a title" {
+			t.Errorf("the press edited a field: title=%q prompt=%q", got.titleInput.Value(), got.promptArea.Value())
+		}
+		if !strings.Contains(got.formNote, "pasting works") {
+			t.Errorf("form note is %q, want it to say where pasting works", got.formNote)
+		}
+	})
+}
+
+// TestPromptCmdVFallsBackToTheTerminal: with no local pasteboard the chord asks
+// the terminal over OSC 52 and pastes the answer — and only an answer it asked
+// for. A terminal that volunteers a clipboard report must not spray text into a
+// prompt nobody asked to paste into.
+func TestPromptCmdVFallsBackToTheTerminal(t *testing.T) {
+	stubClipboard(t, "", false, nil)
+	m := withForm(t, "", "alpha ", 100, 40)
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 6)
+
+	unsolicited, _ := m.Update(tea.ClipboardMsg{Content: "nope"})
+	if got := unsolicited.(model).promptArea.Value(); got != "alpha " {
+		t.Errorf("an unrequested clipboard report pasted %q", got)
+	}
+
+	asked, cmd := m.Update(cmdKey('v')["super+v"])
+	if cmd == nil {
+		t.Fatal("cmd+v with no local pasteboard produced no clipboard read")
+	}
+	if !asked.(model).pendingPaste {
+		t.Fatal("cmd+v did not record that it is waiting for a clipboard answer")
+	}
+	answered, _ := asked.(model).Update(tea.ClipboardMsg{Content: "gamma"})
+	got := answered.(model)
+	if want := "alpha gamma"; got.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q", got.promptArea.Value(), want)
+	}
+	if got.pendingPaste {
+		t.Error("the answer was consumed but the model is still waiting for one")
+	}
+}

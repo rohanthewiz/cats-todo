@@ -269,6 +269,12 @@ type model struct {
 	// flag serving both would let a release meant for one end the other.
 	promptSel     promptSel
 	promptSelDrag bool
+	// pendingPaste marks that a Cmd+V asked the terminal for the clipboard over
+	// OSC 52 and is waiting for the tea.ClipboardMsg carrying it. Only that one
+	// message may paste, which is what this flag is for: the reply is
+	// indistinguishable from an unsolicited clipboard report, and only the
+	// request knows one was wanted.
+	pendingPaste bool
 	// Spell check (see spell.go): whether it is on — a persisted preference,
 	// read at start-up and flipped by ctrl+l on the form — and the dictionary,
 	// nil until the first form opens with the check on. On the model rather
@@ -534,6 +540,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.promptSelDrag = false
 			return m, nil
 		}
+	case tea.ClipboardMsg:
+		// The terminal's answer to the OSC 52 read pasteFormClipboard asks for
+		// when there is no local pasteboard. It is consumed only by the request
+		// that asked for it: a terminal may volunteer a clipboard report of its
+		// own, and text appearing in a prompt nobody asked to paste into is the
+		// one outcome worse than a paste that does not arrive.
+		if !m.pendingPaste {
+			return m, nil
+		}
+		m.pendingPaste = false
+		if m.stage != stageForm || msg.Content == "" {
+			return m, nil
+		}
+		// The selection, if there was one, was already taken out by the chord
+		// that started this (see updateForm); the caret is sitting where it was.
+		return m.forwardForm(tea.PasteMsg{Content: msg.Content})
 	case tea.PasteMsg:
 		// A bracketed paste is an insertion like a typed character, so it
 		// replaces a standing selection rather than landing beside it. The
@@ -2021,7 +2043,7 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.anchorPromptSel()
 			return m.forwardForm(plain)
 		}
-		if msg.String() == "ctrl+c" && m.selectedPromptText() != "" {
+		if promptCopyChord(msg.String()) && m.selectedPromptText() != "" {
 			return m.copyPromptSelection()
 		}
 		// Typing over a selection replaces it, and backspace or delete takes it
@@ -2041,6 +2063,13 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m.deletePromptSelection()
 				m.formNote = ""
 				return m, nil
+			case promptPasteChord(msg.String()):
+				// A paste is an insertion like any other, so it lands *on* the
+				// highlighted run rather than beside it — the same rule Update
+				// applies to a bracketed tea.PasteMsg. The span goes here and
+				// the chord carries on to the switch below, which reads the
+				// clipboard and inserts at the caret the deletion left behind.
+				m.deletePromptSelection()
 			case promptSelInsertKey(msg, m.promptArea.KeyMap):
 				m.deletePromptSelection()
 			}
@@ -2058,6 +2087,20 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+	case "super+c", "meta+c":
+		// Cmd+C is the mac spelling of the copy above, and reaching this case at
+		// all means there was nothing highlighted to copy — a selection would
+		// have been answered by the block at the top of this function. So it
+		// says why instead of doing nothing, and it deliberately does not fall
+		// through to the quit that ctrl+c carries: overloading a quit on the
+		// chord that always works is a liberty worth taking (see
+		// copyPromptSelection), overloading it on a second spelling as well is
+		// not — a hand that reaches for Cmd+C over a stray click is asking to
+		// copy, never to leave.
+		m.formNote = "nothing selected — sweep the prompt, or hold shift with ←/→, then copy"
+		return m, nil
+	case "super+v", "meta+v":
+		return m.pasteFormClipboard()
 	case "esc":
 		return m.cancelForm()
 	case "enter":
@@ -2250,6 +2293,77 @@ func (m model) copyPromptSelection() (tea.Model, tea.Cmd) {
 	}
 	m.formNote = fmt.Sprintf("copied %d %s", n, unit)
 	return m, copyTextToClipboard(text)
+}
+
+// promptCopyChord and promptPasteChord name the chords the editor treats as
+// copy and paste.
+//
+// ctrl+c is the copy that always works, and a bracketed paste (tea.PasteMsg, in
+// Update) is the paste that always works. The Cmd spellings ride along wherever
+// the host is willing to hand the Command key over — the same bargain
+// ctrl+s/cmd+s and cmd+d already make; see the ctrl+s handler for which
+// terminals forward Cmd at all.
+//
+// Under cats the two halves arrive by different roads, which is why paste needs
+// a chord here at all and copy needs one too:
+//
+//	⌘C  →  passed down to a kitty-protocol pane  →  super+c  →  this file copies
+//	⌘V  →  the client reads the clipboard itself →  a paste event  →  tea.PasteMsg
+//
+// So under cats the paste chord below never fires — the text is already on its
+// way as a paste — and it is here for the hosts that forward the keystroke
+// instead of acting on it. meta+* is the same press from a terminal that reports
+// Cmd as the meta bit rather than the super bit.
+func promptCopyChord(s string) bool {
+	switch s {
+	case "ctrl+c", "super+c", "meta+c":
+		return true
+	}
+	return false
+}
+
+func promptPasteChord(s string) bool {
+	switch s {
+	case "super+v", "meta+v":
+		return true
+	}
+	return false
+}
+
+// pasteFormClipboard puts the system clipboard's text into the focused field at
+// the caret — Cmd+V, for a host that delivers the chord rather than pasting for
+// us (see promptPasteChord).
+//
+// The text is handed on as a tea.PasteMsg rather than inserted here, so both
+// roads end in the same place: the field's own paste handling, which already
+// knows about the caret, the value's undo state and the textarea's soft wraps.
+// A second insertion path in this file would be a lesser copy of it, and the
+// two would disagree exactly where it matters — a multi-line paste into a
+// wrapped prompt.
+func (m model) pasteFormClipboard() (tea.Model, tea.Cmd) {
+	if m.formFocus == formFieldAnnots {
+		// The annotation bar is a row of buttons, not a text field. Say so
+		// rather than spraying the clipboard into whichever field last held the
+		// keys — refusing in words is the rule everywhere else on this form.
+		m.formNote = "pasting works in the title and the prompt"
+		return m, nil
+	}
+	text, supported, err := readClipboardText()
+	switch {
+	case err != nil:
+		m.formErr = err.Error()
+		return m, nil
+	case !supported:
+		// Nothing local to ask (see readClipboardText): ask the terminal over
+		// OSC 52 and paste if it answers. The flag is what makes the answer
+		// belong to this request — see the tea.ClipboardMsg case in Update.
+		m.pendingPaste = true
+		return m, tea.ReadClipboard
+	case text == "":
+		m.formNote = "the clipboard has no text"
+		return m, nil
+	}
+	return m.forwardForm(tea.PasteMsg{Content: text})
 }
 
 // cancelForm leaves the form without saving — esc, and the toolbar's ✖ Cancel.

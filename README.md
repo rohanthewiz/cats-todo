@@ -529,6 +529,22 @@ arrow, a click, a save — simply drops the highlight, because a highlight left
 standing over text the caret has walked away from is a lie about what the next
 `ctrl+c` would copy.
 
+`cmd+c` copies the highlighted run too, and `cmd+v` **pastes** the clipboard at
+the caret — the chords a mac hand actually reaches for. Both are aliases and
+neither is the only way in. `ctrl+c` is the copy that always works, and a paste
+usually arrives with no chord at all because the host performs it: under cats
+⌘V is read by the client and delivered to the pane as a real paste (which is
+also why ⌘V never reaches the manager as a keystroke there), and most mac
+terminals do the same. The `cmd+v` binding is for the hosts that forward the
+press instead of acting on it. Unlike `ctrl+c`, `cmd+c` never quits — the quit
+is a liberty worth taking on the chord that always works, and not worth taking
+twice — so with nothing selected it says there was nothing to copy. Pasting
+works in the title as well as the prompt; on the annotation bar it says where it
+does work rather than spraying text at whichever field last held the keys. Off
+macOS there is no local pasteboard to read, so the chord asks the terminal over
+OSC 52 — a read many terminals refuse — and reports an empty answer rather than
+pretending.
+
 `cmd+d` **duplicates the line the caret is on**, dropping the copy directly
 below it and leaving the caret on the copy in the column it held — so holding the
 chord stacks copies the way it does in a code editor, and the press after it
