@@ -42,6 +42,12 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
 | `images.go` / `clipboard.go` | attachments copied into `images/<id>/`; macOS pasteboard |
 | `filepick.go` | `@` file picker in the editor (borrowed from cdx, file-level) |
 | `promptsel.go` | text selection inside the textarea |
+| `promptmenu.go` | the editor's right-click context menu — rows, hit-testing, the lipgloss-compositor overlay |
+| `promptsplit.go` | ✂ Split into prompts (`ctrl+x`): the markdown-list parser (`bulletBlock`) and one backlog prompt per bullet |
+| `promptsort.go` | ⇅ Sort lines: items when it is a list (markers stay, bodies move), plain lines otherwise |
+| `promptcarets.go` | ⌶ Caret on every line: the column mode, its goal column, and its caret paints |
+| `promptmove.go` | `alt+↑/↓` moving the caret's line or the swept block |
+| `promptlines.go` | the sweep → whole-rows arithmetic those four share |
 | `spell.go` / `spellpanel.go` / `internal/spell` | spell check + panel; embedded SCOWL list + `extra.txt` |
 | `settings.go` | `~/.config/cats-todo/settings.json` (`spellcheck`, `orderByPriority`, `showFrozen`) |
 | `styles.go` | the palette (see lockstep below) and lipgloss styles |
@@ -101,10 +107,30 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
   both backlogs available) · `tab` walks title → prompt → annotation bar (the
   segmented Quick-win/Priority menu between title and prompt, `annotbar.go`;
   on it `←/→` move, `space`/`enter` press) · `@` file picker ·
+  `ctrl+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
+  the swept block) · `shift+alt+↑/↓` extend the selection by a line ·
+  **right-click** the context menu (`promptmenu.go`: ✂ Split · ⇅ Sort · ⌶ Caret
+  on every line · ✓ Spelling — the spell ask no longer has a direct road) ·
   **Send** is click-only by design.
+- Two modal states live on the form stage rather than on a stage of their own,
+  and both are answered at the very top of `updateForm`: the context menu (owns
+  every key while up) and the column mode (owns typing, the deletes and the
+  horizontal motions; hands back everything else, which ends it). Both are
+  cleared by `backToList`, and the menu by a resize.
+- Anything that reads the selection must be handled **above** `updateForm`'s
+  `clearPromptSel()` — `ctrl+c`, `ctrl+x`, `alt+↑/↓`. Each keeps a case in the
+  switch below too, which is reached only when there is nothing to read and is
+  where it explains itself.
 - `shift+enter` needs the kitty keyboard protocol; `alt+enter` is the universal alias
   (`m.modEnter()` picks which to advertise). `ctrl+c` in the form copies a selection
-  before it means quit.
+  before it means quit. `promptSelectionKey` strips shift off a motion to get the
+  plain key the textarea moves on — and strips alt too, but only from `↑`/`↓`,
+  since there alt is the line move while horizontally it is the word motion
+  `shift+alt+←/→` depends on.
+- The form's caret footer is **full**: seven standing segments come to exactly 118
+  cells, which is what keeps `tab switch field` in a 120-cell pane (and
+  `ctrl+l spelling` at 160 — both are pinned by tests). A new segment has to be
+  contextual, or go at the tail past `ctrl+l spelling`.
 
 ## Tests
 

@@ -694,8 +694,8 @@ formats are `.png`, `.jpg`/`.jpeg`, `.gif` and `.webp`, up to 10 MiB each.
 
 In the editor, holding `shift` with any caret motion **selects**: `shift+←`/`→`
 by the character, `shift+alt+←`/`→` by the word, `shift+home`/`end` to the ends
-of the line, `shift+↑`/`↓` across lines — and sweeping with the mouse button
-held down selects too. `ctrl+c` copies what is highlighted, and only while
+of the line, `shift+↑`/`↓` — or `shift+alt+↑`/`↓` — across lines, and sweeping
+with the mouse button held down selects too. `ctrl+c` copies what is highlighted, and only while
 something is (with nothing selected it still quits, as it does everywhere else).
 Typing replaces the selection the way it does in every other editor: the next
 character, newline or paste lands *on* the highlighted run rather than beside
@@ -724,6 +724,29 @@ Copying is not all a swept run is worth. **Right-click inside the highlight** an
 a menu offers the rest — split a markdown list into one backlog prompt per bullet
 (also `ctrl+x`), sort the swept lines, or put a caret on each of them and type
 into all of them at once. See *The prompt editor's context menu* above.
+
+`alt+↑`/`alt+↓` **moves the line the caret is on**, one row at a time, with the
+caret riding it in the column it held — so the press after the move carries on
+where your hand already was. It is where every editor on this machine keeps that
+gesture, and it is the natural partner of ⇅ Sort lines: the sort puts a whole
+block in order, this moves one line to where you actually wanted it.
+
+With a run swept the **whole block moves** and the highlight travels with it,
+exactly as it was — a selection that begins and ends mid-word included. The
+block's text does not change, only where it starts, so every offset inside it
+shifts by the same amount. A first line has nowhere to go up and a last line
+nowhere to go down; both say so rather than going quiet, because a chord that
+stops answering on the boundary reads as a chord that stopped working.
+
+"Line" here is a logical row, not a drawn one: a paragraph that soft-wraps over
+three display lines moves whole, the same rule `cmd+d` follows below.
+
+Held with `shift`, the same two keys **extend the selection** by a line instead —
+`shift+alt+↓` does what `shift+↓` does, which matters because distinguishing a
+shifted arrow from a bare one needs the kitty keyboard protocol and the alt
+spelling is the one a terminal is more likely to send. The horizontal pair is
+unaffected: `shift+alt+←`/`→` is still word selection, since there `alt` is the
+editor's own word motion rather than a line move.
 
 `cmd+d` **duplicates the line the caret is on**, dropping the copy directly
 below it and leaving the caret on the copy in the column it held — so holding the

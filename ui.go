@@ -2115,6 +2115,14 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+x" {
 			return m.splitPromptList()
 		}
+		// alt+↑/↓ walks the caret's line — or every line the selection touches —
+		// one row (promptmove.go). Up here for the same reason the split is: a
+		// standing highlight is half its input, and the clearPromptSel below
+		// would have taken it. The switch keeps a case of its own so the chord
+		// still explains itself from the other fields.
+		if dir, ok := promptLineMoveKey(msg); ok {
+			return m.movePromptLines(dir)
+		}
 		// Typing over a selection replaces it, and backspace or delete takes it
 		// out — what a highlight is for besides copying it, and what every other
 		// editor on the machine does with one. The span is removed first and the
@@ -2225,6 +2233,11 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the one that cannot lose. (Same problem, same shape of answer, as
 		// shift+enter vs alt+enter — see modEnter.)
 		return m.beginImages()
+	case "alt+up", "alt+down":
+		// Reached only from the title or the annotation bar — the prompt's own
+		// presses are answered at the top of this function, where the selection
+		// is still standing. movePromptLines says why rather than no-opping.
+		return m.movePromptLines(map[string]int{"alt+up": -1, "alt+down": 1}[msg.String()])
 	case "ctrl+x":
 		// Reached only with nothing selected — a live selection is answered at
 		// the top of this function. splitPromptList says so itself rather than
@@ -4939,12 +4952,13 @@ func (m model) formFooter() string {
 	// editor rather than about this prompt, and so among the first that can be
 	// given up when the pane narrows.
 	//
-	// cmd+d (duplicatePromptLine) rides along for the same reason — no chip
-	// stands for it either — and takes the very end of the line, because it is
-	// the one segment here that a terminal may not be able to send at all. If
-	// the pane is narrow enough to cost a segment, the chord that might never
-	// arrive is the right one to lose first.
-	segs = append(segs, "ctrl+l spelling", "cmd+d dup line")
+	// The two line operations ride along for the same reason — no chip stands
+	// for either — and in that order, because alt+↑/↓ (movePromptLines) always
+	// arrives and cmd+d (duplicatePromptLine) is the one segment here that a
+	// terminal may not be able to send at all. If the pane is narrow enough to
+	// cost a segment, the chord that might never arrive is the right one to lose
+	// first.
+	segs = append(segs, "ctrl+l spelling", "alt+↑/↓ move line", "cmd+d dup line")
 	lines = append(lines, m.fitFooter(segs))
 
 	for i, ln := range lines {

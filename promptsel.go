@@ -155,6 +155,15 @@ func promptSelectionKey(msg tea.KeyPressMsg) (tea.KeyPressMsg, bool) {
 		return msg, false
 	}
 	msg.Mod &^= tea.ModShift
+	// Alt comes off the vertical pair as well, and only that pair. alt+↑/↓ is
+	// the line move (promptmove.go), so leaving the bit on would hand the
+	// editor a key that reorders the value instead of one that walks the caret
+	// down it — shift+alt+↓ would extend the selection by dragging the line out
+	// from under it. The horizontal pair keeps its alt, because there it is the
+	// textarea's own word motion, which is exactly what shift+alt+←/→ is for.
+	if msg.Code == tea.KeyUp || msg.Code == tea.KeyDown {
+		msg.Mod &^= tea.ModAlt
+	}
 	// ShiftedCode is what the terminal reported as the shifted spelling of the
 	// key; leaving it set on a now-unshifted message would let a reader
 	// downstream conclude shift is still held.
