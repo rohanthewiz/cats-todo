@@ -321,6 +321,47 @@ func (s *store) add(t Todo) error {
 	return s.save()
 }
 
+// addAfter splices a run of new todos into the backlog directly behind the todo
+// with afterID, and persists them in one write.
+//
+// It exists for the list split (promptsplit.go), where several prompts are born
+// from one and belong where that one was: the array order is the user's order,
+// so items appended to the end would land nowhere near the list they came out
+// of, and the user would have to walk them back by hand. An empty afterID — or
+// an id that is no longer on disk, which another pane may have deleted between
+// the form opening and the split — appends instead, which is what add() would
+// have done and is the only honest fallback when "where it was" no longer
+// exists.
+//
+// One save for the whole run rather than a loop of add(): each add() reloads,
+// so N calls would re-read the file N times and, worse, recompute the insertion
+// point against a list this operation is itself changing.
+func (s *store) addAfter(afterID string, ts []Todo) error {
+	if len(ts) == 0 {
+		return nil
+	}
+	if err := s.reload(); err != nil {
+		return err
+	}
+	at := len(s.todos) // append unless the anchor is found below
+	if afterID != "" {
+		for i, t := range s.todos {
+			if t.ID == afterID {
+				at = i + 1
+				break
+			}
+		}
+	}
+	// Built as a fresh slice rather than spliced in place: append(s.todos[:at],
+	// ...) would write over the tail it is about to copy.
+	out := make([]Todo, 0, len(s.todos)+len(ts))
+	out = append(out, s.todos[:at]...)
+	out = append(out, ts...)
+	out = append(out, s.todos[at:]...)
+	s.todos = out
+	return s.save()
+}
+
 // update replaces the todo with the same ID (title/prompt) and persists.
 //
 // The field-by-field copy is deliberate rather than a whole-struct assignment:

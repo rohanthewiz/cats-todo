@@ -441,11 +441,18 @@ func TestSpellPanelOnAMultibyteLine(t *testing.T) {
 }
 
 // rightClickPrompt is a right-click at a column of a line of the prompt editor,
-// counted from the editor's first character (past its "┃ " gutter) — the
-// gesture the tests below are all about.
+// counted from the editor's first character (past its "┃ " gutter), followed by
+// pressing the ✓ Spelling row of the menu that opens.
+//
+// The right button opens the editor's context menu now (promptmenu.go) rather
+// than going straight to the dictionary, and the spell ask is one row on it.
+// These tests are about *which word the pointer named*, which is still resolved
+// from the press itself — so the menu is driven past here rather than being what
+// they check. promptmenu_test.go drives it with real keys and clicks.
 func rightClickPrompt(m model, col, row int) model {
 	x := promptGutterWidth(m.promptArea) + col
 	next, _ := m.Update(tea.MouseClickMsg{X: x, Y: formPromptRow + row, Button: tea.MouseRight})
+	next, _ = next.(model).pressPromptMenu(menuSpell)
 	return next.(model)
 }
 

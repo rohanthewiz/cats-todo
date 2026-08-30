@@ -361,6 +361,35 @@ var (
 	// The caret, redrawn when a selection covers the cells around it (see
 	// paintPromptSelection). Reverse rather than a color pair so it matches the
 	// block the textarea draws for itself the rest of the time, whatever the
-	// terminal resolves that to.
+	// terminal resolves that to. The extra carets of the editor's column mode
+	// (promptcarets.go) are painted with it too, for exactly that reason: they
+	// have to be indistinguishable from the one the library draws.
 	promptCaretStyle = lipgloss.NewStyle().Reverse(true)
+
+	// The prompt editor's context menu (promptmenu.go). It floats over the form,
+	// so unlike every other surface here it has to carry its own background on
+	// every cell — a transparent row would let the editor's text show through
+	// the box and the menu would read as a frame drawn on the prompt rather than
+	// as something on top of it.
+	//
+	// colPanel is the recessed field an inert button sits on, which is the right
+	// tone for a surface that is temporary: raised enough to separate from the
+	// pane, quiet enough not to compete with the prompt it is asking about. The
+	// border takes colChrome so the box has an edge without a second hue.
+	menuBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colChrome)).
+			BorderBackground(lipgloss.Color(colPanel))
+	menuRowStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colFg)).Background(lipgloss.Color(colPanel))
+	// The row the keyboard is on, in the accent field the action bars light a
+	// pressed chip with — one field lit at a time, the same rule those bars
+	// follow, so "where the keys are" reads identically on both.
+	menuRowSelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colBg)).Background(lipgloss.Color(colAccent))
+	// An item that cannot act on what is selected. Grey on the same field: still
+	// legible, plainly inert, and colorless — the same thing btnOffStyle says
+	// about a button with nothing to act on.
+	menuRowOffStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colFaint)).Background(lipgloss.Color(colPanel))
 )

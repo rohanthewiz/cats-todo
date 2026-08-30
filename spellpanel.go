@@ -28,7 +28,7 @@
 // There are two ways in, and they differ only in which word the panel is about.
 // ctrl+l takes the flagged word nearest the caret, which is a guess — a good one
 // in a prompt with one mistake in it, and a guess all the same in a prompt with
-// three. A right-click on an underlined word (rightClickSpell) names the word
+// three. ✓ Spelling… on the editor's context menu (spellAskAt) names the word
 // outright, and opens the panel with the ✚ Add row already highlighted, since a
 // hand that points at a squiggle and asks for a menu is usually about to say
 // "that is a word".
@@ -262,45 +262,51 @@ func (m model) promptSpellTarget() (spell.Span, string, bool) {
 	return word(spans[0])
 }
 
-// rightClickSpell is the pointer's way into the panel: right-click an
-// underlined word and the panel opens on that word, highlighting the ✚ Add row.
-// It is the gesture every editor has taught for a red squiggle, and here it is
-// worth having beside ctrl+l for a reason the keyboard path does not cover — a
-// prompt with three flagged words in it is one where "the word nearest the
-// caret" is a guess, and the pointer is the one input that can simply say which.
+// spellAskAt answers what ✓ Spelling… on the editor's context menu can do about
+// the cell the pointer is on: the flagged word there, whether there is one, and
+// — when there is not — which of the two reasons applies.
 //
-// A click that is not on a flagged word is answered in words rather than
-// ignored, because a gesture that does nothing is indistinguishable from one the
-// program never received. The two things it can mean are worth telling apart:
-// the check being off is a state the user can change, and nothing being flagged
-// there is a miss.
+// It is asked once, when the menu is built, and the answer is what both draws
+// the row and runs it (see openPromptMenu). Resolving it twice would let a menu
+// that offered the word and a press that opened the panel disagree about which
+// word, which is the one thing a gesture aimed at a particular word must not do.
+//
+// The two ways it can come back empty are worth telling apart rather than
+// collapsing into "not available": the check being off is a state the user can
+// change, and nothing being flagged there is a miss.
 //
 // The word under the caret is included, though it is the one word the underline
 // deliberately does not mark (see promptSpellSpans) — the pointer is aimed at a
 // word, not at a mark, and refusing the word being typed would be a rule with no
 // visible cause.
-func (m model) rightClickSpell(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	row := msg.Y - formPromptRow
-	if row < 0 || row >= m.promptArea.Height() {
-		return m, nil // outside the editor: the pointer has nothing to ask about
+func (m model) spellAskAt(x, row int) (spell.Span, bool, string) {
+	switch {
+	case !m.spellOn || m.spellDict == nil:
+		return spell.Span{}, false, "spell check is off — the ☑ Spell chip turns it on"
+	case row < 0 || row >= m.promptArea.Height():
+		return spell.Span{}, false, "point at a word in the prompt"
 	}
+	sp, _, ok := m.spellWordAt(x, row)
+	if !ok {
+		return spell.Span{}, false, "nothing the dictionary questions under the pointer"
+	}
+	return sp, true, ""
+}
+
+// openSpellPanelOn opens the panel on a word the pointer named, rather than on
+// the one nearest the caret.
+//
+// Only the span is carried in; the panel re-reads the word from it (see
+// spellPanelTarget), so the row that names a word and the text a correction
+// replaces still come from one read of the value. spellPicked also decides which
+// row opens highlighted: pointing at a word is usually a claim that it *is* a
+// word, so the ✚ Add row leads.
+func (m model) openSpellPanelOn(sp spell.Span) (tea.Model, tea.Cmd) {
 	// A press is a press: the standing selection goes, for the reason clickForm
 	// drops it on the left button — a highlight that outlived the click would
 	// misreport what ctrl+c copies, and a correction applied from the panel
 	// would move the text out from under it besides.
 	m.clearPromptSel()
-	if !m.spellOn || m.spellDict == nil {
-		m.formNote = "spell check is off — the ☑ Spell chip turns it on"
-		return m, nil
-	}
-	// The span alone is carried over; the panel re-reads the word from it (see
-	// spellPanelTarget), so the row that names a word and the text a correction
-	// replaces still come from one read of the value.
-	sp, _, ok := m.spellWordAt(msg.X, row)
-	if !ok {
-		m.formNote = "nothing the dictionary questions under the pointer"
-		return m, nil
-	}
 	m.formNote = ""
 	m.spellPick, m.spellPicked = sp, true
 	// The keys follow the pointer, the way every other click on the form moves
@@ -531,7 +537,7 @@ func (m model) viewSpell() string {
 	// is last because it is the one segment that is not about the screen it is
 	// printed on, and so the right one for a narrow pane to give up first.
 	b.WriteString(footerStyle.Render(m.fitFooter([]string{
-		"enter apply", "↑/↓ move", "type to filter", "esc back", "right-click a word opens this on it",
+		"enter apply", "↑/↓ move", "type to filter", "esc back", "right-click a word to open this on it",
 	})))
 	return b.String()
 }

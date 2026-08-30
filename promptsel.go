@@ -361,7 +361,7 @@ func (m model) promptEditorView() string {
 	view := m.promptArea.View()
 	lo, hi, ok := m.promptSelSpan()
 	marks := m.promptSpellSpans()
-	if !ok && len(marks) == 0 {
+	if !ok && len(marks) == 0 && !m.carets.on {
 		return view
 	}
 
@@ -427,6 +427,14 @@ func (m model) promptEditorView() string {
 		}
 
 		paints := spellPaintsFor(marks, dl, runes, gutter, base, hasSel, a, b)
+		// The column mode's extra carets (promptcarets.go) ride the same
+		// overlay. They are merged rather than appended: a caret can land inside
+		// a spell mark, and paintPromptSpans requires its runs not to overlap —
+		// two runs claiming one cell would emit that cell's character twice and
+		// push the rest of the line right.
+		if cp := m.promptCaretPaints(dl, runes, gutter); len(cp) > 0 {
+			paints = mergeCaretPaints(paints, cp)
+		}
 		switch {
 		case len(paints) == 0 && !hasSel:
 			continue // nothing on this line to paint

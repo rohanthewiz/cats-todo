@@ -473,6 +473,181 @@ cats-todo: no project backlog here — run from a project directory, or use -g f
 A prompt captured on the way past is worth little if it lands where you will
 never look for it.
 
+## The prompt editor's context menu
+
+A swept run of the prompt is worth several different things, and none of them is
+a chord anybody would guess. So they live where every editor keeps that list:
+**right-click inside the prompt** and a menu names them.
+
+```
+╭──────────────────────────────╮
+│ ✂ Split into prompts  ctrl+x │
+│ ⇅ Sort lines                 │
+│ ⌶ Caret on every line        │
+│ ✓ Spelling…           ctrl+l │
+╰──────────────────────────────╯
+```
+
+It is built fresh on every press, from what the press was actually aimed at — but
+an item that cannot act on the current selection is drawn **dim and still there**,
+and says why when you press it. A menu whose contents move between presses is a
+menu nobody learns the shape of; "why is this one grey" is a question the program
+can answer, and "where did that item go" is not. The cursor opens on the first
+row that can act, so `enter` straight after the click is never a refusal.
+
+`↑`/`↓` walk the rows and `enter` presses one; a click does the same, and a click
+anywhere off the box dismisses it. Any other key takes the menu down and is spent
+doing so, which is what a menu does everywhere else. It floats **over** the form
+rather than replacing it — a context menu that hid its own context would be
+asking about a selection you can no longer see.
+
+The footer names the menu whenever there is a run swept, and names nothing about
+it otherwise. It does not spend a second segment on `ctrl+x`: the menu prints
+that chord on its own ✂ row, so one gesture on the footer teaches every key
+behind it.
+
+### ✂ Split into prompts
+
+A backlog item often arrives as a list — a plan pasted out of a chat, the
+checklist at the bottom of an issue, a set of review notes. Every bullet in it is
+a prompt an agent could be handed on its own, but only if it is a prompt of its
+own: one todo holding six bullets can be dropped once, scheduled once and marked
+done once, which is exactly the wrong granularity for six pieces of work.
+
+Sweep the list — drag over it, or hold `shift` with `←`/`→` — and press
+**`ctrl+x`**, or take the item off the menu. Each bullet becomes its own prompt
+in the backlog, landing directly behind the prompt it came out of rather than at
+the far end of the file.
+
+```
+Prompt                              Backlog
+──────────────────────────          ──────────────────────
+Ship the release:                   Ship the release:
+- tag v2                     ──▶    ├─ tag v2
+- write the notes                   ├─ write the notes
+  - link the diff                   │    - link the diff
+- announce it                       └─ announce it
+```
+
+Both markdown families are read as lists — the unordered `-`, `*`, `+` and the
+ordered `1.` / `1)` — since a pasted list is whichever one its source used. A
+`---` rule is not a bullet, and neither is a line that merely opens with a long
+number.
+
+**A nested list stays with its parent.** A sub-list is the detail of the item
+above it, not a peer of it: splitting "write the notes" away from "link the diff"
+would leave two prompts, neither of which says the whole task. Sub-lists and
+plain continuation lines are dedented into the new prompt, so a sub-list arrives
+there as a list rather than as an indented block whose indentation no longer
+means anything.
+
+**Only the selection is consumed, and only from its first bullet on.** A sweep
+that caught the sentence introducing the list ("Ship the release:" above) has not
+asked for that sentence to become a prompt or to disappear — it stays in the
+editor. So does any bullet you did not sweep.
+
+**What is left behind decides what happens to the prompt you were editing.** If
+the editor still holds text, the form stays open on it: the split took a list out
+of a prompt that is still being written, and the rest of that edit is still
+yours to save. If the list *was* the whole body, there is nothing left to be a
+prompt — the new ones are what you asked for *instead of* it — so the original is
+deleted and you land back on the list.
+
+The new prompts inherit the **backlog scope**, the **annotations** and the
+**session options** of the prompt they came from: everything that says how the
+work should run, which is the same for every bullet of one list. Attachments are
+deliberately not inherited — an image belongs to the prompt it illustrates, and
+copying it once per bullet would put N copies on disk for prompts that mostly do
+not want it. When a whole-body split deletes an original that had attachments,
+the status line says so rather than letting them go quietly.
+
+They are written to the backlog immediately rather than on the next save, and
+that is the point: the gesture means "these are separate items now", and an item
+that only existed once the form was saved would leave the editor holding a list
+it has already been told is gone. The whole run is one write, so either every
+prompt lands or none does.
+
+`ctrl+x` is free in the editor — it is none of the textarea's own bindings — and
+it is already this program's "take this out": delete on the list, remove in the
+attachment editor, and here the list that leaves the prompt to become prompts of
+its own.
+
+### ⇅ Sort lines
+
+The same gesture, one step earlier: a pasted list is usually in the order it was
+dictated in rather than an order anyone chose. Sweep it and sort it — and because
+the split keeps the order of the items it makes, sorting before splitting is how
+the resulting prompts land in that order too.
+
+```
+- write the notes            - announce it
+- announce it        ──▶     - tag v2
+- tag v2                     - write the notes
+```
+
+**It sorts whole lines, always.** A sweep that stops mid-word still means the
+lines it crossed; half a line has no place in an order.
+
+**A markdown list is sorted as items, not as lines.** An item's sub-points and
+wrapped continuation lines travel with it — sorting those as lines of their own
+would shuffle a list's details away from the items they explain. Text above the
+first bullet is not part of the list and stays where it is, the same rule the
+split follows.
+
+**An ordered list is renumbered rather than shuffled.** The markers stay where
+they are and the bodies move between them, so `1. 2. 3.` still reads 1, 2, 3 down
+the page. A list whose markers all read `-` is unaffected either way, and
+continuation lines are re-indented to whichever marker they land under, so a
+`10.` item and a `9.` item both line up under their own text.
+
+Case and surrounding space are out of the comparison — "Tag v2" and "tag v2"
+belong beside each other — and the sort is stable, so sorting twice cannot
+shuffle anything a second time. Blank lines collect at the end rather than the
+top: a gap between two lines is a separator, and a separator has nothing left to
+separate once the order has changed.
+
+The highlight survives, moved onto the sorted text. That is what makes the two
+items compose — sort a list, then split it, without sweeping it again — and it is
+also the only visible proof of what the sort took as its input, since the block is
+otherwise the same characters in a different order.
+
+### ⌶ Caret on every line
+
+The third thing a swept block is worth, and the one that turns *not yet a list*
+into a list:
+
+```
+sweep three plain lines      carets go down            type "- "
+  tag v2                       ▌tag v2                   - tag v2
+  write the notes              ▌write the notes          - write the notes
+  announce it                  ▌announce it              - announce it
+```
+
+which is then exactly the shape ✂ Split into prompts wants. While the mode is on,
+**what you type goes in on every line at once**: `backspace` deletes on every
+line, `←`/`→` move the carets together, `ctrl+a` takes them to the line starts and
+`ctrl+e` to the line ends — prefixing, unprefixing and appending to a block, which
+is what a column mode gets used for in every editor that has one. A paste goes to
+every caret too; only its first line, since the rest would land somewhere no caret
+was asked to be.
+
+Every caret lands in the column the **sweep began** in, which is column 0 for the
+sweep this is for — a drag down the left margin, or a `shift`+`↓` run from the
+start of a line. That is what makes `- ` prefix the block. The column is a *goal*
+column, not a position: a line too short for it takes its caret at its end and is
+not stranded there when the others move on, the same rule `↑`/`↓` already follow
+in any editor.
+
+`esc` ends the mode, and so does anything that means *one* caret — `enter`, `↑`,
+`↓`, a click. Enter in particular does not also insert: it is the key most likely
+to be pressed because you thought the mode was already over. A chord the mode has
+no meaning for ends it and then does its usual job, so `ctrl+s` still saves from
+inside it. Nothing is undone on the way out: everything typed is already in the
+prompt, exactly as if it had been typed once per line by hand.
+
+The footer belongs to the mode for as long as it lasts, because the keys do.
+
+
 ## Images
 
 In the editor, `ctrl+o` opens the attachment editor. Three ways to get an image
@@ -545,6 +720,11 @@ macOS there is no local pasteboard to read, so the chord asks the terminal over
 OSC 52 — a read many terminals refuse — and reports an empty answer rather than
 pretending.
 
+Copying is not all a swept run is worth. **Right-click inside the highlight** and
+a menu offers the rest — split a markdown list into one backlog prompt per bullet
+(also `ctrl+x`), sort the swept lines, or put a caret on each of them and type
+into all of them at once. See *The prompt editor's context menu* above.
+
 `cmd+d` **duplicates the line the caret is on**, dropping the copy directly
 below it and leaving the caret on the copy in the column it held — so holding the
 chord stacks copies the way it does in a code editor, and the press after it
@@ -594,7 +774,8 @@ three answers there are to an underline:
 
 Type to filter the rows, `enter` presses one, `esc` or `ctrl+l` goes back.
 
-**Right-click an underlined word** to open the same panel on *that* word. It is
+**Right-click an underlined word** and take **✓ Spelling…** to open the same
+panel on *that* word. It is
 the gesture every editor has taught for a red squiggle, and it earns its place
 beside `ctrl+l` because the keyboard path can only guess: in a prompt with three
 flagged words in it, "the one nearest the caret" is a guess, and the pointer is
@@ -609,6 +790,13 @@ the gesture is aimed at a word, not at a mark. A right-click that lands
 somewhere the panel has no answer for says so on the note line rather than doing
 nothing — a word the dictionary knows, or the check being off, are different
 things and are told apart.
+
+The ask is a row on the editor's context menu now rather than the whole meaning
+of the right button (see *The prompt editor's context menu* above): right-click,
+then take **✓ Spelling…**. The press still names its own word — that is the
+whole reason the gesture exists beside `ctrl+l` — so the row is dim, and says
+which of the two things is wrong, exactly when the old direct right-click would
+have refused.
 
 The **☑ Spell** chip on the toolbar is the toggle on its own: its box says
 whether the check is on, and clicking it flips it. Either way the choice

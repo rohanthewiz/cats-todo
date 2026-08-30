@@ -1078,3 +1078,52 @@ func TestSetAndClearSession(t *testing.T) {
 		t.Errorf("setSession of unknown id = %v, want errTodoNotFound", err)
 	}
 }
+
+// TestAddAfter: a run of todos goes in behind the anchor in one write, and an
+// anchor that is not there — an empty id in add mode, or one another pane
+// deleted while the form was open — appends rather than failing.
+func TestAddAfter(t *testing.T) {
+	s := tempStore(t)
+	for _, id := range []string{"a", "b", "c"} {
+		if err := s.add(Todo{ID: id, Title: id, Prompt: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := s.addAfter("b", []Todo{{ID: "b1", Prompt: "b1"}, {ID: "b2", Prompt: "b2"}}); err != nil {
+		t.Fatal(err)
+	}
+	ids := func(st *store) string {
+		var b strings.Builder
+		for _, td := range st.todos {
+			b.WriteString(td.ID + " ")
+		}
+		return strings.TrimSpace(b.String())
+	}
+	if got, want := ids(s), "a b b1 b2 c"; got != want {
+		t.Errorf("order = %q, want %q", got, want)
+	}
+
+	for _, anchor := range []string{"", "ghost"} {
+		if err := s.addAfter(anchor, []Todo{{ID: "z" + anchor}}); err != nil {
+			t.Fatalf("addAfter(%q): %v", anchor, err)
+		}
+	}
+	if got, want := ids(s), "a b b1 b2 c z zghost"; got != want {
+		t.Errorf("order = %q, want the unanchored runs appended: %q", got, want)
+	}
+
+	// Nothing to add is not an error, and must not rewrite the file.
+	if err := s.addAfter("b", nil); err != nil {
+		t.Errorf("addAfter with no todos = %v, want nil", err)
+	}
+
+	// And it is on disk, not only in memory.
+	reloaded := &store{scope: s.scope, path: s.path}
+	if err := reloaded.load(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := ids(reloaded), ids(s); got != want {
+		t.Errorf("disk order = %q, want %q", got, want)
+	}
+}

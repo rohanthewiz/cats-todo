@@ -269,6 +269,16 @@ type model struct {
 	// flag serving both would let a release meant for one end the other.
 	promptSel     promptSel
 	promptSelDrag bool
+	// The editor's context menu (promptmenu.go) — right-click, and what the
+	// swept run is worth. Its zero value is "closed", which is what lets every
+	// caller test one field; it lives and dies with the gesture that opened it.
+	menu promptMenu
+	// The editor's column mode (promptcarets.go): a caret on each of the swept
+	// lines, and typing that lands on all of them. It is on the model rather
+	// than inside promptSel because it *replaces* a selection rather than
+	// decorating one — dropping the carets clears the highlight, and clearing
+	// the highlight ends the mode.
+	carets promptCarets
 	// pendingPaste marks that a Cmd+V asked the terminal for the clipboard over
 	// OSC 52 and is waiting for the tea.ClipboardMsg carrying it. Only that one
 	// message may paste, which is what this flag is for: the reply is
@@ -466,6 +476,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.applySizes()
+		// The context menu is placed against the pane it was opened in (see
+		// promptMenu.place), so a resize leaves its box aimed at cells that may
+		// no longer exist. It is a transient answer to a press, not state worth
+		// re-fitting: it goes, and the next press gets one that fits.
+		m.menu = promptMenu{}
 		return m, nil
 	case scheduleTickMsg:
 		// Handled above the stage switch, so schedules fire whatever screen is
@@ -562,6 +577,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// editor is the only place here that has one, which is why it is the
 		// only stage named; everything else falls through to forward unchanged.
 		if m.stage == stageForm && m.formFocus == formFieldPrompt {
+			if m.carets.on {
+				// Every caret takes it, the way every caret takes a typed
+				// character — a paste is an insertion, and the mode is about
+				// where insertions land.
+				m.insertAtCarets(msg.Content)
+				m.formNote = m.caretNote()
+				return m, nil
+			}
 			m.deletePromptSelection()
 		}
 		return m.forward(msg)
@@ -745,14 +768,14 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ↑/↓ resumes from another.
 func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if msg.Button == tea.MouseRight {
-		// The right button has exactly one meaning here, and only on the form:
-		// ask about the word under the pointer (see rightClickSpell). It is the
-		// gesture every editor has taught for a red underline, and it is worth
-		// the one exception to "the left button is the pointer" because the
-		// underline is drawn by this program and so is the only thing on screen
-		// a right-click could otherwise be aimed at.
+		// The right button has one meaning, and only on the form: open the
+		// editor's context menu on what the press was aimed at (promptmenu.go).
+		// It is worth the one exception to "the left button is the pointer"
+		// because the prompt is the one screen here with several things a
+		// selection can be turned into, and a menu is where every other editor
+		// on the machine keeps that list.
 		if m.stage == stageForm {
-			return m.rightClickSpell(msg)
+			return m.rightClickForm(msg)
 		}
 		return m, nil
 	}
@@ -996,27 +1019,42 @@ func (m model) clickTarget(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m.chooseTarget(dropRun)
 }
 
-// clickForm is the pointer on the edit form: a click in either field puts the
-// keys — and the caret — where it landed, a click on a label focuses that field
-// without disturbing its caret, and a click on the toolbar presses a button.
+// rightClickForm opens the editor's context menu (promptmenu.go) on the cell the
+// press landed in.
 //
-// The form asks for mouse reporting (see View), which costs it the terminal's
-// own click-drag selection: while the program is being told about the pointer,
-// the pane is not selecting text with it. Every other stage can pay that
-// without noticing, because a list is a place to pick a thing. A prompt being
-// written is a body of text, and text the pointer cannot sweep is text that
-// cannot be copied out — so the editor gives the gesture back itself, in
-// promptsel.go, and this is where a sweep begins.
-//
-// A press is not yet a selection: it places the caret and drops an anchor there,
-// and only motion with the button still down turns the pair into a highlight
-// (see promptSelOver). That is what keeps an ordinary click on a word from
-// leaving a stray selection behind it.
+// Only inside the editor's box. Everywhere else on the form — the title, the
+// annotation bar, the toolbar — the right button does nothing, because nothing
+// there has a menu's worth of things to do with it; a box that opened over a
+// button row would be answering a question nobody asked.
+func (m model) rightClickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if row := msg.Y - formPromptRow; row < 0 || row >= m.promptArea.Height() {
+		return m, nil // outside the editor: the pointer has nothing to ask about
+	}
+	// The keys follow the pointer, the same rule every other click on this form
+	// obeys — a menu item acts on the prompt, so the prompt is where the focus
+	// should be when the menu hands it back. Set directly rather than through
+	// focusForm because nothing here wants a blink command back.
+	m.formFocus = formFieldPrompt
+	// A press inside the editor while the column mode is up ends it: the mode is
+	// a set of carets the pointer is about to disagree with.
+	m.endPromptCarets()
+	return m.openPromptMenu(msg)
+}
+
 func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	// An open menu takes the press first, wherever it landed: a click off the
+	// box dismisses it, which is the gesture every menu answers to and one the
+	// form must not also act on.
+	if m.menu.open {
+		return m.clickPromptMenu(msg)
+	}
 	// A press anywhere on the form ends the last selection: the pointer is
 	// about to say where the caret goes next, and a highlight that outlived the
-	// click that moved away from it would misreport what ctrl+c copies.
+	// click that moved away from it would misreport what ctrl+c copies. The
+	// column mode goes with it for the same reason — the pointer is about to
+	// name one caret, which is a disagreement with having several.
 	m.clearPromptSel()
+	m.endPromptCarets()
 	m.formNote = ""
 	switch {
 	case msg.Y == formTitleLabelRow:
@@ -1450,6 +1488,11 @@ func (m *model) moveActionFocus(delta int) tea.Cmd {
 // its own, and the box still shows a steady cursor.
 func (m *model) backToList() {
 	m.stage = stageList
+	// The editor's two transient modes end with the screen they belong to: a
+	// menu drawn over a form that is no longer up, or carets on lines nothing is
+	// typing into, would both outlive the gesture that made them.
+	m.menu = promptMenu{}
+	m.endPromptCarets()
 	// Nothing on the list stage reads the editor's selection, but leaving a drag
 	// flag set would hand the next stray motion message to a handler that expects
 	// to be on the form.
@@ -2033,6 +2076,23 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 }
 
 func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// The context menu is modal while it is up: it owns every key, because that
+	// is what a menu does — the one the user pressed is spent on choosing from
+	// it or on taking it down (see updatePromptMenu).
+	if m.menu.open {
+		return m.updatePromptMenu(msg)
+	}
+	// The column mode owns the keys that would otherwise act on one caret —
+	// typing, the deletes, the horizontal motions — and hands back everything
+	// else, which ends the mode and then takes its ordinary path below. It sits
+	// above the selection block because the two are exclusive by construction:
+	// dropping carets clears the highlight.
+	if m.carets.on && m.formFocus == formFieldPrompt {
+		if next, cmd, handled := m.updatePromptCarets(msg); handled {
+			return next, cmd
+		}
+		m.endPromptCarets()
+	}
 	// Selection first, because both of its keys are spellings of something this
 	// switch already claims: shift+← would otherwise reach the editor as a plain
 	// ←, and ctrl+c is the quit chord two lines down.
@@ -2045,6 +2105,15 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if promptCopyChord(msg.String()) && m.selectedPromptText() != "" {
 			return m.copyPromptSelection()
+		}
+		// ctrl+x turns a swept markdown list into one backlog prompt per bullet
+		// (promptsplit.go). It has to be answered up here, above the
+		// clearPromptSel below, for the same reason the copy does: the selection
+		// is its whole input, and by the time the switch is reached there is no
+		// longer one to read. The switch keeps a case of its own so the chord
+		// still explains itself when nothing is selected.
+		if msg.String() == "ctrl+x" {
+			return m.splitPromptList()
 		}
 		// Typing over a selection replaces it, and backspace or delete takes it
 		// out — what a highlight is for besides copying it, and what every other
@@ -2156,6 +2225,15 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the one that cannot lose. (Same problem, same shape of answer, as
 		// shift+enter vs alt+enter — see modEnter.)
 		return m.beginImages()
+	case "ctrl+x":
+		// Reached only with nothing selected — a live selection is answered at
+		// the top of this function. splitPromptList says so itself rather than
+		// no-opping. ctrl+x is free in both the textarea's keymap and the
+		// textinput's (the survey the ctrl+r comment makes below), and it is
+		// already this program's "take this out" everywhere it is bound: delete
+		// in the list, remove in the attachment editor, and here the list that
+		// leaves the prompt to become prompts of its own.
+		return m.splitPromptList()
 	case "ctrl+r":
 		// The session panel — the one thing on the form that is about how the
 		// prompt will *run*, which is what ctrl+r already means one screen over
@@ -3975,7 +4053,12 @@ func (m model) renderStage() string {
 	}
 	switch m.stage {
 	case stageForm:
-		return m.viewForm()
+		// The menu floats over the form rather than replacing it, so it is
+		// composited here rather than inside viewForm: every row constant the
+		// form hit-tests against is measured on the frame underneath, and a menu
+		// spliced in before those were computed would move the toolbar out from
+		// under the pointer for as long as it was open.
+		return m.overlayPromptMenu(m.viewForm())
 	case stageConfirm:
 		return m.viewConfirm()
 	case stageTarget:
@@ -4762,6 +4845,17 @@ func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // thing taught nothing and cost a line of attention. In a pane too narrow for
 // chip hints the footer is the only teacher left, so it names them again.
 func (m model) formFooter() string {
+	// The column mode takes the whole line while it is on. It is a mode, not a
+	// chord — the keys mean something different for as long as it lasts — and a
+	// footer still teaching the ordinary editor would be teaching the wrong
+	// program. Everything it names is a key the mode itself owns
+	// (updatePromptCarets); the exit comes last, where a mode's exit belongs.
+	if m.carets.on {
+		return footerStyle.Render(m.fitFooter([]string{
+			"typing goes on every line", "backspace deletes", "←/→ moves them",
+			"ctrl+a/e line ends", "esc ends",
+		}))
+	}
 	var lines []string
 	if tier := m.formBarTier(); tier != tierHints {
 		// ctrl+l (the Spelling panel, spellpanel.go) is on this line as well as
@@ -4783,8 +4877,12 @@ func (m model) formFooter() string {
 		lines = append(lines, m.fitFooter(chords))
 	}
 	// In the order they must survive a narrowing pane, which is the order they
-	// are worth knowing: the pointer, then selecting and copying, then the two
-	// chords that move the caret furthest per keystroke, then field switching.
+	// are worth knowing: the pointer, then selecting and what the two chords
+	// that read a selection do with it, then the two chords that move the caret
+	// furthest per keystroke, then field switching. ctrl+x rides directly behind
+	// ctrl+c because the two are one idea — a swept run is worth something —
+	// and a reader who has just been told sweeping works wants both answers in
+	// the same breath.
 	// ↑/↓ and ←/→ are not on the line at all — a text box's arrow keys are the
 	// one thing nobody has to be told, and the segments that go without saying
 	// are what buy room for the ones that don't.
@@ -4804,6 +4902,28 @@ func (m model) formFooter() string {
 	segs := []string{
 		"click places caret", "shift+←/→ selects", "ctrl+c copies", "@ file",
 		"ctrl+a/e line ends", "alt+←/→ word", "tab switch field",
+	}
+	// The context menu (promptmenu.go) is taught only while something is swept,
+	// on the same principle the scope toggle below is advertised only where it
+	// works: a gesture named on a screen it cannot act on is a segment spent
+	// teaching nothing.
+	//
+	// Contextual is what makes it affordable at all. This line is full — its
+	// seven standing segments come to exactly 118 cells, which is what lets the
+	// field switch at the end survive a 120-cell pane — so a permanent eighth
+	// concept could only be bought by tightening the seven already here past
+	// what they can say. Shown only while a highlight is standing, it takes its
+	// place beside the chord that reads one and pushes the tail out by a
+	// segment or two; "tab switches field" is the right thing to spend, because
+	// a hand that has just swept a run is asking what can be done with it, not
+	// how to leave the field.
+	//
+	// It names the three items rather than any of their chords. The menu prints
+	// ctrl+x on its own ✂ row (see viewPromptMenu), so the one gesture here
+	// teaches every key behind it — which is the whole reason those three live
+	// on a menu instead of on three chords nobody would guess.
+	if _, _, ok := m.promptSelSpan(); ok && m.formFocus == formFieldPrompt {
+		segs = append(segs[:3], append([]string{"right-click: split/sort/carets"}, segs[3:]...)...)
 	}
 	// Advertise the scope toggle only when it works (see the ctrl+g handler): an
 	// only-mode launch pins the scope, so the hint would be a lie there. It goes
