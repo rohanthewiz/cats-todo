@@ -651,6 +651,14 @@ mode is off. (The gesture depends on the terminal reporting alt with the press;
 cats does, and most terminals do, but one that keeps alt+click for itself never
 forwards it — the sweep and the menu's ⌶ remain the keyboard's road in.)
 
+Because a line holds one caret, alt+click **on the line the caret is already on**
+is a plain caret move, and it says so: *the caret is already on that line*. That
+note is worth knowing about, because the case it comes up in most is a long line
+that **soft wraps** — drawn on three rows of the box, but one line, so a hand
+aiming at two of those rows gets a plain move both times. Seeing the note also
+settles the other reason nothing happened: it can only appear if alt reached the
+program at all. No note and no second caret means the terminal ate the modifier.
+
 `esc` ends the mode, and so does anything that means *one* caret — `enter`, `↑`,
 `↓`, a plain click. Enter in particular does not also insert: it is the key most likely
 to be pressed because you thought the mode was already over. A chord the mode has

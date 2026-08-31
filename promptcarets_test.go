@@ -358,6 +358,35 @@ func TestAltClickRefusesInWords(t *testing.T) {
 	if got := promptCaretOffset(m.promptArea); got != 2 {
 		t.Errorf("caret at offset %d, want 2 — alt or no alt, the pointer places it", got)
 	}
+	if !strings.Contains(m.formNote, "already on that line") {
+		t.Errorf("form note = %q, want it to say the caret is already on that line", m.formNote)
+	}
+}
+
+// TestAltClickOnAWrappedLineSaysSo is the shape the gesture was first reported
+// broken in: a long line wraps across several rows of the box, so two presses
+// that look like two lines are one line, and the second is a plain caret move.
+// That is correct — a row carries one caret — but in silence it is
+// indistinguishable from the alt bit never reaching the program at all, which
+// is the other way alt+click "does nothing". The note is what tells them apart.
+func TestAltClickOnAWrappedLineSaysSo(t *testing.T) {
+	long := strings.Repeat("wrap ", 60) // far wider than the 120-cell test pane
+	m, _, _ := splitFormInTemp(t, long)
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 0)
+
+	lines := promptDisplayLines(m.promptArea)
+	if len(lines) < 2 || lines[0].row != 0 || lines[1].row != 0 {
+		t.Fatalf("fixture did not wrap onto a second row of the same line: %d display lines", len(lines))
+	}
+
+	m = altClickAt(t, m, 3, 1) // the second *row* of the first *line*
+	if m.carets.on {
+		t.Error("a press on another row of the same line entered the mode")
+	}
+	if !strings.Contains(m.formNote, "already on that line") {
+		t.Errorf("form note = %q, want it to say the caret is already on that line", m.formNote)
+	}
 }
 
 // TestMergeCaretPaints: a caret inside a spell mark takes its cell out of the

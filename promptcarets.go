@@ -173,9 +173,17 @@ func (m model) altClickPrompt(x, row int) (tea.Model, tea.Cmd) {
 		if cr == r {
 			// The press landed on the line the editor's caret is already on.
 			// One line in play means nothing multiple about the gesture: it is
-			// a plain caret move, alt or no alt.
+			// a plain caret move, alt or no alt — a row carries at most one
+			// caret (see indexOf), so there is no second one to put here.
+			//
+			// It says so rather than moving in silence. A long line that soft
+			// wraps is drawn on several rows but is *one* line, so a hand
+			// aiming at two of its rows gets a plain move twice and no way to
+			// tell that from alt never having arrived at all — which is the
+			// other reason this gesture comes up empty, and the one the note
+			// rules out by appearing.
 			m.placePromptCursor(x, row)
-			m.formNote = ""
+			m.formNote = "the caret is already on that line — alt+click another line"
 			return m, cmd
 		}
 		m.carets = promptCarets{on: true}
