@@ -319,9 +319,11 @@ func TestAltClickTogglesACaretAway(t *testing.T) {
 	}
 }
 
-// TestAltClickMovesTheLinesCaret: a line holds at most one caret, so a press
-// elsewhere on a line that already has one moves it — the pointer said where.
-func TestAltClickMovesTheLinesCaret(t *testing.T) {
+// TestAltClickAddsASecondCaretToARow: a row holds as many carets as were put on
+// it, so a press elsewhere on a line that already has one ADDS rather than
+// moves. This is the case a row-keyed caret set could not express, and the one a
+// soft-wrapped prompt is made of.
+func TestAltClickAddsASecondCaretToARow(t *testing.T) {
 	m, _, _ := splitFormInTemp(t, "alpha\nbravo\ncharlie")
 	m.focusForm(formFieldPrompt)
 	setPromptCaretOffset(&m.promptArea, 0)
@@ -329,16 +331,82 @@ func TestAltClickMovesTheLinesCaret(t *testing.T) {
 	m = altClickAt(t, m, 2, 2)
 	m = altClickAt(t, m, 5, 2)
 	if !m.carets.on {
-		t.Fatal("moving a caret ended the mode")
+		t.Fatal("a second caret on one row ended the mode")
 	}
-	if got, want := m.carets.cols, []int{0, 5}; !slices.Equal(got, want) {
-		t.Errorf("carets at columns %v, want %v — the clicked line's caret moved", got, want)
+	if got, want := m.carets.rows, []int{0, 2, 2}; !slices.Equal(got, want) {
+		t.Fatalf("carets on rows %v, want %v — row 2 carries two", got, want)
+	}
+	if got, want := m.carets.cols, []int{0, 2, 5}; !slices.Equal(got, want) {
+		t.Fatalf("carets at columns %v, want %v — sorted by row then column", got, want)
+	}
+
+	// Both carets on row 2 type, and the right-hand one keeps its place over the
+	// insert that lands to its left — the backwards walk is what makes that true.
+	m = typeInForm(t, m, typeChar('!'))
+	// "charlie" takes its marks after "ch" (column 2) and after "charl" (5).
+	if want := "!alpha\nbravo\nch!arl!ie"; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := m.carets.cols, []int{1, 3, 7}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want %v — the later caret carried over the earlier insert", got, want)
 	}
 }
 
-// TestAltClickRefusesInWords covers the presses that cannot mean a caret: below
-// the last line there is no line to put one on, and on the caret's own line with
-// the mode off there is nothing multiple about the gesture — it is a plain move.
+// TestAltClickTwoCaretsOnARowDelete pins the same backwards walk for the edit
+// that shortens a row: two backspaces on one line take out two characters, and
+// the right-hand caret lands where the text left it rather than one place off.
+func TestAltClickTwoCaretsOnARowDelete(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "abcd\nzz")
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 0)
+
+	m = altClickAt(t, m, 2, 0) // row 0, column 2 — after 'b'
+	m = altClickAt(t, m, 4, 0) // row 0, column 4 — after 'd'
+	if got, want := m.carets.rows, []int{0, 0, 0}; !slices.Equal(got, want) {
+		t.Fatalf("carets on rows %v, want %v", got, want)
+	}
+
+	// The editor's own caret is at column 0 and has nothing behind it; the other
+	// two bite, taking out 'b' and 'd'.
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if want := "ac\nzz"; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := m.carets.cols, []int{0, 1, 2}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want %v", got, want)
+	}
+}
+
+// TestCaretsOnARowFoldWhenTheyMeet: ctrl+a sends every goal on a row to column
+// 0, which is two carets asking to be in one place. Two carets in one place are
+// one caret, so the set folds — otherwise the next character would be typed
+// twice on that line.
+func TestCaretsOnARowFoldWhenTheyMeet(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "alpha\nbravo")
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 0)
+
+	m = altClickAt(t, m, 1, 1)
+	m = altClickAt(t, m, 4, 1) // row 1 now carries two carets
+	if len(m.carets.rows) != 3 {
+		t.Fatalf("%d carets, want 3 before the fold", len(m.carets.rows))
+	}
+
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	if got, want := m.carets.rows, []int{0, 1}; !slices.Equal(got, want) {
+		t.Fatalf("carets on rows %v, want %v — row 1's two folded into one", got, want)
+	}
+	m = typeInForm(t, m, typeChar('-'))
+	if want := "-alpha\n-bravo"; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q — one dash per line, not two on the folded row", m.promptArea.Value(), want)
+	}
+}
+
+// TestAltClickRefusesInWords covers the two presses that cannot mean a caret:
+// below the last line there is no line to put one on, and on the cell the
+// editor's caret already occupies there is no second caret to add. Both say so
+// — silence here is indistinguishable from the alt bit never having reached the
+// program, which is the other way alt+click "does nothing".
 func TestAltClickRefusesInWords(t *testing.T) {
 	m, _, _ := splitFormInTemp(t, "one\ntwo")
 	m.focusForm(formFieldPrompt)
@@ -351,25 +419,28 @@ func TestAltClickRefusesInWords(t *testing.T) {
 		t.Errorf("form note = %q, want it to say there is no line there", m.formNote)
 	}
 
-	m = altClickAt(t, m, 2, 0) // the caret's own line: a plain caret move
+	m = altClickAt(t, m, 0, 0) // the caret's own cell: nothing to add
 	if m.carets.on {
-		t.Error("a press on the caret's own line entered the mode")
+		t.Error("a press on the caret's own cell entered the mode")
 	}
-	if got := promptCaretOffset(m.promptArea); got != 2 {
-		t.Errorf("caret at offset %d, want 2 — alt or no alt, the pointer places it", got)
+	if !strings.Contains(m.formNote, "already there") {
+		t.Errorf("form note = %q, want it to say the caret is already there", m.formNote)
 	}
-	if !strings.Contains(m.formNote, "already on that line") {
-		t.Errorf("form note = %q, want it to say the caret is already on that line", m.formNote)
+
+	// One cell over on that same line is a different cell, so it is a caret.
+	m = altClickAt(t, m, 2, 0)
+	if !m.carets.on {
+		t.Error("a press elsewhere on the caret's own line did not add a caret")
 	}
 }
 
-// TestAltClickOnAWrappedLineSaysSo is the shape the gesture was first reported
-// broken in: a long line wraps across several rows of the box, so two presses
-// that look like two lines are one line, and the second is a plain caret move.
-// That is correct — a row carries one caret — but in silence it is
-// indistinguishable from the alt bit never reaching the program at all, which
-// is the other way alt+click "does nothing". The note is what tells them apart.
-func TestAltClickOnAWrappedLineSaysSo(t *testing.T) {
+// TestAltClickOnAWrappedLineAddsACaret is the shape the gesture was reported
+// broken in, three times: a long line wraps across several rows of the box, so
+// two presses that look like two lines are two cells of ONE logical line. A
+// row-keyed caret set could only refuse that, which made the pointer useless on
+// the commonest prompt there is — one long paragraph. Keying on the cell is what
+// fixes it, and this is the test that says so.
+func TestAltClickOnAWrappedLineAddsACaret(t *testing.T) {
 	long := strings.Repeat("wrap ", 60) // far wider than the 120-cell test pane
 	m, _, _ := splitFormInTemp(t, long)
 	m.focusForm(formFieldPrompt)
@@ -381,11 +452,16 @@ func TestAltClickOnAWrappedLineSaysSo(t *testing.T) {
 	}
 
 	m = altClickAt(t, m, 3, 1) // the second *row* of the first *line*
-	if m.carets.on {
-		t.Error("a press on another row of the same line entered the mode")
+	if !m.carets.on {
+		t.Fatal("a press on another row of the same line did not enter the mode")
 	}
-	if !strings.Contains(m.formNote, "already on that line") {
-		t.Errorf("form note = %q, want it to say the caret is already on that line", m.formNote)
+	if got, want := m.carets.rows, []int{0, 0}; !slices.Equal(got, want) {
+		t.Fatalf("carets on rows %v, want %v — both on the one wrapped line", got, want)
+	}
+	// The second caret is on the second display row, so its column is past
+	// where that row begins — not column 3 of the logical line.
+	if got := m.carets.cols[1]; got <= lines[1].start {
+		t.Errorf("second caret at column %d, want past the wrap seam at %d", got, lines[1].start)
 	}
 }
 

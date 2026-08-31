@@ -644,20 +644,24 @@ held puts a caret where you clicked, beside the one the editor already has, and
 each press after that adds another — on lines that are not neighbours, in columns
 that are not equal, which is exactly what the sweep cannot say. Every caret keeps
 the column it was aimed at, so typing lands in a different place on each line. A
-press **exactly on a standing caret** takes that caret away; elsewhere on a line
-that already has one, it moves that line's caret, since a line holds at most one.
-Down to one caret the mode simply ends — one caret is what the editor is when the
-mode is off. (The gesture depends on the terminal reporting alt with the press;
-cats does, and most terminals do, but one that keeps alt+click for itself never
-forwards it — the sweep and the menu's ⌶ remain the keyboard's road in.)
+press **exactly on a standing caret** takes that caret away. Down to one caret
+the mode simply ends — one caret is what the editor is when the mode is off.
+(The gesture depends on the terminal reporting alt with the press; cats does,
+and most terminals do, but one that keeps alt+click for itself never forwards it
+— the sweep and the menu's ⌶ remain the keyboard's road in.)
 
-Because a line holds one caret, alt+click **on the line the caret is already on**
-is a plain caret move, and it says so: *the caret is already on that line*. That
-note is worth knowing about, because the case it comes up in most is a long line
-that **soft wraps** — drawn on three rows of the box, but one line, so a hand
-aiming at two of those rows gets a plain move both times. Seeing the note also
-settles the other reason nothing happened: it can only appear if alt reached the
-program at all. No note and no second caret means the terminal ate the modifier.
+**A line can carry several carets.** A caret is a cell, not a row, so two
+presses on one line put two carets on it and typing lands at both. This is what
+makes the pointer useful on the commonest prompt there is — one long paragraph
+that **soft wraps** across several rows of the box. Those rows look like separate
+lines and are all one line; until v0.22.0 the second press on them was refused,
+which made alt+click appear dead on exactly the shape it was most wanted for.
+
+The one press that adds nothing is a press on a caret that is already there. It
+says so — *the caret is already there* — rather than doing nothing in silence,
+because silence is also what a terminal that ate the modifier looks like. Seeing
+that note proves alt reached the program; no note and no new caret means it did
+not.
 
 `esc` ends the mode, and so does anything that means *one* caret — `enter`, `↑`,
 `↓`, a plain click. Enter in particular does not also insert: it is the key most likely

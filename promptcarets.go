@@ -38,6 +38,29 @@
 // ↑/↓ already follows, and here it is what lets a block of ragged lines be
 // prefixed in one gesture. The sweep starts every goal in the same column;
 // alt+click starts each at the cell it was aimed at.
+//
+// SEVERAL CARETS MAY SHARE A ROW. The mode began with a row carrying at most
+// one, which reads as a reasonable rule until you notice what a prompt actually
+// looks like: one long paragraph, soft-wrapped across half the box. Every
+// display line the hand aims at belongs to the same *logical* row, so the rule
+// turned the pointer gesture into a no-op on the commonest shape there is —
+// while it worked perfectly on a list of short lines, which is why it survived
+// as long as it did. A caret is a position, so the set is keyed by (row,
+// column) and nothing else, the way ced's is (internal/editor/multicaret.go).
+//
+// That is what makes the edit order load-bearing. Carets are held sorted by
+// row, then column, and every edit walks them BACKWARDS:
+//
+//	row:  "alpha bravo"     carets at 5 and 11, typing "!"
+//	      ────────┬──┬──
+//	              5  11
+//	  ← 11 first: "alpha bravo!"   (5 still means what it meant)
+//	  ← then 5:   "alpha! bravo!"  (11 shifted right by the one insert before it)
+//
+// Going forwards instead would aim every caret after the first at offsets the
+// edit before it had already moved. It is the same bottom-up rule ced's
+// applyAtCarets follows, and the same one editAtCarets already relied on across
+// rows — sharing a row is only what makes it visible.
 
 package main
 
@@ -60,6 +83,10 @@ import (
 // Rows are stored rather than a range because an edit must not have to
 // re-derive which lines were asked for — a selection is gone the moment the
 // mode starts, and with alt+click in play the rows need not even be contiguous.
+//
+// rows may repeat: a row carries as many carets as were put on it. The pair is
+// kept sorted by row, then by goal column, which is the order every edit walks
+// backwards (see the file comment) and the order the overlay paints in.
 type promptCarets struct {
 	rows []int
 	cols []int
@@ -70,21 +97,33 @@ type promptCarets struct {
 // itself, or the row's end when the row is too short to reach it.
 func (pc promptCarets) caretAt(i int, row []rune) int { return min(pc.cols[i], len(row)) }
 
-// indexOf is the caret standing on row, or -1. Rows hold at most one caret
-// each: the mode's edits are per-row, and a second caret on a row would be two
-// hands on one line.
-func (pc promptCarets) indexOf(row int) int {
+// indexAt is the caret standing exactly at (row, col), or -1.
+//
+// It compares the *effective* column — what caretAt draws, clamped into the row
+// — because that is the cell the eye sees and the only one a press can land on.
+// A caret whose goal ran off the end of a short row is reachable at that row's
+// end, which is where it is drawn.
+func (pc promptCarets) indexAt(row, col int, runes []rune) int {
 	for i, r := range pc.rows {
-		if r == row {
+		if r == row && pc.caretAt(i, runes) == col {
 			return i
 		}
 	}
 	return -1
 }
 
-// add puts a caret on row r aiming at column c, keeping rows sorted.
+// add puts a caret on row r aiming at column c, keeping the pair sorted by row
+// then column.
+//
+// The scan is linear rather than a binary search because the sort key is now a
+// pair spread across two parallel slices, and a caret set is a handful of
+// entries — the shape of the answer matters more here than the shape of the
+// search.
 func (pc *promptCarets) add(r, c int) {
-	i, _ := slices.BinarySearch(pc.rows, r)
+	i := 0
+	for i < len(pc.rows) && (pc.rows[i] < r || (pc.rows[i] == r && pc.cols[i] < c)) {
+		i++
+	}
 	pc.rows = slices.Insert(pc.rows, i, r)
 	pc.cols = slices.Insert(pc.cols, i, c)
 }
@@ -93,6 +132,23 @@ func (pc *promptCarets) add(r, c int) {
 func (pc *promptCarets) remove(i int) {
 	pc.rows = slices.Delete(pc.rows, i, i+1)
 	pc.cols = slices.Delete(pc.cols, i, i+1)
+}
+
+// dedupe folds carets that have landed on the same place into one.
+//
+// The horizontal motions are what make this necessary: ctrl+a sends every goal
+// on a row to 0, so two carets that shared that row are now one caret written
+// twice — and a set that holds it twice would type every character twice on
+// that line. Two carets in one place *are* one caret, so the duplicate goes.
+//
+// Walking backwards keeps the surviving index stable as entries are dropped,
+// and the neighbours-only comparison is enough because the pair is sorted.
+func (pc *promptCarets) dedupe() {
+	for i := len(pc.rows) - 1; i > 0; i-- {
+		if pc.rows[i] == pc.rows[i-1] && pc.cols[i] == pc.cols[i-1] {
+			pc.remove(i)
+		}
+	}
 }
 
 // dropPromptCarets is ⌶ Caret on every line: put one caret on each swept row and
@@ -142,10 +198,14 @@ func (m model) dropPromptCarets() (tea.Model, tea.Cmd) {
 
 // altClickPrompt is the pointer's road into the mode: alt held on a left press
 // inside the editor's box. The first press puts a second caret beside the
-// editor's own; each press after that adds one, moves the one already on the
-// clicked line to the clicked column, or — when the press lands exactly on a
-// standing caret — takes that caret away. Down to one caret, the mode ends: one
-// caret is what the editor is when the mode is off.
+// editor's own; each press after that adds one, or — when the press lands
+// exactly on a standing caret — takes that caret away. Down to one caret, the
+// mode ends: one caret is what the editor is when the mode is off.
+//
+// The only press that does not add a caret is one landing on a caret that is
+// already there, and "there" is a cell, not a line: two presses on the same
+// wrapped paragraph put two carets on it, which is the whole point of a
+// pointer gesture and what a row-keyed set could not express.
 //
 // x, row are pane cell and editor-box row, the coordinates clickForm hands out.
 func (m model) altClickPrompt(x, row int) (tea.Model, tea.Cmd) {
@@ -170,29 +230,24 @@ func (m model) altClickPrompt(x, row int) (tea.Model, tea.Cmd) {
 	switch {
 	case !m.carets.on:
 		cr := min(max(m.promptArea.Line(), 0), len(rows)-1)
-		if cr == r {
-			// The press landed on the line the editor's caret is already on.
-			// One line in play means nothing multiple about the gesture: it is
-			// a plain caret move, alt or no alt — a row carries at most one
-			// caret (see indexOf), so there is no second one to put here.
-			//
-			// It says so rather than moving in silence. A long line that soft
-			// wraps is drawn on several rows but is *one* line, so a hand
-			// aiming at two of its rows gets a plain move twice and no way to
-			// tell that from alt never having arrived at all — which is the
-			// other reason this gesture comes up empty, and the one the note
-			// rules out by appearing.
+		cc := min(max(m.promptArea.Column(), 0), len([]rune(rows[cr])))
+		if cr == r && cc == c {
+			// The press landed on the editor's own caret, the one cell on the
+			// screen that already has one. There is no second caret to put
+			// here, so this is a plain press — and it says so rather than
+			// doing nothing in silence, because "nothing happened" is also
+			// what a terminal that ate the modifier looks like. The note
+			// appearing is the proof that alt arrived.
 			m.placePromptCursor(x, row)
-			m.formNote = "the caret is already on that line — alt+click another line"
+			m.formNote = "the caret is already there — alt+click another cell"
 			return m, cmd
 		}
 		m.carets = promptCarets{on: true}
-		m.carets.add(cr, min(max(m.promptArea.Column(), 0), len([]rune(rows[cr]))))
+		m.carets.add(cr, cc)
 		m.carets.add(r, c)
-	case m.carets.indexOf(r) >= 0:
-		i := m.carets.indexOf(r)
-		if m.carets.caretAt(i, []rune(rows[r])) == c {
-			// The press landed on the caret itself: the ask is to take it away.
+	default:
+		if i := m.carets.indexAt(r, c, []rune(rows[r])); i >= 0 {
+			// The press landed on a caret itself: the ask is to take it away.
 			m.carets.remove(i)
 			if len(m.carets.rows) == 1 {
 				// Park the library's caret on the survivor before the mode's
@@ -203,12 +258,8 @@ func (m model) altClickPrompt(x, row int) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		} else {
-			// The line already has a caret; a press elsewhere on it moves that
-			// caret rather than refusing — the pointer said where.
-			m.carets.cols[i] = c
+			m.carets.add(r, c)
 		}
-	default:
-		m.carets.add(r, c)
 	}
 	m.syncPromptCaret()
 	m.formNote = m.caretNote()
@@ -255,7 +306,8 @@ func (m *model) syncPromptCaret() {
 	setPromptCaretOffset(&m.promptArea, start+m.carets.caretAt(0, []rune(rows[first])))
 }
 
-// editAtCarets applies one edit to every caret's row and writes the result back.
+// editAtCarets applies one edit at every caret and writes the result back,
+// carrying the goal columns across the edit.
 //
 // The rows are edited in a copy of the split value and the whole thing is put
 // back with SetValue, rather than each row being patched through
@@ -263,17 +315,47 @@ func (m *model) syncPromptCaret() {
 // offsets the edit before it had already moved, and "insert two characters on
 // each of six lines" is exactly the shape where that goes wrong quietly.
 //
-// fn is handed the row's runes and the caret's column in it, and returns the row
-// as it should be. A row it declines to change (a backspace at column 0) simply
-// comes back as it went in.
-func (m *model) editAtCarets(fn func(row []rune, col int) []rune) {
+// fn is handed the row's runes and the caret's effective column in it, and
+// returns the row as it should be together with how far that caret's own goal
+// moved — +2 for a two-rune insert, -1 for a backspace that bit, 0 for an edit
+// it declined (a backspace at column 0). A row fn leaves alone simply comes
+// back as it went in.
+//
+// TWO CARETS ON ONE ROW is what the walk order and the second adjustment are
+// for. Carets are visited in descending order, so each edit lands after every
+// caret still waiting its turn and none of their columns go stale. The carets
+// ALREADY visited on that row sit to the right of the edit, though, and their
+// columns were measured against the row as it was — so each one shifts by the
+// row's net change in length. Both adjustments are additive and disjoint (a
+// caret takes its own goalDelta once, plus one shift per edit to its left), so
+// the order they are applied in does not matter.
+//
+//	"alpha bravo", carets at 5 and 11, inserting "!"
+//	  i=1 (col 11): row → "alpha bravo!", goal 11 → 12
+//	  i=0 (col  5): row → "alpha! bravo!", goal 5 → 6, and caret 1 shifts +1 → 13
+//	                                                    ^ one insert now precedes it
+func (m *model) editAtCarets(fn func(row []rune, col int) ([]rune, int)) {
 	rows := strings.Split(m.promptArea.Value(), "\n")
-	for i, r := range m.carets.rows {
+	for i := len(m.carets.rows) - 1; i >= 0; i-- {
+		r := m.carets.rows[i]
 		if r < 0 || r >= len(rows) {
 			continue // the value shrank under us; the row is simply not there
 		}
 		runes := []rune(rows[r])
-		rows[r] = string(fn(runes, m.carets.caretAt(i, runes)))
+		out, goalDelta := fn(runes, m.carets.caretAt(i, runes))
+		rows[r] = string(out)
+		m.carets.cols[i] += goalDelta
+		// Carry the carets further along this row over the change. Sorted by
+		// (row, column) means they are exactly the entries after i that still
+		// name row r, so the scan stops at the first that does not.
+		if d := len(out) - len(runes); d != 0 {
+			for j := i + 1; j < len(m.carets.rows) && m.carets.rows[j] == r; j++ {
+				m.carets.cols[j] += d
+			}
+		}
+	}
+	for i := range m.carets.cols {
+		m.carets.cols[i] = max(m.carets.cols[i], 0)
 	}
 	m.promptArea.SetValue(strings.Join(rows, "\n"))
 }
@@ -331,22 +413,21 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 			m.formNote = "the carets are at the start of their lines"
 			return m, nil, true
 		}
-		m.editAtCarets(func(row []rune, col int) []rune {
+		m.editAtCarets(func(row []rune, col int) ([]rune, int) {
 			if col == 0 {
-				return row
+				return row, 0 // nothing behind this one; its goal does not move
 			}
-			return append(append([]rune{}, row[:col-1]...), row[col:]...)
+			return append(append([]rune{}, row[:col-1]...), row[col:]...), -1
 		})
-		for i := range m.carets.cols {
-			m.carets.cols[i] = max(m.carets.cols[i]-1, 0)
-		}
 
 	case key.Matches(msg, km.DeleteCharacterForward):
-		m.editAtCarets(func(row []rune, col int) []rune {
+		// The goal does not move: the character taken out was ahead of the
+		// caret, so the caret is still where it was.
+		m.editAtCarets(func(row []rune, col int) ([]rune, int) {
 			if col >= len(row) {
-				return row
+				return row, 0
 			}
-			return append(append([]rune{}, row[:col]...), row[col+1:]...)
+			return append(append([]rune{}, row[:col]...), row[col+1:]...), 0
 		})
 
 	case key.Matches(msg, km.InsertNewline):
@@ -364,6 +445,20 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 
 	default:
 		return m, nil, false
+	}
+	// Every branch above may have driven two carets that shared a row onto the
+	// same cell — ctrl+a is the plain case, and ← does it to neighbours at the
+	// left margin. Folding them here rather than in each branch is what keeps
+	// "a place holds one caret" true for the key that lands next, whichever key
+	// that is.
+	m.carets.dedupe()
+	if len(m.carets.rows) == 1 {
+		// The fold left one caret, which is what the editor is with the mode
+		// off. Park the library's caret on the survivor before the state goes.
+		m.syncPromptCaret()
+		m.endPromptCarets()
+		m.formNote = "one caret again"
+		return m, nil, true
 	}
 	m.syncPromptCaret()
 	if m.formNote == "" || strings.Contains(m.formNote, "carets") {
@@ -396,17 +491,15 @@ func (m *model) insertAtCarets(text string) {
 	if text == "" {
 		return
 	}
-	m.editAtCarets(func(row []rune, col int) []rune {
-		out := append([]rune{}, row[:col]...)
-		out = append(out, []rune(text)...)
-		return append(out, row[col:]...)
-	})
 	// Stepping the goal rather than the effective column is exact: the insert
 	// itself landed at min(goal, len), and both ends of that min grew by the
-	// same amount.
-	for i := range m.carets.cols {
-		m.carets.cols[i] += len([]rune(text))
-	}
+	// same amount — which is why the step is handed back as a goal delta.
+	step := len([]rune(text))
+	m.editAtCarets(func(row []rune, col int) ([]rune, int) {
+		out := append([]rune{}, row[:col]...)
+		out = append(out, []rune(text)...)
+		return append(out, row[col:]...), step
+	})
 	m.syncPromptCaret()
 }
 
