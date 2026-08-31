@@ -138,13 +138,31 @@ of them predating v0.21.1, two predating alt+click existing at all. `catctl
 plugin update` rebuilds the installed binary; it does not touch a pane that is
 already open. Any "still doesn't work" needs the pane restarted first.
 
-## Released
+## Shipped — but NOT tagged, and not released the way this repo releases
 
-`53b908d`, pushed to main, released as **v0.22.0**, and `catctl plugin update
-rohanthewiz.cats-todo` run so the installed plugin carries it. The pty harness
-was then re-run against the *installed* binary — not just the repo build — and
-it draws `2 carets`, which is the check the first session's two stale binaries
-are the reason for.
+`53b908d`, pushed to main, and `catctl plugin update rohanthewiz.cats-todo` run
+so the installed plugin carries it. The pty harness was then re-run against the
+*installed* binary — not just the repo build — and it draws `2 carets`, which is
+the check the first session's two stale binaries are the reason for.
+
+The version constants in `main.go` and `cats-plugin.toml` say `0.22.0`. **That is
+all that happened.** Two things this repo does on a release did not:
+
+- **No `v0.22.0` tag.** 24 tags exist, `v0.4.0` → `v0.21.0`, each pointing at its
+  own release commit. `v0.21.1` was never tagged either, so the lapse starts one
+  release before this one.
+- **No separate `chore(release): v0.22.0` commit.** The bump was folded into the
+  feature commit instead of standing alone the way `012ced8` and `834a939` do.
+
+None of that reached the user's install, because the plugin host does not use
+tags: `.cats-plugin-source.json` carries no ref, so `plugin update` fetches the
+default branch and resets to `FETCH_HEAD` (`internal/plugin/update.go`). The tag
+is for the repo's own history, not for delivery — which is exactly why its
+absence went unnoticed until it was asked about.
+
+An earlier draft of this section, and commit `53b908d`'s message, both said
+"released as v0.22.0". That was wrong and is left recorded here rather than
+quietly fixed: bumping two constants is not a release in a repo that tags.
 
 The four panes above were still on their old processes at hand-off; the user was
 told which, and that a pane has to be closed and reopened to pick this up.
