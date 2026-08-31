@@ -137,3 +137,14 @@ were live during this session, started 18:47 Aug 29 through 22:18 Aug 30 — thr
 of them predating v0.21.1, two predating alt+click existing at all. `catctl
 plugin update` rebuilds the installed binary; it does not touch a pane that is
 already open. Any "still doesn't work" needs the pane restarted first.
+
+## Released
+
+`53b908d`, pushed to main, released as **v0.22.0**, and `catctl plugin update
+rohanthewiz.cats-todo` run so the installed plugin carries it. The pty harness
+was then re-run against the *installed* binary — not just the repo build — and
+it draws `2 carets`, which is the check the first session's two stale binaries
+are the reason for.
+
+The four panes above were still on their old processes at hand-off; the user was
+told which, and that a pane has to be closed and reopened to pick this up.
