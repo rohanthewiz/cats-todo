@@ -634,13 +634,25 @@ was asked to be.
 
 Every caret lands in the column the **sweep began** in, which is column 0 for the
 sweep this is for — a drag down the left margin, or a `shift`+`↓` run from the
-start of a line. That is what makes `- ` prefix the block. The column is a *goal*
+start of a line. That is what makes `- ` prefix the block. Each column is a *goal*
 column, not a position: a line too short for it takes its caret at its end and is
 not stranded there when the others move on, the same rule `↑`/`↓` already follow
 in any editor.
 
+**`alt`+`click`** is the other road in, and the pointer's own: a press with alt
+held puts a caret where you clicked, beside the one the editor already has, and
+each press after that adds another — on lines that are not neighbours, in columns
+that are not equal, which is exactly what the sweep cannot say. Every caret keeps
+the column it was aimed at, so typing lands in a different place on each line. A
+press **exactly on a standing caret** takes that caret away; elsewhere on a line
+that already has one, it moves that line's caret, since a line holds at most one.
+Down to one caret the mode simply ends — one caret is what the editor is when the
+mode is off. (The gesture depends on the terminal reporting alt with the press;
+cats does, and most terminals do, but one that keeps alt+click for itself never
+forwards it — the sweep and the menu's ⌶ remain the keyboard's road in.)
+
 `esc` ends the mode, and so does anything that means *one* caret — `enter`, `↑`,
-`↓`, a click. Enter in particular does not also insert: it is the key most likely
+`↓`, a plain click. Enter in particular does not also insert: it is the key most likely
 to be pressed because you thought the mode was already over. A chord the mode has
 no meaning for ends it and then does its usual job, so `ctrl+s` still saves from
 inside it. Nothing is undone on the way out: everything typed is already in the

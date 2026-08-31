@@ -261,6 +261,27 @@ func promptOffsetAt(ta textarea.Model, x, row int) (int, bool) {
 	return lo + colAtWidth(runes[lo:hi], x-promptGutterWidth(ta)), true
 }
 
+// promptRowColAt is promptOffsetAt's answer in the textarea's own coordinates:
+// the logical row under the pointer and the rune column within it. The caret
+// mode (promptcarets.go) counts in rows and columns, so a press that names a
+// caret asks its question in that shape rather than converting back out of an
+// offset it never wanted.
+func promptRowColAt(ta textarea.Model, x, row int) (r, col int, ok bool) {
+	lines := promptDisplayLines(ta)
+	i := ta.ScrollYOffset() + max(row, 0)
+	if i < 0 || i >= len(lines) {
+		return 0, 0, false
+	}
+	off, ok := promptOffsetAt(ta, x, row)
+	if !ok {
+		return 0, 0, false
+	}
+	dl := lines[i]
+	rows := strings.Split(ta.Value(), "\n")
+	start, _ := promptRowSpan(rows, dl.row, dl.row)
+	return dl.row, off - start, true
+}
+
 // promptCaretDisplayLine is the index into promptDisplayLines of the line the
 // caret is drawn on.
 //

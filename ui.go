@@ -1063,6 +1063,14 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if m.menu.open {
 		return m.clickPromptMenu(msg)
 	}
+	// Alt on a press inside the editor names *another* caret rather than the
+	// only one: it is the pointer's road into the caret mode (promptcarets.go),
+	// so it is answered before the clear below would take the standing carets
+	// down. Only inside the editor's box — a caret is the one thing alt+click
+	// asks for, and only the editor has them.
+	if msg.Mod&tea.ModAlt != 0 && msg.Y >= formPromptRow && msg.Y < formPromptRow+m.promptArea.Height() {
+		return m.altClickPrompt(msg.X, msg.Y-formPromptRow)
+	}
 	// A press anywhere on the form ends the last selection: the pointer is
 	// about to say where the caret goes next, and a highlight that outlived the
 	// click that moved away from it would misreport what ctrl+c copies. The

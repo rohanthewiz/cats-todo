@@ -1,7 +1,9 @@
-// promptcarets.go — one caret on every swept line, and typing into all of them.
+// promptcarets.go — a caret on several lines at once, and typing into all of them.
 //
-// This is the third thing a swept block is worth, beside splitting it and
-// sorting it, and it is the one that turns *not yet a list* into a list:
+// Two roads lead in. The first is ⌶ Caret on every line: sweep a block, and a
+// caret goes down on each of its lines in the column the sweep began in. It is
+// the third thing a swept block is worth, beside splitting it and sorting it,
+// and it is the one that turns *not yet a list* into a list:
 //
 //	sweep three plain lines        drop carets at column 0        type "- "
 //	  tag v2                         ▌tag v2                        - tag v2
@@ -10,31 +12,38 @@
 //
 // which is then exactly the shape ✂ Split into prompts wants. Prefixing,
 // unprefixing and cutting a column out of a block of lines are what a column
-// mode gets used for in every editor that has one, and all three fall out of the
-// same small piece of state.
+// mode gets used for in every editor that has one.
+//
+// The second road is the pointer's: alt+click puts a caret where the press
+// landed, beside the one the editor already has. More presses add more; a press
+// exactly on a standing caret takes that caret away. That is the gesture every
+// multi-cursor editor answers to, and it reaches what the sweep cannot — lines
+// that are not neighbours, columns that are not equal.
 //
 // The design, and why it is not "N textareas":
 //
 // The library has one caret and no notion of a second. Rather than fight that,
-// the mode keeps its own carets as a set of logical rows plus a goal column, and
-// performs each edit on the value directly — the same road every other
-// programmatic edit in this program takes (replacePromptRunes, and see the
-// comment there for why walking the library's caret to do it is worse). The
-// library's own caret is parked on the first of the rows, so the one the
+// the mode keeps its own carets as a set of logical rows with a goal column
+// each, and performs each edit on the value directly — the same road every
+// other programmatic edit in this program takes (replacePromptRunes, and see
+// the comment there for why walking the library's caret to do it is worse).
+// The library's own caret is parked on the first of the rows, so the one the
 // textarea draws is one of the ones the user asked for; the rest are painted by
 // promptEditorView through the same overlay the selection and the spell marks
 // use.
 //
-// The column is a *goal* column, not a position: a row shorter than it takes its
-// caret at its end and keeps it there, and a later move right does not strand
-// that row's caret behind the others. It is the rule every editor's ↑/↓ already
-// follows, and here it is what lets a block of ragged lines be prefixed in one
-// gesture.
+// Each column is a *goal* column, not a position: a row shorter than its goal
+// takes its caret at its end and keeps it there, and a later move right does
+// not strand that row's caret behind the others. It is the rule every editor's
+// ↑/↓ already follows, and here it is what lets a block of ragged lines be
+// prefixed in one gesture. The sweep starts every goal in the same column;
+// alt+click starts each at the cell it was aimed at.
 
 package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -43,20 +52,48 @@ import (
 )
 
 // promptCarets is the mode's whole state: which logical rows carry a caret, and
-// the column all of them aim at.
+// the column each of them aims at. rows and cols are parallel, and rows stays
+// sorted — the order carets go down in is not information, but "the first row"
+// is (syncPromptCaret parks the library's caret there, and topmost is the one
+// the eye expects).
 //
-// Rows are stored rather than a range because an edit must not have to re-derive
-// which lines were asked for — a selection is gone the moment the mode starts,
-// and the rows are the only record of the gesture that opened it.
+// Rows are stored rather than a range because an edit must not have to
+// re-derive which lines were asked for — a selection is gone the moment the
+// mode starts, and with alt+click in play the rows need not even be contiguous.
 type promptCarets struct {
 	rows []int
-	col  int
+	cols []int
 	on   bool
 }
 
-// caretAt is where the caret on row sits given the goal column: the column
+// caretAt is where caret i sits on its row given its goal column: the column
 // itself, or the row's end when the row is too short to reach it.
-func (pc promptCarets) caretAt(row []rune) int { return min(pc.col, len(row)) }
+func (pc promptCarets) caretAt(i int, row []rune) int { return min(pc.cols[i], len(row)) }
+
+// indexOf is the caret standing on row, or -1. Rows hold at most one caret
+// each: the mode's edits are per-row, and a second caret on a row would be two
+// hands on one line.
+func (pc promptCarets) indexOf(row int) int {
+	for i, r := range pc.rows {
+		if r == row {
+			return i
+		}
+	}
+	return -1
+}
+
+// add puts a caret on row r aiming at column c, keeping rows sorted.
+func (pc *promptCarets) add(r, c int) {
+	i, _ := slices.BinarySearch(pc.rows, r)
+	pc.rows = slices.Insert(pc.rows, i, r)
+	pc.cols = slices.Insert(pc.cols, i, c)
+}
+
+// remove takes caret i away.
+func (pc *promptCarets) remove(i int) {
+	pc.rows = slices.Delete(pc.rows, i, i+1)
+	pc.cols = slices.Delete(pc.cols, i, i+1)
+}
 
 // dropPromptCarets is ⌶ Caret on every line: put one caret on each swept row and
 // enter the mode.
@@ -87,9 +124,10 @@ func (m model) dropPromptCarets() (tea.Model, tea.Cmd) {
 	rows := strings.Split(m.promptArea.Value(), "\n")
 	start, _ := promptRowSpan(rows, first, first)
 
-	pc := promptCarets{col: max(lo-start, 0), on: true}
+	pc := promptCarets{on: true}
+	col := max(lo-start, 0)
 	for r := first; r <= last; r++ {
-		pc.rows = append(pc.rows, r)
+		pc.add(r, col)
 	}
 	// The selection goes: the mode replaces it, and a highlight left standing
 	// over rows that are about to be edited from several places at once would be
@@ -100,6 +138,73 @@ func (m model) dropPromptCarets() (tea.Model, tea.Cmd) {
 	m.syncPromptCaret()
 	m.formNote = m.caretNote()
 	return m, nil
+}
+
+// altClickPrompt is the pointer's road into the mode: alt held on a left press
+// inside the editor's box. The first press puts a second caret beside the
+// editor's own; each press after that adds one, moves the one already on the
+// clicked line to the clicked column, or — when the press lands exactly on a
+// standing caret — takes that caret away. Down to one caret, the mode ends: one
+// caret is what the editor is when the mode is off.
+//
+// x, row are pane cell and editor-box row, the coordinates clickForm hands out.
+func (m model) altClickPrompt(x, row int) (tea.Model, tea.Cmd) {
+	// The keys follow the pointer, the same rule every other click on this form
+	// obeys — what gets typed next lands at the carets, so the prompt is where
+	// the focus must be.
+	cmd := m.focusForm(formFieldPrompt)
+	r, c, ok := promptRowColAt(m.promptArea, x, row)
+	if !ok {
+		m.formNote = "no line there to put a caret on"
+		return m, cmd
+	}
+	// A press that names carets still un-names the selection, for the reason
+	// every other press does (see clickForm): the highlight would misreport what
+	// ctrl+c copies once the mode starts fielding the keys.
+	m.clearPromptSel()
+	rows := strings.Split(m.promptArea.Value(), "\n")
+	if r >= len(rows) {
+		return m, cmd // the display table and the value disagree; do nothing
+	}
+	c = min(c, len([]rune(rows[r])))
+	switch {
+	case !m.carets.on:
+		cr := min(max(m.promptArea.Line(), 0), len(rows)-1)
+		if cr == r {
+			// The press landed on the line the editor's caret is already on.
+			// One line in play means nothing multiple about the gesture: it is
+			// a plain caret move, alt or no alt.
+			m.placePromptCursor(x, row)
+			m.formNote = ""
+			return m, cmd
+		}
+		m.carets = promptCarets{on: true}
+		m.carets.add(cr, min(max(m.promptArea.Column(), 0), len([]rune(rows[cr]))))
+		m.carets.add(r, c)
+	case m.carets.indexOf(r) >= 0:
+		i := m.carets.indexOf(r)
+		if m.carets.caretAt(i, []rune(rows[r])) == c {
+			// The press landed on the caret itself: the ask is to take it away.
+			m.carets.remove(i)
+			if len(m.carets.rows) == 1 {
+				// Park the library's caret on the survivor before the mode's
+				// state goes, so what remains on screen is what remains.
+				m.syncPromptCaret()
+				m.endPromptCarets()
+				m.formNote = "one caret again"
+				return m, cmd
+			}
+		} else {
+			// The line already has a caret; a press elsewhere on it moves that
+			// caret rather than refusing — the pointer said where.
+			m.carets.cols[i] = c
+		}
+	default:
+		m.carets.add(r, c)
+	}
+	m.syncPromptCaret()
+	m.formNote = m.caretNote()
+	return m, cmd
 }
 
 // endPromptCarets leaves the mode. It is deliberately not "cancel": everything
@@ -115,16 +220,17 @@ func (m *model) endPromptCarets() {
 
 // caretNote is the mode's standing message. It names the count because that is
 // the one thing about the mode that is not visible at a glance on a tall prompt
-// — carets below the fold are still being typed into.
+// — carets below the fold are still being typed into — and it teaches the
+// pointer gesture, which no key on the footer can stand for.
 func (m model) caretNote() string {
-	return fmt.Sprintf("%d carets, one per swept line", len(m.carets.rows))
+	return fmt.Sprintf("%d carets · alt+click adds or removes one", len(m.carets.rows))
 }
 
 // syncPromptCaret parks the library's own caret on the first of the mode's rows,
-// at the goal column.
+// at that caret's goal column.
 //
 // The textarea draws exactly one caret and will keep drawing it wherever it
-// thinks it is; leaving it behind on the line the sweep ended on would put a
+// thinks it is; leaving it behind on the line the gesture ended on would put a
 // second kind of caret on screen that none of the keys move. Parking it on one
 // of ours means the library's caret *is* one of the mode's, and the overlay only
 // has to draw the rest.
@@ -138,7 +244,7 @@ func (m *model) syncPromptCaret() {
 		return
 	}
 	start, _ := promptRowSpan(rows, first, first)
-	setPromptCaretOffset(&m.promptArea, start+m.carets.caretAt([]rune(rows[first])))
+	setPromptCaretOffset(&m.promptArea, start+m.carets.caretAt(0, []rune(rows[first])))
 }
 
 // editAtCarets applies one edit to every caret's row and writes the result back.
@@ -154,12 +260,12 @@ func (m *model) syncPromptCaret() {
 // comes back as it went in.
 func (m *model) editAtCarets(fn func(row []rune, col int) []rune) {
 	rows := strings.Split(m.promptArea.Value(), "\n")
-	for _, r := range m.carets.rows {
+	for i, r := range m.carets.rows {
 		if r < 0 || r >= len(rows) {
 			continue // the value shrank under us; the row is simply not there
 		}
 		runes := []rune(rows[r])
-		rows[r] = string(fn(runes, m.carets.caretAt(runes)))
+		rows[r] = string(fn(runes, m.carets.caretAt(i, runes)))
 	}
 	m.promptArea.SetValue(strings.Join(rows, "\n"))
 }
@@ -182,32 +288,35 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 		return m, nil, true
 
 	case key.Matches(msg, km.CharacterBackward):
-		m.carets.col = max(m.carets.col-1, 0)
+		for i := range m.carets.cols {
+			m.carets.cols[i] = max(m.carets.cols[i]-1, 0)
+		}
 
 	case key.Matches(msg, km.CharacterForward):
-		// Unbounded on purpose: the goal column may run past the shorter rows,
-		// and caretAt clamps each one as it draws and edits. Bounding it to the
-		// shortest row is what would strand the long rows' carets.
-		m.carets.col++
+		// Unbounded on purpose: a goal column may run past its row's end, and
+		// caretAt clamps as it draws and edits. Bounding a goal to its row is
+		// what would strand that caret when the row grows back.
+		for i := range m.carets.cols {
+			m.carets.cols[i]++
+		}
 
 	case key.Matches(msg, km.LineStart):
-		m.carets.col = 0
+		for i := range m.carets.cols {
+			m.carets.cols[i] = 0
+		}
 
 	case key.Matches(msg, km.LineEnd):
-		// The goal column goes to the longest of the rows, so every shorter one
-		// clamps to its own end (caretAt) — which is "the end of each line", the
-		// counterpart of ctrl+a and the half of the mode that appends to a block
-		// rather than prefixing it.
+		// Every caret to the end of its own row — the counterpart of ctrl+a and
+		// the half of the mode that appends to a block rather than prefixing it.
 		rows := strings.Split(m.promptArea.Value(), "\n")
-		m.carets.col = 0
-		for _, r := range m.carets.rows {
+		for i, r := range m.carets.rows {
 			if r >= 0 && r < len(rows) {
-				m.carets.col = max(m.carets.col, len([]rune(rows[r])))
+				m.carets.cols[i] = len([]rune(rows[r]))
 			}
 		}
 
 	case key.Matches(msg, km.DeleteCharacterBackward):
-		if m.carets.col == 0 {
+		if m.caretsAllAtLineStart() {
 			// Every caret is already at the start of its line; there is nothing
 			// behind them to take out, and joining every row onto the one above
 			// is not what a backspace in this mode can sensibly mean.
@@ -220,7 +329,9 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 			}
 			return append(append([]rune{}, row[:col-1]...), row[col:]...)
 		})
-		m.carets.col--
+		for i := range m.carets.cols {
+			m.carets.cols[i] = max(m.carets.cols[i]-1, 0)
+		}
 
 	case key.Matches(msg, km.DeleteCharacterForward):
 		m.editAtCarets(func(row []rune, col int) []rune {
@@ -253,7 +364,20 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 	return m, nil, true
 }
 
-// insertAtCarets puts text in at every caret and steps the goal column past it.
+// caretsAllAtLineStart answers whether every caret sits in column 0 of its row —
+// the effective column, not the goal, so a goal stranded past an empty row still
+// counts as "nothing behind it".
+func (m model) caretsAllAtLineStart() bool {
+	rows := strings.Split(m.promptArea.Value(), "\n")
+	for i, r := range m.carets.rows {
+		if r >= 0 && r < len(rows) && m.carets.caretAt(i, []rune(rows[r])) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// insertAtCarets puts text in at every caret and steps each goal column past it.
 // It is its own method because a paste arrives here too, by a different road
 // (see the tea.PasteMsg case in Update).
 func (m *model) insertAtCarets(text string) {
@@ -269,7 +393,12 @@ func (m *model) insertAtCarets(text string) {
 		out = append(out, []rune(text)...)
 		return append(out, row[col:]...)
 	})
-	m.carets.col += len([]rune(text))
+	// Stepping the goal rather than the effective column is exact: the insert
+	// itself landed at min(goal, len), and both ends of that min grew by the
+	// same amount.
+	for i := range m.carets.cols {
+		m.carets.cols[i] += len([]rune(text))
+	}
 	m.syncPromptCaret()
 }
 
@@ -292,7 +421,7 @@ func (m model) promptCaretPaints(dl promptDisplayLine, runes []rune, gutter int)
 			continue
 		}
 		start, _ := promptRowSpan(rows, r, r)
-		off := start + m.carets.caretAt([]rune(rows[r]))
+		off := start + m.carets.caretAt(i, []rune(rows[r]))
 		if off < dl.start || off > dl.end() || off > len(runes) {
 			continue // on another wrap segment of this row
 		}

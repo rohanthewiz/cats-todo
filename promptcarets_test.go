@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,8 +35,8 @@ func TestCaretsPrefixEveryLine(t *testing.T) {
 	if got, want := m.carets.rows, []int{0, 1, 2}; len(got) != len(want) {
 		t.Fatalf("carets on rows %v, want %v", got, want)
 	}
-	if m.carets.col != 0 {
-		t.Fatalf("carets at column %d, want 0 — the sweep began at the left margin", m.carets.col)
+	if got, want := m.carets.cols, []int{0, 0, 0}; !slices.Equal(got, want) {
+		t.Fatalf("carets at columns %v, want %v — the sweep began at the left margin", got, want)
 	}
 
 	for _, r := range "- " {
@@ -45,8 +46,8 @@ func TestCaretsPrefixEveryLine(t *testing.T) {
 	if m.promptArea.Value() != want {
 		t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
 	}
-	if m.carets.col != 2 {
-		t.Errorf("carets at column %d, want them stepped past what was typed", m.carets.col)
+	if got, want := m.carets.cols, []int{2, 2, 2}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want them stepped past what was typed", got)
 	}
 	// Still on, so the next character continues the same edit on all three.
 	if !m.carets.on {
@@ -58,7 +59,9 @@ func TestCaretsPrefixEveryLine(t *testing.T) {
 // what a column mode gets used for.
 func TestCaretsBackspaceUnprefixes(t *testing.T) {
 	m := caretsOver(t, "- tag v2\n- write the notes")
-	m.carets.col = 2 // as if "- " had just been typed
+	for i := range m.carets.cols {
+		m.carets.cols[i] = 2 // as if "- " had just been typed
+	}
 	m.syncPromptCaret()
 
 	for range 2 {
@@ -67,8 +70,8 @@ func TestCaretsBackspaceUnprefixes(t *testing.T) {
 	if want := "tag v2\nwrite the notes"; m.promptArea.Value() != want {
 		t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
 	}
-	if m.carets.col != 0 {
-		t.Errorf("carets at column %d, want 0", m.carets.col)
+	if got, want := m.carets.cols, []int{0, 0}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want 0", got)
 	}
 	// And with every caret at the start of its line there is nothing behind them
 	// to take out — said in words rather than joining every row onto the one
@@ -90,8 +93,8 @@ func TestCaretsGoalColumnSurvivesAShortLine(t *testing.T) {
 	for range 4 {
 		m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyRight})
 	}
-	if m.carets.col != 4 {
-		t.Fatalf("goal column %d, want 4 — it is not bounded by the shortest row", m.carets.col)
+	if got, want := m.carets.cols, []int{4, 4}; !slices.Equal(got, want) {
+		t.Fatalf("goal columns %v, want %v — not bounded by the shortest row", got, want)
 	}
 	m = typeInForm(t, m, typeChar('!'))
 	if want := "ab!\nabcd!ef"; m.promptArea.Value() != want {
@@ -241,6 +244,119 @@ func TestCaretsFooterTeachesTheMode(t *testing.T) {
 	}
 	if strings.Contains(foot, "tab switch field") {
 		t.Errorf("the ordinary editor footer is still up during the mode:\n%s", foot)
+	}
+}
+
+// altClickAt presses alt+left on the editor's box: row counts from the top of
+// the box, col is a text column of the line drawn there (the gutter is added on,
+// the way a real pointer's X carries it).
+func altClickAt(t *testing.T, m model, col, row int) model {
+	t.Helper()
+	next, _ := m.Update(tea.MouseClickMsg{
+		X: promptGutterWidth(m.promptArea) + col, Y: formPromptRow + row,
+		Button: tea.MouseLeft, Mod: tea.ModAlt,
+	})
+	return next.(model)
+}
+
+// TestAltClickAddsCarets is the pointer's road into the mode: the first
+// alt+click puts a second caret beside the editor's own, each one after adds
+// another, and typing lands at every caret's own column — the part the sweep
+// cannot express, since its carets share the column it began in.
+func TestAltClickAddsCarets(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "alpha\nbravo\ncharlie")
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 0) // the editor's caret: row 0, column 0
+
+	m = altClickAt(t, m, 2, 2)
+	if !m.carets.on {
+		t.Fatal("alt+click did not enter the mode")
+	}
+	if got, want := m.carets.rows, []int{0, 2}; !slices.Equal(got, want) {
+		t.Fatalf("carets on rows %v, want %v — the editor's own plus the clicked one", got, want)
+	}
+	if got, want := m.carets.cols, []int{0, 2}; !slices.Equal(got, want) {
+		t.Fatalf("carets at columns %v, want %v", got, want)
+	}
+
+	m = altClickAt(t, m, 4, 1)
+	if got, want := m.carets.rows, []int{0, 1, 2}; !slices.Equal(got, want) {
+		t.Fatalf("carets on rows %v, want %v", got, want)
+	}
+
+	m = typeInForm(t, m, typeChar('!'))
+	if want := "!alpha\nbrav!o\nch!arlie"; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q — each caret types in its own column", m.promptArea.Value(), want)
+	}
+}
+
+// TestAltClickTogglesACaretAway: a press exactly on a standing caret removes it,
+// and removing down to one ends the mode — one caret is what the editor is when
+// the mode is off.
+func TestAltClickTogglesACaretAway(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "alpha\nbravo\ncharlie")
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 0)
+
+	m = altClickAt(t, m, 2, 2)
+	m = altClickAt(t, m, 4, 1)
+	m = altClickAt(t, m, 4, 1) // on the caret itself: take it away
+	if got, want := m.carets.rows, []int{0, 2}; !slices.Equal(got, want) {
+		t.Fatalf("carets on rows %v, want %v after the toggle", got, want)
+	}
+
+	m = altClickAt(t, m, 2, 2)
+	if m.carets.on {
+		t.Error("removing down to one caret left the mode on")
+	}
+	if !strings.Contains(m.formNote, "one caret") {
+		t.Errorf("form note = %q, want it to say one caret remains", m.formNote)
+	}
+	// The survivor is where the library's caret is parked, so what remains on
+	// screen is what remains.
+	if got := promptCaretOffset(m.promptArea); got != 0 {
+		t.Errorf("caret at offset %d, want 0 — the surviving caret's place", got)
+	}
+}
+
+// TestAltClickMovesTheLinesCaret: a line holds at most one caret, so a press
+// elsewhere on a line that already has one moves it — the pointer said where.
+func TestAltClickMovesTheLinesCaret(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "alpha\nbravo\ncharlie")
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 0)
+
+	m = altClickAt(t, m, 2, 2)
+	m = altClickAt(t, m, 5, 2)
+	if !m.carets.on {
+		t.Fatal("moving a caret ended the mode")
+	}
+	if got, want := m.carets.cols, []int{0, 5}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want %v — the clicked line's caret moved", got, want)
+	}
+}
+
+// TestAltClickRefusesInWords covers the presses that cannot mean a caret: below
+// the last line there is no line to put one on, and on the caret's own line with
+// the mode off there is nothing multiple about the gesture — it is a plain move.
+func TestAltClickRefusesInWords(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "one\ntwo")
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, 0)
+	m = altClickAt(t, m, 0, 5)
+	if m.carets.on {
+		t.Error("a press below the value entered the mode")
+	}
+	if !strings.Contains(m.formNote, "no line") {
+		t.Errorf("form note = %q, want it to say there is no line there", m.formNote)
+	}
+
+	m = altClickAt(t, m, 2, 0) // the caret's own line: a plain caret move
+	if m.carets.on {
+		t.Error("a press on the caret's own line entered the mode")
+	}
+	if got := promptCaretOffset(m.promptArea); got != 2 {
+		t.Errorf("caret at offset %d, want 2 — alt or no alt, the pointer places it", got)
 	}
 }
 
