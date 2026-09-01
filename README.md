@@ -226,7 +226,7 @@ prompt:
   ○   🍏  bump the version        two files, one number
   ○       ordinary work           nothing said about it
   ❄       shelved idea            not doing this
-  ✓ ▲ 🍏  shipped it              done and dusted
+  ✓ ▲     shipped it              done and dusted
 ```
 
 The badge leads because it is what the list is grouped by — arriving at a row you
@@ -297,6 +297,16 @@ could only have told you one of them.
 Green rather than red: the critical mark one column to its left is red already,
 and two reds on a row read as one signal repeated.
 
+On a completed or frozen row the apple **goes away** rather than fading, which is
+the one place the two annotations part company. Priority can drop to that row's
+greys because a triangle takes a colour; an emoji does not — the font paints it,
+a foreground never reaches it, and Unicode has no grey apple to swap in. A mark
+that cannot recede would be the one full-colour thing in the tier of the list
+that exists to stop shouting, so it stops being drawn: the fruit says "worth
+grabbing", and there is nothing to grab on work that is finished or shelved. The
+flag itself is untouched — the editor still shows it ticked, `ctrl+v` still
+spells it out in words, and unticking **Done** brings the apple straight back.
+
 #### Where they are set
 
 Both are set on the editor itself, on a segmented bar between the title and the
@@ -334,7 +344,10 @@ keystrokes into a row that is not a text field.
 Nothing is written until the form is saved, so an abandoned edit leaves the
 marks as they were. `ctrl+v` on a list row spells the marks out in words as
 well — `▲ critical · 🍏 low-hanging fruit` on the prompt view's meta line —
-which is where to look when a glyph on a row is not yet familiar.
+which is where to look when a glyph on a row is not yet familiar. That line is
+built from the words rather than from the glyphs, so it still reads
+`▲ critical · low-hanging fruit` on a finished prompt whose row has dropped the
+apple: the row says what is worth doing, this screen says what was said.
 
 #### Priority order
 

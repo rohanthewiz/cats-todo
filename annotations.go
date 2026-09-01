@@ -100,10 +100,13 @@ func (a annots) summary() string {
 //
 // label is the same fact in words, for the screens that have room to spell it
 // out (the prompt view) and the ones with no room to draw a glyph at all (the
-// CLI's echo). Empty exactly when mark's glyph is, so one table answers
-// both and the words cannot drift from the columns. It is the *value* rather
-// than the column — "critical", not "priority" — because a reader who needed the
-// word instead of the mark needed the whole fact.
+// CLI's echo). It is empty exactly when the todo has nothing to say in this
+// slot — but not merely when the slot declines to *draw*: a column can go quiet
+// on a closed row (see fruitMark) while the fact it records is still worth
+// spelling out, so the screens that print words key off label alone and the row
+// keys off mark. It is the *value* rather than the column — "critical", not
+// "priority" — because a reader who needed the word instead of the mark needed
+// the whole fact.
 type annotSlot struct {
 	name  string
 	width int
@@ -165,17 +168,26 @@ func priorityMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 
 // fruitMark is the low-hanging-fruit column.
 //
-// The receded styles on a closed row do almost nothing here — an emoji paints
-// itself and ignores a foreground — so a done quick win keeps its colour where a
-// done critical loses its red. That is a limitation of the glyph rather than a
-// decision; the styles are still applied, because the highlighted row needs its
-// field behind every segment it draws, colour or no colour.
+// A closed row does not recede here the way the priority mark does — it goes
+// quiet. That is a limitation of the glyph rather than a different opinion about
+// finished work: the apple is an emoji, the font paints it, and a foreground
+// never reaches it, so a done quick win drawn at all is drawn at full colour,
+// shouting from the one tier of the list that exists to stop shouting. Unicode
+// has no grey apple to swap in and a second shape for the same fact would cost
+// the column the thing that makes it scannable, so the honest recession is to
+// stop drawing: the mark is for work you might still pick up, and there is none
+// of that on a done or frozen row.
+//
+// Nothing is lost with it. The flag is still on the todo, the editor's
+// annotation bar still shows it ticked, and the prompt view still spells it out
+// — which is why the closed styles are handed back with the empty glyph rather
+// than a bare style: that screen prints the label in them.
 func fruitMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 	if !t.Fruit {
 		return "", lipgloss.NewStyle(), lipgloss.NewStyle()
 	}
 	if t.closed() {
-		return fruitGlyph, prioClosedStyle, prioClosedSelStyle
+		return "", prioClosedStyle, prioClosedSelStyle
 	}
 	return fruitGlyph, fruitStyle, fruitStyle
 }

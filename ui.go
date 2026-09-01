@@ -5414,12 +5414,23 @@ func (m model) viewPrompt() string {
 	// The annotations trail the state, the same order the row reads in — and
 	// spelled out as well as drawn, because this is the screen with room for the
 	// word and the one someone opens to find out what a mark on a row meant.
+	//
+	// Keyed off the label rather than the glyph: a column that has gone quiet on
+	// the row still has something to say here. A closed quick win draws no apple
+	// in the list (fruitMark), but this is the screen that answers "what was said
+	// about this prompt", and the answer does not stop being true when the work
+	// is finished — so the words go out in the slot's own style with whatever
+	// glyph it still draws in front of them, and none where it draws none.
 	for _, sl := range annotSlots {
-		glyph, st, _ := sl.mark(td)
-		if glyph == "" {
+		label := sl.label(td)
+		if label == "" {
 			continue
 		}
-		meta += " · " + st.Render(glyph+" "+sl.label(td))
+		glyph, st, _ := sl.mark(td)
+		if glyph != "" {
+			label = glyph + " " + label
+		}
+		meta += " · " + st.Render(label)
 	}
 	b.WriteString(descStyle.Render(meta))
 	b.WriteString("\n\n")

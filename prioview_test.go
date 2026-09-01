@@ -737,3 +737,69 @@ func TestPromptViewSpellsOutTheAnnotations(t *testing.T) {
 		t.Errorf(`the view named the retired "low", which draws nothing:\n%s`, got)
 	}
 }
+
+// TestClosedRowsDropTheFruit pins the only recession an emoji can make. The
+// priority mark greys itself on a done or frozen row; the apple cannot — the
+// font paints it and never sees a foreground — so a mark left there would be the
+// one full-colour thing in the tier of the list that exists to stop shouting.
+// It leaves instead, and the fixed column still holds the names in line as long
+// as anything open fills it.
+func TestClosedRowsDropTheFruit(t *testing.T) {
+	m := prioModel(t,
+		Todo{ID: "open", Title: "open", Prompt: "p", Fruit: true},
+		Todo{ID: "done", Title: "done", Prompt: "p", Fruit: true, Done: true},
+		Todo{ID: "frozen", Title: "frozen", Prompt: "p", Fruit: true, Frozen: true},
+	)
+	if got := annotMarkFor(t, m, "open", "low-hanging fruit").text; got != fruitGlyph {
+		t.Errorf("the open quick win carries %q, want %q", got, fruitGlyph)
+	}
+	for _, name := range []string{"done", "frozen"} {
+		if got := annotMarkFor(t, m, name, "low-hanging fruit").text; got != "" {
+			t.Errorf("the %s quick win still draws %q", name, got)
+		}
+		// The column itself stays — an open row above fills it, and a row that
+		// dropped its columns would put its name a cell to the left of the rest.
+		if n := len(rowNamed(t, m, name).annots); n != 1 {
+			t.Errorf("the %s row has %d annotation columns, want the 1 the open row keeps", name, n)
+		}
+	}
+
+	// And when every quick win in the list is finished, nobody fills the column
+	// and the usual trim takes it away entirely — the same answer an unannotated
+	// backlog gets, which is the point: these rows are no longer marked.
+	closed := prioModel(t,
+		Todo{ID: "done", Title: "done", Prompt: "p", Fruit: true, Done: true},
+		Todo{ID: "plain", Title: "plain", Prompt: "p"},
+	)
+	for _, name := range []string{"done", "plain"} {
+		if n := len(rowNamed(t, closed, name).annots); n != 0 {
+			t.Errorf("a list whose only quick win is finished kept %d columns on %q, want 0", n, name)
+		}
+	}
+}
+
+// TestTheClosedFruitStillReadsInWords is the other half of that trade. Dropping
+// the glyph must not drop the fact: ctrl+v is the screen someone opens to find
+// out what was said about a prompt, and "this was a quick win" does not stop
+// being true when the work is done. The words are the record the row no longer
+// keeps, which is why the prompt view spells the annotations out from their
+// labels rather than from the glyphs the row draws.
+func TestTheClosedFruitStillReadsInWords(t *testing.T) {
+	m := prioModel(t, Todo{ID: "d", Title: "done", Prompt: "body",
+		Fruit: true, Priority: priorityCritical, Done: true})
+	m.height = 40
+	next, _ := m.beginView()
+	m = next.(model)
+	got := stripANSI(m.View().Content)
+	for _, want := range []string{"critical", "low-hanging fruit"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the prompt view of a finished todo never says %q:\n%s", want, got)
+		}
+	}
+	// The glyph the row no longer draws is not smuggled back in here either: the
+	// apple was dropped because it cannot recede, and this screen is drawn in the
+	// same greys.
+	if strings.Contains(got, fruitGlyph) {
+		t.Errorf("the prompt view of a finished quick win still draws the apple:\n%s", got)
+	}
+}

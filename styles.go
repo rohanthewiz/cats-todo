@@ -302,7 +302,10 @@ var (
 	// The low-hanging-fruit mark. An emoji paints itself and ignores a
 	// foreground, so this style carries no color and exists for the one thing it
 	// still has to do: give the segment something for onRow to hang the
-	// highlighted row's field on (see the badge note in fuzzylist.view).
+	// highlighted row's field on (see the badge note in fuzzylist.view). It is
+	// also why there is no closed tier here to match prioClosedStyle — a grey
+	// that cannot reach the glyph is not a recession, so a closed row stops
+	// drawing the apple instead (see fruitMark).
 	fruitStyle = lipgloss.NewStyle()
 )
 
