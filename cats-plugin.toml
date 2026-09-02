@@ -13,7 +13,7 @@
 
 id = "rohanthewiz.cats-todo"
 name = "Cats Todo"
-version = "0.22.0"
+version = "0.23.0"
 description = "A prompt backlog for cats. Jot down prompts of future work (per-project and global), then fuzzy-pick one and drop it into a Claude Code session — an existing agent pane or a brand-new one — paste-only or run-now."
 platforms = ["linux", "macos"]
 
