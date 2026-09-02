@@ -2156,15 +2156,14 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 	ta.CharLimit = 0
 	// Plain enter is a newline here, because that is what enter means in every
 	// other editor a prompt gets typed into; save lives on ctrl+s (and the ✔
-	// Save chip) instead. The modifier spellings stay bound alongside it — they
-	// are what this form taught first, and a hand that learned shift+enter must
-	// not be told it is now wrong. Four keys, all the same act: enter, plus
-	// shift+enter (needs the kitty protocol), alt+enter (the legacy ESC CR every
-	// terminal sends), and ctrl+j (the raw line feed that survives a terminal
-	// which eats Option). ctrl+m is enter's wire form on a legacy terminal, so
-	// it rides along for free.
+	// Save chip) instead, with shift+enter as a second save chord — see
+	// updateForm, which catches it before the textarea ever sees it. The
+	// remaining modifier spellings stay bound to newline: alt+enter (the legacy
+	// ESC CR every terminal sends) and ctrl+j (the raw line feed that survives
+	// a terminal which eats Option). ctrl+m is enter's wire form on a legacy
+	// terminal, so it rides along for free.
 	ta.KeyMap.InsertNewline = key.NewBinding(
-		key.WithKeys("enter", "ctrl+m", "shift+enter", "alt+enter", "ctrl+j"),
+		key.WithKeys("enter", "ctrl+m", "alt+enter", "ctrl+j"),
 		key.WithHelp("enter", "insert newline"),
 	)
 	ta.SetValue(prompt)
@@ -2319,8 +2318,12 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.cycleFormFocus(1)
 	case "shift+tab":
 		return m.cycleFormFocus(-1)
-	case "ctrl+s", "super+s", "meta+s":
-		// ctrl+s is the binding that always works; super+s is the mac mnemonic
+	case "ctrl+s", "super+s", "meta+s", "shift+enter":
+		// ctrl+s is the binding that always works; shift+enter is the chord
+		// chat-style editors put on "send", so a hand that reaches for it here
+		// gets a save rather than a newline (it needs the kitty protocol to be
+		// distinguishable from enter at all, and where it is not, plain enter
+		// arrives and inserts a newline as usual). super+s is the mac mnemonic
 		// that mostly cannot — same shape of answer as ctrl+o vs ctrl+i above.
 		// Cmd only reaches a TUI at all when the terminal encodes modifiers in
 		// the kitty keyboard protocol *and* has not claimed the chord for its

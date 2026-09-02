@@ -957,14 +957,13 @@ func TestListModifierEnterDrops(t *testing.T) {
 // enter went back to meaning what it means in every other editor. In the prompt
 // field enter — and each chord spelling beside it — reaches the textarea's
 // InsertNewline; ctrl+j is in that set as the raw line feed that survives
-// terminals which swallow Option. Saving is ctrl+s from either field, and enter
-// from the title field, which cannot hold a newline at all.
+// terminals which swallow Option. Saving is ctrl+s or shift+enter from either
+// field, and enter from the title field, which cannot hold a newline at all.
 func TestFormEnterInsertsNewlineAndCtrlSSaves(t *testing.T) {
 	newline := map[string]tea.KeyPressMsg{
-		"enter":       enterKey(0),
-		"shift+enter": enterKey(tea.ModShift),
-		"alt+enter":   enterKey(tea.ModAlt),
-		"ctrl+j":      {Code: 'j', Mod: tea.ModCtrl},
+		"enter":     enterKey(0),
+		"alt+enter": enterKey(tea.ModAlt),
+		"ctrl+j":    {Code: 'j', Mod: tea.ModCtrl},
 	}
 	for name, key := range newline {
 		t.Run(name+" inserts a newline", func(t *testing.T) {
@@ -987,21 +986,27 @@ func TestFormEnterInsertsNewlineAndCtrlSSaves(t *testing.T) {
 		})
 	}
 
-	t.Run("ctrl+s saves", func(t *testing.T) {
-		m, project, _ := newModelInTemp(t)
-		next, _ := m.beginAdd()
-		m = next.(model)
-		m.promptArea.SetValue("ship it")
+	saves := map[string]tea.KeyPressMsg{
+		"ctrl+s":      {Code: 's', Mod: tea.ModCtrl},
+		"shift+enter": enterKey(tea.ModShift),
+	}
+	for name, key := range saves {
+		t.Run(name+" saves", func(t *testing.T) {
+			m, project, _ := newModelInTemp(t)
+			next, _ := m.beginAdd()
+			m = next.(model)
+			m.promptArea.SetValue("ship it")
 
-		next, _ = m.updateForm(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-		m = next.(model)
-		if m.stage != stageList {
-			t.Fatalf("ctrl+s in the form: stage=%v, want a save back to the list", m.stage)
-		}
-		if len(project.todos) != 1 || project.todos[0].Prompt != "ship it" {
-			t.Errorf("project todos = %+v, want the saved prompt", project.todos)
-		}
-	})
+			next, _ = m.updateForm(key)
+			m = next.(model)
+			if m.stage != stageList {
+				t.Fatalf("%s in the form: stage=%v, want a save back to the list", name, m.stage)
+			}
+			if len(project.todos) != 1 || project.todos[0].Prompt != "ship it" {
+				t.Errorf("project todos = %+v, want the saved prompt", project.todos)
+			}
+		})
+	}
 
 	// Cmd+S, when a terminal is willing to report it. tea.ModSuper is the bit a
 	// kitty-protocol terminal sets for the Command key, and ModMeta is what a

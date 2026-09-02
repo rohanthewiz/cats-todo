@@ -60,7 +60,7 @@ hands the prompt over **and lets it run**, and `shift+enter` does the same drop
 but **pauses**, leaving the prompt sitting unsubmitted in the agent's input.
 Either way the todo is marked done. Inside the editor `enter` inserts a newline — the prompt
 is a text editor, so enter means there what it means in every other one — and
-`ctrl+s` saves. Outside cats it still manages backlogs; only drops need the
+`ctrl+s` (or `shift+enter`) saves. Outside cats it still manages backlogs; only drops need the
 socket.
 
 The editor has its own row of buttons — **Save**, **Newline**, **Images**,
