@@ -1643,6 +1643,18 @@ func (m model) resolve(ref todoRef) (Todo, bool) {
 	return m.storeFor(ref.scope).find(ref.id)
 }
 
+// toggleSelected flips the highlighted todo between open and done — and back,
+// which is what makes a done pressed by accident a one-key mistake rather than
+// something to go and undo in the file.
+//
+// The highlight is re-parked on the todo afterwards for the reason freezeSelected
+// re-parks it, and more so: completing a prompt does not merely move it into the
+// done group, it files it at the *head* of that group (store.fileAsLatestDone),
+// so the row can travel most of a pane on one keystroke. A cursor left at the old
+// index lands on whichever prompt slid up into the gap — which is how a slipped
+// ctrl+t becomes two mistakes, the second one landing on a row nobody chose.
+// Riding with the todo means the key that closed it is also the key that reopens
+// it, with nothing in between.
 func (m model) toggleSelected() (tea.Model, tea.Cmd) {
 	ref, ok := m.selectedRef()
 	if !ok {
@@ -1654,11 +1666,16 @@ func (m model) toggleSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if td.Done {
-		m.setStatus("reopened", false)
+		m.setStatus("reopened — back on the list", false)
 	} else {
-		m.setStatus("marked done", false)
+		// The way back is named because this is the reversible half of the pair
+		// and the row it acts on has just jumped somewhere else. With the closed
+		// fold on (ctrl+d) it has jumped out of sight entirely, and the status
+		// line is then the only thing on screen that can say so.
+		m.setStatus("marked done (ctrl+t to reopen)", false)
 	}
 	m.rebuildList()
+	m.selectRow(ref)
 	return m, nil
 }
 

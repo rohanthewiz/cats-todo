@@ -185,9 +185,21 @@ refused while a filter is on, and says so — a filtered list is in best-match
 order, not backlog order, so "put it here" would name a place the file hasn't
 got. Clear the filter and the order is real again.
 
+`ctrl+t` marks a prompt **done**, and `ctrl+t` again puts it back — the flip is
+reversible in both directions, so a completion pressed by accident costs one key
+and nothing else. (On the list's context menu the same row reads **↺ Reopen**
+once the prompt is finished.) The highlight rides with the prompt through both
+presses — whenever the row is still on screen to follow. Completing one files it
+at the top of the done pile, so the row moves a long way, and a cursor left
+behind would put your correction on whatever slid up into the gap. The status
+line names the way back at the moment it is needed.
+
 Completed prompts collect below the open ones, newest first, so what you just
 finished is at the top of the pile rather than the bottom. `ctrl+d` folds them
-away and `ctrl+w` clears them out.
+away and `ctrl+w` clears them out. With that fold on a completed prompt leaves
+the list altogether rather than moving down it, so the highlight has nothing to
+follow — which is the case the status line's `ctrl+t to reopen` is really for:
+`ctrl+d` brings the row back, and the prompt with it.
 
 `ctrl+f` **freezes** a prompt — "will not do". It is deliberately not the same
 thing as done: marking work finished that nobody ever did makes the backlog lie,
@@ -468,7 +480,8 @@ is up.
 Every row that has a chord prints it, so the menu doubles as the keyboard's own
 reference. Rows that name a state say what pressing them will do — **✓ Mark
 done** reads **↺ Reopen** on a finished prompt, **❄ Freeze** reads **☀ Unfreeze**
-on a shelved one. A row that cannot act right now is drawn **dim and still
+on a shelved one. So a prompt closed by accident is reopened from the same menu,
+on the row that now offers exactly that. A row that cannot act right now is drawn **dim and still
 there** and says why when you press it, in the same words the chord uses: sending
 a frozen prompt, or scheduling one with no cats socket. Everything else about
 the box — `↑`/`↓` and `enter`, a click off it to dismiss, any other key taking it

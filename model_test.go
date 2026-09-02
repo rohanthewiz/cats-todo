@@ -168,30 +168,55 @@ func TestSaveFormRefusesUnavailableStore(t *testing.T) {
 }
 
 // TestToggleSelected flips the highlighted todo's done flag and reports the right
-// status, both directions.
+// status, both directions — and keeps the highlight on the todo through both, so
+// the key that closed a prompt is the key that reopens it. Completing one files
+// it at the head of the done group, which can move the row most of a pane; a
+// cursor left at the old index would put the second press on a prompt nobody
+// chose, which is how a slipped ctrl+t turns into two mistakes.
 func TestToggleSelected(t *testing.T) {
 	m, project, _ := newModelInTemp(t)
-	if err := project.add(Todo{ID: "x", Title: "task", Prompt: "do it"}); err != nil {
-		t.Fatal(err)
+	for _, td := range []Todo{
+		{ID: "x", Title: "task", Prompt: "do it"},
+		{ID: "y", Title: "other", Prompt: "later"},
+	} {
+		if err := project.add(td); err != nil {
+			t.Fatal(err)
+		}
 	}
-	m.rebuildList() // pick up the new todo and park the cursor on it
+	m.rebuildList() // pick up the new todos and park the cursor on the first
 
 	next, _ := m.toggleSelected()
 	m = next.(model)
 	if got, _ := project.find("x"); !got.Done {
 		t.Error("toggleSelected did not mark the todo done")
 	}
-	if m.status != "marked done" {
-		t.Errorf("status = %q, want 'marked done'", m.status)
+	if !strings.Contains(m.status, "marked done") {
+		t.Errorf("status = %q, want it to say the todo was marked done", m.status)
+	}
+	// The way back is named, since the row has just jumped into the done group —
+	// or out of sight entirely with the closed fold on.
+	if !strings.Contains(m.status, "ctrl+t") {
+		t.Errorf("status = %q, want the way back named", m.status)
+	}
+	if ref, _ := m.selectedRef(); ref.id != "x" {
+		t.Fatalf("highlight = %q after the todo was filed under done, want it to ride along", ref.id)
 	}
 
+	// So the second press lands on the same prompt rather than on whatever slid
+	// up into the gap.
 	next, _ = m.toggleSelected()
 	m = next.(model)
 	if got, _ := project.find("x"); got.Done {
 		t.Error("second toggleSelected did not reopen the todo")
 	}
-	if m.status != "reopened" {
-		t.Errorf("status = %q, want 'reopened'", m.status)
+	if other, _ := project.find("y"); other.Done {
+		t.Error("the second press landed on the prompt that slid up into the gap")
+	}
+	if !strings.Contains(m.status, "reopened") {
+		t.Errorf("status = %q, want it to say the todo was reopened", m.status)
+	}
+	if ref, _ := m.selectedRef(); ref.id != "x" {
+		t.Errorf("highlight = %q after the reopen, want it still on the todo", ref.id)
 	}
 }
 
