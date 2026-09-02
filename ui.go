@@ -413,12 +413,26 @@ type model struct {
 	// esc out of the picker can never leave the next manual drop scheduling.
 	pickForSchedule bool
 
+	// marked is the list's selection: the prompts an export acts on instead of
+	// the highlighted one (ctrl+space). Keyed by todoRef rather than by row
+	// index, because a row index means a different prompt after a move, a
+	// delete, or a change of filter — and a set that quietly re-pointed itself
+	// at other prompts would be the worst possible bug in something that sends
+	// work to other machines. rebuildList prunes refs that are no longer in a
+	// backlog, so a prompt deleted in another pane leaves the set with it.
+	marked map[todoRef]bool
+
 	// Export stage (see export.go). exportRef is the todo being sent, and the
 	// list is rebuilt on every open — which projects are open, and what their
 	// backlogs hold, are facts read fresh each time.
 	exportRef     todoRef
 	exportTargets []exportTarget
 	exportList    fuzzyList
+	// exportSub is what the open export is about — the selection, the
+	// highlighted row, or the whole backlog (see exportSubject). exportRef
+	// stays as its anchor: the prompt the heading names when the subject is
+	// one prompt, which is the case the screen has always drawn.
+	exportSub exportSubject
 
 	// Schedule stage.
 	schedRef   todoRef
@@ -695,6 +709,16 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.actionFocus {
 			return m, m.setActionFocus(false)
 		}
+		// A selection is a state to back out of, and the most consequential one
+		// on this screen — it changes what ctrl+o sends. So it goes before the
+		// filter, which is only a way of looking.
+		if m.markCount() > 0 {
+			n := m.markCount()
+			m.clearMarks()
+			m.rebuildList()
+			m.setStatus(fmt.Sprintf("cleared the selection (%d)", n), false)
+			return m, nil
+		}
 		if strings.TrimSpace(m.list.input.Value()) != "" {
 			m.list.input.SetValue("")
 			m.list.filter()
@@ -746,6 +770,12 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// encoding every terminal manages. Both are bound always so the binding
 		// never depends on what the terminal negotiated.
 		return m.beginDrop()
+	case "ctrl+space", "ctrl+@", "ctrl+b":
+		// Two chords for one gesture, the shift+enter/alt+enter bargain: ctrl+space
+		// is the selection key everywhere it can be sent, and terminals that
+		// swallow it (or report it as the NUL it historically is, ctrl+@) leave
+		// ctrl+b, which nothing in the list claims.
+		return m.markSelected()
 	case "ctrl+a":
 		return m.beginAdd()
 	case "ctrl+e":
@@ -1855,6 +1885,7 @@ func (m *model) rebuildList() {
 				// freezing does not say.
 				dim:        t.Frozen,
 				selectable: true,
+				marked:     m.marked[ref],
 				ref:        len(rows),
 			})
 			rows = append(rows, ref)
@@ -1916,6 +1947,12 @@ func (m *model) rebuildList() {
 	add(m.global)
 
 	m.rows = rows
+	// The selection is pruned against what the backlogs actually still hold. A
+	// prompt deleted here, or in another pane between rebuilds, must not stay in
+	// a set that an export would then fail to resolve — and a set that has
+	// emptied itself this way has to put the ✓ column away with it.
+	m.pruneMarks()
+	m.list.showMarks = len(m.marked) > 0
 	// Now that every row is built, drop the annotation columns nobody filled —
 	// a whole-list decision, so it can only be made once the last row is in (see
 	// trimAnnotColumns).
@@ -4347,7 +4384,7 @@ func (m model) headerLayout() headerLayout {
 	// m.width is 0 until the first WindowSizeMsg lands; with nothing to budget
 	// against, show everything rather than guess.
 	if m.width <= 0 {
-		hl.note = m.scopeNote(-1) + m.hiddenNote()
+		hl.note = m.scopeNote(-1) + m.markedNote() + m.hiddenNote()
 		return hl
 	}
 
@@ -4365,7 +4402,13 @@ func (m model) headerLayout() headerLayout {
 	}
 
 	runew := func(s string) int { return len([]rune(s)) }
-	hidden := m.hiddenNote()
+	// The two tags concede together, as one tail: they are both facts about how
+	// much of the backlog the screen is standing in front of, and a ladder that
+	// dropped them one at a time would spend its rungs on which of two short
+	// strings survives instead of on the query box, which is what the user is
+	// typing into. The selection leads because the ✓ column is on screen saying
+	// the same thing, and a count beside it reads as its total.
+	hidden := m.markedNote() + m.hiddenNote()
 	// The core is the note's must-keep part — project name and which backlogs
 	// are live, no ws tag. The ws label concedes on its own inside scopeNote
 	// (it only ever gets the room the core leaves over), so the ladder here
@@ -4570,7 +4613,7 @@ func (m model) listFooter() string {
 	if !m.barShowsHints() {
 		// The pointer's gesture rides along with the chord it stands for — a
 		// double-click is a guess worth confirming, not one worth making blind.
-		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+o export · ctrl+x delete") +
+		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+space select · ctrl+o export · ctrl+x delete") +
 			"\n" +
 			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
 	}
@@ -4591,8 +4634,13 @@ func (m model) listFooter() string {
 	// a shortcut to chords this line is already naming, so a reader who loses it
 	// loses nothing they cannot still do — while esc is the way out, and has to
 	// survive longer than a convenience does.
+	// "ctrl+space select" rides with the per-row marks for the reason freeze
+	// rides after done: it is one more thing a keystroke says about a row, and
+	// the chords that mark rows are learned as a group. It also has to outlive
+	// the concessions from the right, since the ✓ column it explains is the one
+	// piece of chrome on this screen with no chip anywhere naming its key.
 	segs := []string{
-		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze",
+		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze", "ctrl+space select",
 		"ctrl+↑/↓ or drag move", "ctrl+d hide closed", "ctrl+l view options", "ctrl+w clear done", "esc quit",
 		"right-click menu",
 	}

@@ -71,7 +71,12 @@ type listItem struct {
 	strike     bool
 	dim        bool
 	selectable bool
-	ref        int
+	// marked is the row's membership in the list's current selection — the set
+	// an export acts on (see model.marked). It rides on the item rather than on
+	// the list because the list is rebuilt from the backlogs on every change,
+	// while the selection is keyed by todo and survives that rebuild.
+	marked bool
+	ref    int
 }
 
 // annotMark is one annotation column on one row: the glyph to draw (empty when
@@ -139,6 +144,14 @@ type fuzzyList struct {
 	// thing. The todo list keeps pure fuzzy: its queries are words from
 	// anywhere in a prompt, where a prefix means nothing special.
 	prefixFirst bool
+	// showMarks turns on the leading ✓ column. It is a whole-list decision, like
+	// trimAnnotColumns': a column that appeared and vanished per row would leave
+	// the names ragged, and one that is always there would cost every backlog an
+	// indent for a selection almost nobody is holding. So the column exists
+	// exactly while something is marked — including rows the filter is hiding,
+	// which is why this is set by the caller from the selection itself rather
+	// than measured off the drawn items.
+	showMarks bool
 }
 
 // searchFieldWidth is how many columns the query box holds. Wide enough for the
@@ -668,6 +681,19 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 			r.WriteString(onRow(cursorStyle, true).Render(glyph))
 		} else {
 			r.WriteString("  ")
+		}
+		// The selection column leads everything: with a set held, "is this one
+		// of the ones about to travel" is the question the eye arrives at a row
+		// with, ahead of what state the prompt is in or what is true about it.
+		// Blank rather than an empty box on an unmarked row — an unticked
+		// checkbox on every line would draw the eye to the rows that are not
+		// the answer.
+		if l.showMarks {
+			cell := " "
+			if it.marked {
+				cell = markGlyph
+			}
+			r.WriteString(onRow(markStyle, selected).Render(cell + " "))
 		}
 		// The badge leads, then the annotations, so the row reads outward from
 		// the cursor as "what state is this in" then "what is true about it" —

@@ -67,6 +67,17 @@ const (
 	exportToDir   exportKind = iota // a directory: an open workspace's, or one browsed to
 	exportToStore                   // this manager's other backlog (project <-> global)
 	exportBrowse                    // open the folder browser to name a directory
+	// The destinations that are not another backlog on this machine. These take
+	// a bundle (bundle.go) rather than writing into a todos.json, which is what
+	// makes them a copy always: there is no backlog at the other end to have
+	// moved the prompt into, so nothing here can be a move (see chooseExport).
+	exportToFile     // write a bundle into a folder, browsed for
+	exportToMailBody // hand the prompts to the mail client, in the message body
+	exportToMailFile // write a bundle, reveal it, and open a composer naming it
+	// exportSection is a heading row: not a destination, not selectable. It
+	// separates the backlogs on this machine from everywhere else, which is a
+	// bigger difference than any two rows in the old list had between them.
+	exportSection
 )
 
 // exportTarget is one selectable destination in the export picker.
@@ -196,6 +207,29 @@ func buildExportTargets(from scope, src exportSources, project, global *store) [
 		label: "Browse for a folder…",
 		desc:  "pick any directory; its project's backlog is created if it has none",
 	})
+
+	// Everything above lands in another backlog on this machine, as a prompt.
+	// Everything below leaves as a bundle — a file that stands on its own (see
+	// bundle.go). The heading marks that seam, because "which project" and
+	// "off this machine entirely" are not two entries on one menu.
+	targets = append(targets,
+		exportTarget{kind: exportSection, label: "Off this machine"},
+		exportTarget{
+			kind:  exportToFile,
+			label: "Save a bundle to disk…",
+			desc:  "pick a folder; writes a " + bundleExtJSON + " (or a " + bundleExtZip + " with attachments)",
+		},
+		exportTarget{
+			kind:  exportToMailBody,
+			label: "Email — prompts in the message body",
+			desc:  "opens your mail client with the prompts written out as markdown",
+		},
+		exportTarget{
+			kind:  exportToMailFile,
+			label: "Email — with a bundle file",
+			desc:  "writes the bundle, shows it in the file manager, opens a composer to drag it into",
+		},
+	)
 	return targets
 }
 
@@ -528,12 +562,116 @@ func exportDesc(t exportTarget) string {
 	return t.label
 }
 
+// --- The subject ---------------------------------------------------------------
+
+// exportSubject is what an export is about: which prompts travel.
+//
+// Until there was more than one destination there was no need for this — an
+// export was the highlighted row, full stop. Now the same picker can send one
+// prompt to a sibling project or a whole backlog to another machine, and the
+// screen has to be able to say which of those is about to happen. So the
+// subject is decided *before* the picker opens (the selection if there is one,
+// else the highlighted row), it is named in the heading, and `ctrl+a` inside
+// the picker widens it to the whole backlog and narrows it back.
+type exportSubject struct {
+	// refs are the prompts, in the order the list draws them.
+	refs []todoRef
+	// scope is the backlog the subject came from — the one whose "other
+	// backlog" row the picker offers, and the one `all` widens to. For a
+	// selection spanning both scopes it is the first ref's, which is the one
+	// the user started the selection in.
+	scope scope
+	// all marks the subject as widened to the whole backlog. Kept as a flag
+	// rather than only as a longer refs slice so ctrl+a can toggle back, and so
+	// the heading can say "everything in this backlog" instead of a count that
+	// happens to equal it.
+	all bool
+	// narrow is what the subject was before it was widened, so ctrl+a can put
+	// it back exactly.
+	narrow []todoRef
+}
+
+// count is how many prompts travel.
+func (sub exportSubject) count() int { return len(sub.refs) }
+
+// describe names the subject for the picker's heading and the status line.
+func (sub exportSubject) describe() string {
+	if sub.all {
+		return "everything in the " + strings.ToLower(sub.scope.String()) + " backlog (" + promptWord(sub.count()) + ")"
+	}
+	return promptWord(sub.count())
+}
+
+// backlogRefs is every prompt in a scope, in backlog order — what ctrl+a
+// widens to. Done and frozen rows are included, and the heading says the
+// subject is "everything": a backlog being handed to another machine is a
+// record, and dropping the part of it that is finished would make the copy a
+// worse record than the original.
+func (m model) backlogRefs(sc scope) []todoRef {
+	s := m.storeFor(sc)
+	if s == nil || !s.available() {
+		return nil
+	}
+	refs := make([]todoRef, 0, len(s.todos))
+	for _, t := range s.todos {
+		refs = append(refs, todoRef{scope: sc, id: t.ID})
+	}
+	return refs
+}
+
+// subjectTodos resolves the subject to the prompts themselves, dropping any
+// that have gone since the picker opened — another pane can delete one while
+// this screen is up, and an export that failed wholesale over it would be worse
+// than one that carries what is still there.
+func (m model) subjectTodos() []Todo {
+	return m.resolveRefs(m.exportSub.refs)
+}
+
+// subjectBundle builds the bundle for the current subject: every prompt with
+// the attachments of the backlog it actually lives in (see bundleBuilder), and
+// the provenance a reader on the other end needs.
+func (m model) subjectBundle() (Bundle, []bundleFile, int) {
+	bb := newBundleBuilder(bundleFrom(), m.subjectSourceName())
+	for _, ref := range m.exportSub.refs {
+		td, ok := m.resolve(ref)
+		if !ok {
+			continue
+		}
+		bb.add(m.storeFor(ref.scope), td)
+	}
+	return bb.done()
+}
+
+// subjectSourceName names the backlog the prompts came from, for the bundle's
+// Source (and through it the file's name and the mail's subject): the project's
+// directory name, or "global".
+func (m model) subjectSourceName() string {
+	if m.exportSub.scope == scopeGlobal {
+		return "global"
+	}
+	return firstNonEmpty(baseName(m.ctx.projectDir()), baseName(backlogRoot(m.project)), "cats-todo")
+}
+
+// bundleFrom stamps a bundle with who wrote it — the tool, its version, and the
+// machine. Provenance for a human reading the file; nothing acts on it.
+func bundleFrom() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return "cats-todo v" + version
+	}
+	return "cats-todo v" + version + " on " + host
+}
+
 // --- The stage -----------------------------------------------------------------
 
-// beginExport opens the export picker for the highlighted todo (ctrl+o, or the
-// bar's ➦ Export). Nothing highlighted is a quiet no-op, the same as the other
-// begin* helpers; runAction says so on the button's behalf.
+// beginExport opens the export picker (ctrl+o, or the bar's ➦ Export) on the
+// selection if the list is holding one, and otherwise on the highlighted row.
+// Nothing highlighted and nothing selected is a quiet no-op, the same as the
+// other begin* helpers; runAction says so on the button's behalf.
 func (m model) beginExport() (tea.Model, tea.Cmd) {
+	if refs := m.markedRefs(); len(refs) > 0 {
+		return m.startExportSubject(exportSubject{refs: refs, scope: refs[0].scope})
+	}
 	ref, ok := m.selectedRef()
 	if !ok {
 		return m, nil
@@ -542,31 +680,62 @@ func (m model) beginExport() (tea.Model, tea.Cmd) {
 }
 
 // startExport opens the export picker for a specific todo — from the list's
-// highlight or from the view stage. The destinations are gathered here, on
-// open, rather than kept: which workspaces are open and what their backlogs
-// hold are facts of the moment, and a picker built once at launch would name
-// projects closed since. Unlike a drop, this works without a socket — the
-// picker is shorter (no workspace rows), not gone.
+// highlight or from the view stage, neither of which has a selection to speak
+// for.
 func (m model) startExport(ref todoRef) (tea.Model, tea.Cmd) {
 	if _, ok := m.resolve(ref); !ok {
 		m.setStatus("could not find that prompt", true)
 		m.backToList()
 		return m, nil
 	}
-	m.exportRef = ref
-	m.exportTargets = buildExportTargets(ref.scope, gatherExportSources(m.client), m.project, m.global)
-	items := make([]listItem, len(m.exportTargets))
-	for i, t := range m.exportTargets {
-		items[i] = listItem{name: t.label, desc: t.desc, tag: t.tag, selectable: true, ref: i}
+	return m.startExportSubject(exportSubject{refs: []todoRef{ref}, scope: ref.scope})
+}
+
+// startExportSubject opens the picker on a subject. The destinations are
+// gathered here, on open, rather than kept: which workspaces are open and what
+// their backlogs hold are facts of the moment, and a picker built once at
+// launch would name projects closed since. Unlike a drop, this works without a
+// socket — the picker is shorter (no workspace rows), not gone.
+func (m model) startExportSubject(sub exportSubject) (tea.Model, tea.Cmd) {
+	if sub.count() == 0 {
+		m.setStatus("nothing to export", true)
+		m.backToList()
+		return m, nil
 	}
-	m.exportList = newFuzzyList("Filter projects…", items)
+	m.exportSub = sub
+	// The anchor: the prompt the heading names when the subject is one prompt,
+	// and what a destination that can only take one would act on.
+	m.exportRef = sub.refs[0]
+	m.exportTargets = buildExportTargets(sub.scope, gatherExportSources(m.client), m.project, m.global)
+	m.exportList = newFuzzyList("Filter destinations…", exportItems(m.exportTargets))
 	m.stage = stageExport
 	return m, textinput.Blink
 }
 
+// exportItems turns the destinations into rows. The heading rows are the
+// list's own separators — not selectable, so the cursor steps over them and the
+// filter drops them, which is what a heading should do in a list being typed
+// into. Every row's ref is its index in targets, headings included, so a
+// selected row maps straight back however the list is filtered.
+func exportItems(targets []exportTarget) []listItem {
+	items := make([]listItem, len(targets))
+	for i, t := range targets {
+		items[i] = listItem{
+			name:       t.label,
+			desc:       t.desc,
+			tag:        t.tag,
+			selectable: t.kind != exportSection,
+			ref:        i,
+		}
+	}
+	return items
+}
+
 // updateExport is the picker's key loop, the drop-target picker's shape: esc
 // back, arrows move, enter copies, and the modifier+enter chord — the more
-// committing thing enter could do, here as in the drop picker — moves.
+// committing thing enter could do, here as in the drop picker — moves. ctrl+a
+// is the one addition: it widens the subject to the whole backlog, and widens
+// back.
 func (m model) updateExport(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -581,6 +750,8 @@ func (m model) updateExport(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "down", "ctrl+n":
 		m.exportList.moveDown()
 		return m, nil
+	case "ctrl+a":
+		return m.toggleExportAll()
 	case "enter":
 		return m.chooseExport(false)
 	case "shift+enter", "alt+enter":
@@ -589,36 +760,248 @@ func (m model) updateExport(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, m.exportList.editQuery(msg)
 }
 
-// chooseExport acts on the highlighted row: the browse row opens the folder
-// browser (the copy/move choice is made there, on the folder), and any other
-// row is a destination to export to now.
+// toggleExportAll widens the subject to the whole backlog, or puts it back to
+// what it was. The destinations are not rebuilt: which projects are open does
+// not depend on how much is being sent, and rebuilding would throw away a
+// filter the user has typed.
+func (m model) toggleExportAll() (tea.Model, tea.Cmd) {
+	sub := m.exportSub
+	if sub.all {
+		sub.all = false
+		sub.refs = sub.narrow
+		sub.narrow = nil
+		m.exportSub = sub
+		m.setStatus("sending "+sub.describe(), false)
+		return m, nil
+	}
+	all := m.backlogRefs(sub.scope)
+	if len(all) == 0 {
+		m.setStatus("that backlog is empty", true)
+		return m, nil
+	}
+	sub.narrow = sub.refs
+	sub.refs = all
+	sub.all = true
+	m.exportSub = sub
+	m.setStatus("sending "+sub.describe(), false)
+	return m, nil
+}
+
+// chooseExport acts on the highlighted row: the two browse rows open the folder
+// browser (what the folder then means differs, so the purpose is set with it),
+// the mail rows hand off to the mail client, and any other row is a backlog to
+// export into now.
+//
+// move is refused for everything below the "Off this machine" heading, in
+// words. A move means the prompt is now *there* instead of here, and there is
+// no backlog at the far end of a file or a mail message to have moved it into —
+// deleting the local copy would be deleting the only one.
 func (m model) chooseExport(move bool) (tea.Model, tea.Cmd) {
 	idx := m.exportList.selectedIndex()
 	if idx < 0 || idx >= len(m.exportTargets) {
 		return m, nil
 	}
 	t := m.exportTargets[idx]
-	if t.kind == exportBrowse {
+	if move && !exportKindTakesMove(t.kind) {
+		m.setStatus("a bundle is a copy — there is no backlog at the other end to move into", true)
+		return m, nil
+	}
+	switch t.kind {
+	case exportSection:
+		return m, nil // a heading; the cursor does not stop here, but a click could
+	case exportBrowse:
 		return m.beginExportBrowse()
+	case exportToFile:
+		return m.beginBundleBrowse()
+	case exportToMailBody:
+		return m.mailPrompts(false)
+	case exportToMailFile:
+		return m.mailPrompts(true)
 	}
 	return m.performExport(t, move)
 }
 
+// exportKindTakesMove reports whether a destination can take the prompts away
+// from this backlog rather than copy them — true exactly for the destinations
+// that are themselves backlogs (see chooseExport).
+func exportKindTakesMove(k exportKind) bool {
+	return k == exportToDir || k == exportToStore || k == exportBrowse
+}
+
 // chooseExportFolder is the browser's choice: the highlighted folder, or — on
 // the "./" row, which highlighted answers false for — the folder being listed.
+// Which of the two things a folder can mean is decided by the purpose the
+// browser was opened with.
 func (m model) chooseExportFolder(move bool) (tea.Model, tea.Cmd) {
 	dir := m.files.dir
 	if e, abs, ok := m.files.highlighted(); ok && e.dir {
 		dir = abs
 	}
+	if m.files.purpose == filesForBundle {
+		return m.writeSubjectBundle(dir)
+	}
 	return m.performExport(exportTarget{kind: exportToDir, dir: dir}, move)
 }
 
-// performExport carries the todo across (see exportTodo) and lands back on the
-// list with the outcome in the status line. It runs on the UI thread, unlike a
-// drop: the work is a JSON write and at most a few small file copies, and a
-// picker that returned before the transfer was known to have happened would
-// have nothing honest to say in its status.
+// beginBundleBrowse opens the folder browser to name the directory a bundle is
+// written into. Same browser, same keys as the export browse — only what the
+// chosen folder means differs, which is what filePurpose is for.
+func (m model) beginBundleBrowse() (tea.Model, tea.Cmd) {
+	m.files = newFilePicker(bundleBrowseRoot(m.ctx))
+	m.files.purpose = filesForBundle
+	m.files.dirsOnly = true
+	m.files.refresh()
+	m.files.resize(m.width, m.height)
+	m.stage = stageFiles
+	return m, textinput.Blink
+}
+
+// bundleBrowseRoot is where a bundle is written when nobody named a folder, and
+// where the bundle browser opens: the user's Downloads
+// folder when there is one, else home. A bundle is a file on its way somewhere
+// — to a message, to a USB stick, to another machine — and Downloads is where
+// files in transit already live on every desktop. (The export-to-project
+// browser starts among the project's siblings instead, because what it is
+// looking for is a sibling project.)
+//
+// A variable so the tests can point it somewhere disposable — a suite that
+// wrote into the developer's real Downloads folder would be leaving litter on
+// the machine every time it ran.
+var bundleBrowseRoot = func(ctx RunContext) string {
+	if home := homeDir(); home != "" {
+		if dl := filepath.Join(home, "Downloads"); isDir(dl) {
+			return dl
+		}
+		return home
+	}
+	return firstNonEmpty(ctx.projectDir(), ctx.WorkDir, ".")
+}
+
+// writeSubjectBundle writes the subject as a bundle into dir and lands back on
+// the list with the path in the status line.
+func (m model) writeSubjectBundle(dir string) (tea.Model, tea.Cmd) {
+	b, files, dropped := m.subjectBundle()
+	if len(b.Todos) == 0 {
+		m.setStatus("nothing left to export — those prompts are gone", true)
+		m.backToList()
+		return m, nil
+	}
+	path, err := writeBundle(dir, "", b, files)
+	m.finishExport()
+	if err != nil {
+		m.setStatus("could not write the bundle: "+err.Error(), true)
+		return m, nil
+	}
+	m.setStatus(bundleWrittenNote(len(b.Todos), path, dropped), false)
+	return m, nil
+}
+
+// bundleWrittenNote is the status line for a bundle that reached disk: what
+// went into it, where it is, and what was left behind.
+func bundleWrittenNote(n int, path string, dropped int) string {
+	note := promptWord(n) + " → " + shortenHome(path)
+	if dropped > 0 {
+		note += " · " + scheduleDropNote(dropped)
+	}
+	return note
+}
+
+// scheduleDropNote says how many schedules did not travel. Said every time one
+// is dropped, because a row's clock vanishing without a word is exactly the
+// kind of silent loss the status line exists to prevent.
+func scheduleDropNote(n int) string {
+	if n == 1 {
+		return "1 schedule was not carried over"
+	}
+	return fmt.Sprintf("%d schedules were not carried over", n)
+}
+
+// mailPrompts hands the subject to the mail client (see email.go).
+//
+// withFile is the difference between the two mail rows. Without it the prompts
+// are the message: rendered as markdown into the body, one composer, done.
+// With it the bundle is written to disk first, the file manager is opened on
+// it, and the body says which file to drag in — because a mailto: URL cannot
+// carry an attachment and this is the honest nearest thing.
+func (m model) mailPrompts(withFile bool) (tea.Model, tea.Cmd) {
+	b, files, dropped := m.subjectBundle()
+	if len(b.Todos) == 0 {
+		m.setStatus("nothing left to export — those prompts are gone", true)
+		m.backToList()
+		return m, nil
+	}
+	subject := mailSubject(b.Source, len(b.Todos))
+	body := renderBundleMarkdown(b)
+
+	var written string
+	if withFile {
+		dir := bundleBrowseRoot(m.ctx)
+		path, err := writeBundle(dir, "", b, files)
+		if err != nil {
+			m.finishExport()
+			m.setStatus("could not write the bundle: "+err.Error(), true)
+			return m, nil
+		}
+		written = path
+		// The body leads with the file, since that is the thing the message is
+		// for; the markdown below it is what makes the mail readable to someone
+		// who never opens the attachment.
+		body = "Bundle to attach: " + path + "\n\n" + body
+	}
+
+	u := mailtoURL("", subject, body)
+	if mailtoTooLong(u) {
+		// Refused in words rather than truncated: a prompt that arrives with its
+		// last paragraph missing is a failure the sender cannot see.
+		m.finishExport()
+		note := "too much text for a mail composer — save a bundle to disk and attach it instead"
+		if written != "" {
+			note = "bundle written to " + shortenHome(written) + ", but the message body was too long to prefill"
+		}
+		m.setStatus(note, true)
+		return m, nil
+	}
+	err := openURL(u)
+	if written != "" {
+		revealFile(written)
+	}
+	m.finishExport()
+	if err != nil {
+		m.setStatus("could not open your mail client: "+err.Error(), true)
+		return m, nil
+	}
+	note := promptWord(len(b.Todos)) + " → a new mail message"
+	if written != "" {
+		note += " · attach " + shortenHome(written)
+	}
+	if dropped > 0 {
+		note += " · " + scheduleDropNote(dropped)
+	}
+	m.setStatus(note, false)
+	return m, nil
+}
+
+// finishExport is the common landing: the selection has been spent, so it is
+// dropped, the list is rebuilt over whatever the transfer changed, and the
+// stage goes back to the list. Dropping the selection is deliberate — a set
+// left ticked after it has been sent is a set the next ctrl+o would send again.
+func (m *model) finishExport() {
+	m.clearMarks()
+	m.rebuildList()
+	m.backToList()
+}
+
+// performExport carries the subject into another backlog (see exportTodo) and
+// lands back on the list with the outcome in the status line. It runs on the UI
+// thread, unlike a drop: the work is a JSON write and at most a few small file
+// copies, and a picker that returned before the transfer was known to have
+// happened would have nothing honest to say in its status.
+//
+// A prompt already living in the destination is skipped rather than refused —
+// with a selection spanning both backlogs, "the other backlog" is a real
+// destination for half of it, and failing the whole run over the other half
+// would be the wrong answer. The first *real* error stops the run and says how
+// far it got, since the rest would almost certainly fail the same way.
 //
 // A destination that is also one of this manager's own stores may have been
 // written through a store object of its own (the browser can name this
@@ -626,13 +1009,6 @@ func (m model) chooseExportFolder(move bool) (tea.Model, tea.Cmd) {
 // with m.project); those are reloaded so the list shows what the disk now
 // holds rather than what this process last wrote.
 func (m model) performExport(t exportTarget, move bool) (tea.Model, tea.Cmd) {
-	td, ok := m.resolve(m.exportRef)
-	if !ok {
-		m.setStatus("could not find that prompt", true)
-		m.backToList()
-		return m, nil
-	}
-	src := m.storeFor(m.exportRef.scope)
 	var dst *store
 	var err error
 	switch t.kind {
@@ -643,24 +1019,66 @@ func (m model) performExport(t exportTarget, move bool) (tea.Model, tea.Cmd) {
 	default:
 		err = errors.New("nothing to export to")
 	}
+	if err != nil {
+		m.finishExport()
+		m.setStatus("export failed: "+err.Error(), true)
+		return m, nil
+	}
+
 	verb := "copied"
 	if move {
 		verb = "moved"
 	}
-	var note string
-	if err == nil {
+	done, sameBacklog, schedules := 0, 0, 0
+	for _, ref := range m.exportSub.refs {
+		td, ok := m.resolve(ref)
+		if !ok {
+			continue // deleted while the picker was up
+		}
+		src := m.storeFor(ref.scope)
+		if src != nil && src.available() && sameDir(filepath.Dir(src.path), filepath.Dir(dst.path)) {
+			sameBacklog++
+			continue
+		}
+		var note string
 		_, note, err = exportTodo(src, dst, td, move)
+		if err != nil {
+			break
+		}
+		if note != "" {
+			schedules++
+		}
+		done++
 	}
+
 	m.syncStores(dst)
-	m.rebuildList()
-	m.backToList()
+	m.finishExport()
 	if err != nil {
-		m.setStatus("export failed: "+err.Error(), true)
+		m.setStatus(fmt.Sprintf("export failed after %s: %s", promptWord(done), err.Error()), true)
 		return m, nil
 	}
+	if done == 0 && sameBacklog > 0 {
+		// The single-prompt case of this is the refusal export has always made,
+		// in the words it has always made it in.
+		if sameBacklog == 1 {
+			m.setStatus("that is the backlog the prompt is already in", true)
+		} else {
+			m.setStatus("those prompts are already in that backlog", true)
+		}
+		return m, nil
+	}
+	// One prompt keeps the words this line has always used — "copied → sibling"
+	// reads as a sentence, where "copied 1 prompt → sibling" reads as a report.
+	// A set says how many, because that is the fact the user is checking.
 	status := verb + " → " + exportDesc(t)
-	if note != "" {
-		status += " · " + note
+	if done != 1 {
+		status = verb + " " + promptWord(done) + " → " + exportDesc(t)
+	}
+	if sameBacklog > 0 {
+		status += fmt.Sprintf(" · %d already there", sameBacklog)
+	}
+	if schedules > 0 {
+		status += " · " + scheduleDropNote(schedules)
 	}
 	m.setStatus(status, false)
 	return m, nil
@@ -699,30 +1117,56 @@ func (m model) clickExport(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // the same chrome. TestExportRowsMatchWhatIsDrawn pins it to a real frame.
 const exportRowsRow = 4
 
-// viewExport draws the picker: a heading naming the prompt, the list with its
-// filter box, and a footer of keys.
+// viewExport draws the picker: a heading naming what is being sent, the list
+// with its filter box, and a footer of keys.
 func (m model) viewExport() string {
 	var b strings.Builder
-	td, _ := m.resolve(m.exportRef)
-	title := firstNonEmpty(td.Title, firstLine(td.Prompt, 50))
 	b.WriteString(titleStyle.Render("Export to…"))
 	b.WriteString("  ")
-	b.WriteString(descStyle.Render(truncate(title, 60)))
+	b.WriteString(descStyle.Render(truncate(m.exportHeadingNote(), 70)))
 	b.WriteString("\n\n")
 	b.WriteString(m.exportList.view("nothing matches — clear the filter, or browse for a folder", "", m.width))
 	b.WriteString("\n")
+	widen := "ctrl+a everything here"
+	if m.exportSub.all {
+		widen = "ctrl+a back to the selection"
+	}
 	b.WriteString(footerStyle.Render(m.fitFooter([]string{
-		"enter copy", m.modEnter() + " move", "esc back",
+		"enter copy", m.modEnter() + " move", widen, "esc back",
 	})))
 	return b.String()
 }
 
-// viewExportBrowse draws the folder browser: viewFiles's chrome with the
-// export picker's words — what a choice does is the one thing the two screens
-// have to say differently.
+// exportHeadingNote is what the picker says it is about to send: the prompt's
+// own title when it is one prompt — which is the case the screen has always
+// shown, and the one where a title is more use than a count — and the count
+// otherwise.
+func (m model) exportHeadingNote() string {
+	if m.exportSub.count() == 1 && !m.exportSub.all {
+		td, _ := m.resolve(m.exportRef)
+		return firstNonEmpty(td.Title, firstLine(td.Prompt, 50))
+	}
+	return m.exportSub.describe()
+}
+
+// viewExportBrowse draws the folder browser: viewFiles's chrome with the words
+// of whichever export opened it — what a choice does is the one thing these
+// screens have to say differently.
 func (m model) viewExportBrowse() string {
 	var b strings.Builder
+	bundling := m.files.purpose == filesForBundle
 	title := "Export to folder"
+	footer := []string{
+		"enter copy here", m.modEnter() + " move here", "tab/→ or / open folder", "backspace up", "esc back",
+		"~/ and ../ paths", ". shows hidden",
+	}
+	if bundling {
+		title = "Save a bundle in"
+		footer = []string{
+			"enter save here", "tab/→ or / open folder", "backspace up", "esc back",
+			"~/ and ../ paths", ". shows hidden",
+		}
+	}
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("  ")
 	room := 0
@@ -733,9 +1177,6 @@ func (m model) viewExportBrowse() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.files.list.view(m.files.filesEmptyMessage(), "", m.width))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{
-		"enter copy here", m.modEnter() + " move here", "tab/→ or / open folder", "backspace up", "esc back",
-		"~/ and ../ paths", ". shows hidden",
-	})))
+	b.WriteString(footerStyle.Render(m.fitFooter(footer)))
 	return b.String()
 }

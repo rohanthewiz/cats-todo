@@ -61,7 +61,21 @@ const (
 	// folders only, with a "this folder" row so the directory being listed can
 	// be the choice, and the choice hands off to performExport.
 	filesForExport
+	// filesForBundle names the folder a bundle is *written into* (see
+	// export.go): folders only, like filesForExport, and the same keys — but
+	// the folder means a place to put a file rather than a project to send a
+	// prompt to, so it has no copy/move split and says "save here".
+	filesForBundle
 )
+
+// browsingForExport reports whether the picker was opened by an export — for a
+// project to send to, or for a folder to write a bundle into. The two share
+// every edge but the words and what a choice does (see chooseExportFolder), so
+// the routing asks this rather than naming one purpose and quietly leaving the
+// other on the form's road back.
+func (p filePicker) browsingForExport() bool {
+	return p.purpose == filesForExport || p.purpose == filesForBundle
+}
 
 // thisFolderRef is the ref of the "./" row a folders-only picker leads with —
 // the directory currently listed, offered as a choice in its own right. It is
@@ -535,7 +549,7 @@ func (m model) beginExportBrowse() (tea.Model, tea.Cmd) {
 // so the picker and the attachment editor close the same way and neither can
 // be the one that quietly breaks when that changes.
 func (m model) closeFiles() (tea.Model, tea.Cmd) {
-	if m.files.purpose == filesForExport {
+	if m.files.browsingForExport() {
 		m.stage = stageExport
 		return m, textinput.Blink
 	}
@@ -550,7 +564,7 @@ func (m model) closeFiles() (tea.Model, tea.Cmd) {
 // makes. Nothing highlighted (an empty folder, a filter that matched nothing)
 // is a no-op rather than a close: the picker stays, so the filter can be fixed.
 func (m model) chooseFile() (tea.Model, tea.Cmd) {
-	if m.files.purpose == filesForExport {
+	if m.files.browsingForExport() {
 		return m.chooseExportFolder(false)
 	}
 	e, abs, ok := m.files.highlighted()
@@ -656,7 +670,7 @@ func (m model) clickFiles(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // construction (headingDir cuts the path from the front to fit), because every
 // row constant below it depends on that.
 func (m model) viewFiles() string {
-	if m.files.purpose == filesForExport {
+	if m.files.browsingForExport() {
 		return m.viewExportBrowse()
 	}
 	var b strings.Builder

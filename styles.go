@@ -161,6 +161,17 @@ const cursorGlyph = "❯ "
 // beside it do not shift by a cell the moment the button goes down.
 const grabGlyph = "⠿ "
 
+// markGlyph is drawn in the list's leading column on a row that belongs to the
+// current selection — the set an export acts on (see model.marked). A tick
+// rather than a filled box because the column is only there at all while a
+// selection is held, so it has nothing to distinguish itself *from*: the
+// question a reader asks of the column is "which of these", and a tick answers
+// it in one cell.
+//
+// One terminal column wide, like the badges beside it — East Asian Ambiguous,
+// which this list has drawn since the first ○.
+const markGlyph = "✓"
+
 // Palette — a small, cohesive set of styles for a clean dark-terminal look,
 // shared by the fuzzyList component and the manager views.
 var (
@@ -243,8 +254,13 @@ var (
 	frozenStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colFaint))
 	frozenSelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
 	checkStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
-	errStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
-	okStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
+	// markStyle draws the selection tick. colCyan, the hue export already speaks
+	// in (the ➦ Export chip), so the column and the action it feeds read as one
+	// thing rather than as another kind of done — which colOk, the check mark's
+	// own green, would have said.
+	markStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colCyan))
+	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colErr))
+	okStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colOk))
 	// A scheduled todo's ◷ badge. Amber on purpose: a pending auto-drop is
 	// the one row that will act without being asked, and warm-against-green
 	// is this palette's "look here" (matchStyle does the same trick). The

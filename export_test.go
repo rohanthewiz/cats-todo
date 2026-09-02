@@ -227,7 +227,13 @@ func TestBuildExportTargets(t *testing.T) {
 	for _, tg := range got {
 		labels = append(labels, tg.label)
 	}
-	want := []string{"sib", "fresh", "Global backlog", "recent-with", "Browse for a folder…"}
+	want := []string{
+		"sib", "fresh", "Global backlog", "recent-with", "Browse for a folder…",
+		// The off-machine block, which every backlog can reach: it needs no
+		// socket, no cdx and no sibling project.
+		"Off this machine", "Save a bundle to disk…",
+		"Email — prompts in the message body", "Email — with a bundle file",
+	}
 	if strings.Join(labels, "|") != strings.Join(want, "|") {
 		t.Fatalf("labels = %v, want %v", labels, want)
 	}
@@ -243,8 +249,10 @@ func TestBuildExportTargets(t *testing.T) {
 	if got[3].tag != "recent" {
 		t.Errorf("recent row tag = %q, want \"recent\"", got[3].tag)
 	}
-	if got[len(got)-1].kind != exportBrowse {
-		t.Errorf("last row = %+v, want browse", got[len(got)-1])
+	// The browse row is the last of the on-machine rows: everything after it is
+	// the off-machine block, which starts with its heading.
+	if got[4].kind != exportBrowse || got[5].kind != exportSection {
+		t.Errorf("rows 4,5 = %+v %+v, want browse then the section heading", got[4], got[5])
 	}
 
 	// A global todo: the project is the other-backlog row, and its workspace
@@ -254,7 +262,11 @@ func TestBuildExportTargets(t *testing.T) {
 	for _, tg := range got {
 		labels = append(labels, tg.label)
 	}
-	want = []string{"sib", "fresh", "This project — own", "recent-with", "Browse for a folder…"}
+	want = []string{
+		"sib", "fresh", "This project — own", "recent-with", "Browse for a folder…",
+		"Off this machine", "Save a bundle to disk…",
+		"Email — prompts in the message body", "Email — with a bundle file",
+	}
 	if strings.Join(labels, "|") != strings.Join(want, "|") {
 		t.Fatalf("global labels = %v, want %v", labels, want)
 	}
@@ -353,10 +365,10 @@ func TestExportStageFlow(t *testing.T) {
 	if m.exportRef != (todoRef{scope: scopeProject, id: "t1"}) {
 		t.Fatalf("exportRef = %+v, want the highlighted todo", m.exportRef)
 	}
-	// No socket, no cdx state: the rows are the global backlog and the browse
-	// row, in that order.
-	if len(m.exportTargets) != 2 || m.exportTargets[0].kind != exportToStore || m.exportTargets[1].kind != exportBrowse {
-		t.Fatalf("rows = %+v, want [global, browse]", m.exportTargets)
+	// No socket, no cdx state: the on-machine rows are the global backlog and
+	// the browse row, in that order, followed by the off-machine block.
+	if m.exportTargets[0].kind != exportToStore || m.exportTargets[1].kind != exportBrowse {
+		t.Fatalf("rows = %+v, want [global, browse, …]", m.exportTargets)
 	}
 	globalRow := -1
 	for i, tg := range m.exportTargets {
@@ -429,8 +441,7 @@ func TestExportBrowseFlow(t *testing.T) {
 
 	next, _ := m.Update(pressKey("ctrl+o"))
 	m = next.(model)
-	browse := len(m.exportTargets) - 1
-	m.exportList.selectRef(browse)
+	m.exportList.selectRef(exportRowOfKind(t, m, exportBrowse))
 	next, _ = m.Update(enterKey(0))
 	m = next.(model)
 	if m.stage != stageFiles || m.files.purpose != filesForExport || !m.files.dirsOnly {
@@ -490,7 +501,7 @@ func TestExportBrowseRefusesOwnProject(t *testing.T) {
 	m, _ := exportModel(t)
 	next, _ := m.Update(pressKey("ctrl+o"))
 	m = next.(model)
-	m.exportList.selectRef(len(m.exportTargets) - 1)
+	m.exportList.selectRef(exportRowOfKind(t, m, exportBrowse))
 	next, _ = m.Update(enterKey(0))
 	m = next.(model)
 	m = typeAll(t, m, "project", "tab")
@@ -511,18 +522,34 @@ func TestExportRowsMatchWhatIsDrawn(t *testing.T) {
 	next, _ := m.Update(pressKey("ctrl+o"))
 	m = next.(model)
 	lines := strings.Split(m.viewExport(), "\n")
+	// A heading row draws two lines (a blank, then the heading) and answers no
+	// hit test, so the row index and the line offset part company at the first
+	// one — which is exactly what rowAtLine has to get right.
+	off := 0
 	for i, tg := range m.exportTargets {
-		y := exportRowsRow + i
+		if tg.kind == exportSection {
+			y := exportRowsRow + off + 1
+			if y >= len(lines) || !strings.Contains(lines[y], tg.label) {
+				t.Fatalf("heading %q is not on line %d:\n%s", tg.label, y, m.viewExport())
+			}
+			if _, ok := m.exportList.rowAtLine(off + 1); ok {
+				t.Fatalf("line %d hit-tested to a row, but it is a heading", off+1)
+			}
+			off += 2
+			continue
+		}
+		y := exportRowsRow + off
 		if y >= len(lines) {
 			t.Fatalf("row %d falls outside the %d-line frame:\n%s", i, len(lines), m.viewExport())
 		}
 		if !strings.Contains(lines[y], tg.label) {
 			t.Fatalf("line %d is %q, want the row %q:\n%s", y, lines[y], tg.label, m.viewExport())
 		}
-		got, ok := m.exportList.rowAtLine(y - exportRowsRow)
+		got, ok := m.exportList.rowAtLine(off)
 		if !ok || got != i {
-			t.Fatalf("rowAtLine(%d) = %d,%v, want row %d", y-exportRowsRow, got, ok, i)
+			t.Fatalf("rowAtLine(%d) = %d,%v, want row %d", off, got, ok, i)
 		}
+		off++
 	}
 	// A click on the global row copies.
 	globalRow := 0
@@ -601,4 +628,18 @@ func TestExportCarriesPriority(t *testing.T) {
 			}
 		})
 	}
+}
+
+// exportRowOfKind finds the picker row of a given kind — the rows are no longer
+// a short fixed list, so a test that wants "the browse row" has to say so
+// rather than count from the end.
+func exportRowOfKind(t *testing.T, m model, k exportKind) int {
+	t.Helper()
+	for i, tg := range m.exportTargets {
+		if tg.kind == k {
+			return i
+		}
+	}
+	t.Fatalf("no row of kind %v among %+v", k, m.exportTargets)
+	return -1
 }
