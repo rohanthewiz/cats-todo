@@ -247,6 +247,11 @@ type model struct {
 	drag      todoRef
 	dragging  bool
 	dragMoved bool
+	// The list's context menu (listmenu.go) — right-click, and everything that
+	// can be done to the todo under the pointer. Its zero value is "closed",
+	// which is what lets every caller test one field; like the editor's it lives
+	// and dies with the gesture that opened it.
+	listMenu listMenu
 
 	// Form stage.
 	formMode   formMode
@@ -483,11 +488,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.applySizes()
-		// The context menu is placed against the pane it was opened in (see
-		// promptMenu.place), so a resize leaves its box aimed at cells that may
-		// no longer exist. It is a transient answer to a press, not state worth
-		// re-fitting: it goes, and the next press gets one that fits.
+		// A context menu is placed against the pane it was opened in (see
+		// menuBox.place), so a resize leaves its box aimed at cells that may no
+		// longer exist. It is a transient answer to a press, not state worth
+		// re-fitting: it goes, and the next press gets one that fits. Both of
+		// them, since a resize can arrive on either stage.
 		m.menu = promptMenu{}
+		m.listMenu = listMenu{}
 		return m, nil
 	case scheduleTickMsg:
 		// Handled above the stage switch, so schedules fire whatever screen is
@@ -663,6 +670,12 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 // --- List stage ---------------------------------------------------------------
 
 func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// An open context menu takes the keys first and owns all of them, the same
+	// bargain the editor's makes (see updatePromptMenu): a menu is up, and the
+	// list's own chords would otherwise act on a row from behind it.
+	if m.listMenu.open {
+		return m.updateListMenu(msg)
+	}
 	// A keystroke ends any drag still thought to be in progress. The release
 	// that should have ended it can genuinely go missing — a button let go
 	// outside the pane, a terminal that reports presses but not releases — and
@@ -781,14 +794,18 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // ↑/↓ resumes from another.
 func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if msg.Button == tea.MouseRight {
-		// The right button has one meaning, and only on the form: open the
-		// editor's context menu on what the press was aimed at (promptmenu.go).
-		// It is worth the one exception to "the left button is the pointer"
-		// because the prompt is the one screen here with several things a
-		// selection can be turned into, and a menu is where every other editor
-		// on the machine keeps that list.
-		if m.stage == stageForm {
+		// The right button means one thing on the two screens that have a menu's
+		// worth of answers to give: on the form, what a swept run of the prompt
+		// can be turned into (promptmenu.go); on the list, everything that can be
+		// done to the todo under the pointer (listmenu.go). Both are worth the
+		// exception to "the left button is the pointer" for the same reason — the
+		// actions are more numerous than any bar or chord can teach, and a menu
+		// is where every other program on the machine keeps that list.
+		switch m.stage {
+		case stageForm:
 			return m.rightClickForm(msg)
+		case stageList:
+			return m.rightClickList(msg)
 		}
 		return m, nil
 	}
@@ -802,6 +819,12 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	m.releaseDrag()
 	switch m.stage {
 	case stageList:
+		// An open menu takes the press first, wherever it landed: a click off the
+		// box dismisses it, which is the gesture every menu answers to and one the
+		// list must not also act on.
+		if m.listMenu.open {
+			return m.clickListMenu(msg)
+		}
 		switch msg.Y {
 		case headerRow:
 			// The query box lives on the header line now; a click anywhere on
@@ -1032,6 +1055,45 @@ func (m model) clickTarget(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.chooseTarget(dropRun)
+}
+
+// rightClickList opens the list's context menu (listmenu.go) on the todo row the
+// press landed on.
+//
+// The press also moves the highlight, the same rule every other click on this
+// list obeys: the menu acts on a prompt, so the prompt it acts on is the one the
+// keyboard is parked on when the menu hands control back — and the row the box
+// is asking about is drawn selected while it is up, which is the only thing on
+// screen tying the two together.
+//
+// Only over a row. A right-click on a heading, a spacer, the header line or the
+// action bar opens nothing: a context menu is a question about a thing, and
+// there is no thing there to ask about. An open menu closes instead, so a right
+// button aimed off the list is still a way out of one.
+//
+// Unlike a left press this takes no hold for a drag and does not count toward a
+// double-click. Both of those are gestures the left button makes, and a right
+// press that quietly armed either would leave the list mid-gesture behind a menu
+// the user is about to dismiss.
+func (m model) rightClickList(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	// A button going down is proof the one before it came up, the same reading
+	// the left button and a keystroke both make (see updateList). It matters more
+	// here: a hold left armed would hand the next motion message to dragOver,
+	// which would reorder the backlog behind an open menu.
+	m.releaseDrag()
+	i, ok := m.list.rowAtLine(msg.Y - listRowsRow)
+	if !ok || !m.list.focusRow(i) {
+		m.listMenu = listMenu{}
+		return m, nil
+	}
+	blink := m.setActionFocus(false)
+	ref, ok := m.selectedRef()
+	if !ok {
+		m.listMenu = listMenu{}
+		return m, blink
+	}
+	next, cmd := m.openListMenu(msg, ref)
+	return next, tea.Batch(blink, cmd)
 }
 
 // rightClickForm opens the editor's context menu (promptmenu.go) on the cell the
@@ -1516,6 +1578,12 @@ func (m *model) backToList() {
 	// typing into, would both outlive the gesture that made them.
 	m.menu = promptMenu{}
 	m.endPromptCarets()
+	// The list's own menu goes too. Pressing a row already closes it, so this is
+	// for the paths that leave the list some other way — a scheduled drop firing
+	// a stage change, a form opened by a chord while the box was up — where a
+	// menu left standing would be composited over a list nobody is looking at
+	// and would swallow the next keystroke on arriving back.
+	m.listMenu = listMenu{}
 	// Nothing on the list stage reads the editor's selection, but leaving a drag
 	// flag set would hand the next stray motion message to a handler that expects
 	// to be on the form.
@@ -4154,7 +4222,12 @@ func (m model) renderStage() string {
 	case stageViewOpts:
 		return m.viewViewOpts()
 	default:
-		return m.viewList()
+		// The menu floats over the list rather than replacing it, and is
+		// composited here rather than inside viewList for the reason the form's
+		// is: every row constant the list hit-tests against is measured on the
+		// frame underneath, and a menu spliced in before those were computed
+		// would move the rows out from under the pointer while it was open.
+		return m.overlayListMenu(m.viewList())
 	}
 }
 
@@ -4479,7 +4552,7 @@ func (m model) listFooter() string {
 		// double-click is a guess worth confirming, not one worth making blind.
 		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+o export · ctrl+x delete") +
 			"\n" +
-			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
+			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
 	}
 	// Freeze rides directly after done: the two are the ways a prompt leaves the
 	// open list, and reading them side by side is what teaches that they are
@@ -4492,9 +4565,16 @@ func (m model) listFooter() string {
 	// "view options" spelled out, never shortened to "view": ctrl+v is two
 	// segments to the left and means read this prompt's text. Two chords sharing
 	// a word on one line is how a reader learns the wrong one.
+	//
+	// "right-click menu" goes last, past esc, and is therefore the first thing a
+	// narrowing pane drops. That is the right order to lose them in: the menu is
+	// a shortcut to chords this line is already naming, so a reader who loses it
+	// loses nothing they cannot still do — while esc is the way out, and has to
+	// survive longer than a convenience does.
 	segs := []string{
 		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze",
 		"ctrl+↑/↓ or drag move", "ctrl+d hide closed", "ctrl+l view options", "ctrl+w clear done", "esc quit",
+		"right-click menu",
 	}
 	line := strings.Join(segs, " · ")
 	// Concede from the right rather than wrap: the footer sits below the mouse

@@ -146,8 +146,10 @@ a control that vanishes is one you cannot learn is there.
 The pointer works too, and the same way round: a click on a button presses it, a
 click on a prompt selects it (which is what makes the buttons useful with the
 mouse — they act on the highlight), a **double-click** on a prompt opens it for
-editing, and holding the button down and moving **drags the prompt into a new
-place in the list** (below). To send one, click the prompt and then the **Send**
+editing, holding the button down and moving **drags the prompt into a new
+place in the list** (below), and a **right-click** opens [the row's context
+menu](#the-lists-context-menu) — everything the list can do to that prompt, named
+in one place. To send one, click the prompt and then the **Send**
 button, which opens the drop picker, where a click on a target hands the prompt
 over and starts it — a click on a row is the same choice `enter` makes, mode
 and all. So a prompt gets from the backlog into an agent without the keyboard,
@@ -309,9 +311,12 @@ spells it out in words, and unticking **Done** brings the apple straight back.
 
 #### Where they are set
 
-Both are set on the editor itself, on a segmented bar between the title and the
-prompt body — a checkbox and a radio group, because that is what the two facts
-are: the fruit is independent, and the priority is exactly one of three levels.
+Both are set in two places, on the same controls. On the editor itself, on a
+segmented bar between the title and the prompt body — a checkbox and a radio
+group, because that is what the two facts are: the fruit is independent, and the
+priority is exactly one of three levels. And on the list, without opening
+anything, from [the row's context menu](#marking-priority-and-quick-wins-from-the-list)
+— the same checkbox and the same three radios, laid out down instead of across.
 
 ```
 Title
@@ -342,7 +347,8 @@ prompt", and a stop inserted into that walk would spray the prompt's first
 keystrokes into a row that is not a text field.
 
 Nothing is written until the form is saved, so an abandoned edit leaves the
-marks as they were. `ctrl+v` on a list row spells the marks out in words as
+marks as they were — the one difference from the context menu, which has no form
+to abandon and therefore writes on the press. `ctrl+v` on a list row spells the marks out in words as
 well — `▲ critical · 🍏 low-hanging fruit` on the prompt view's meta line —
 which is where to look when a glyph on a row is not yet familiar. That line is
 built from the words rather than from the glyphs, so it still reads
@@ -427,6 +433,75 @@ and the open/frozen/done state. What does not: a schedule, which names a pane
 and a launch directory of the project it was set in — the status line says so
 when one is left behind. A copy takes a fresh id; a move keeps its own. Exporting
 a prompt into the backlog it already lives in is refused rather than duplicated.
+
+## The list's context menu
+
+The list can do a dozen things to a prompt and the button bar has room for five,
+so most of them have only ever been chords — and a chord is not something a
+pointer can find. **Right-click a row** and all of them are named in one place,
+on the prompt you pointed at.
+
+```
+╭─────────────────────────────────╮
+│ ✎ Edit…                   enter │
+│ ◉ View                   ctrl+v │
+│ ✉ Send…             shift+enter │
+│ ◷ Schedule…              ctrl+s │
+│ ✓ Mark done              ctrl+t │
+│ ❄ Freeze                 ctrl+f │
+│ ☐ 🍏 Quick win                  │
+│ (•) Priority: none              │
+│ ( ) Priority: △ high            │
+│ ( ) Priority: ▲ critical        │
+│ ➦ Export…                ctrl+o │
+│ ✖ Delete…                ctrl+x │
+╰─────────────────────────────────╯
+```
+
+The press moves the highlight onto the row first, so what the menu acts on is
+what the keyboard is parked on when it hands control back — and it takes no hold
+for a drag and does not count as half of a double-click, which are gestures the
+left button makes. Only a row opens one: a right-click on the header, the button
+bar or the empty space below the list opens nothing, and takes down a menu that
+is up.
+
+Every row that has a chord prints it, so the menu doubles as the keyboard's own
+reference. Rows that name a state say what pressing them will do — **✓ Mark
+done** reads **↺ Reopen** on a finished prompt, **❄ Freeze** reads **☀ Unfreeze**
+on a shelved one. A row that cannot act right now is drawn **dim and still
+there** and says why when you press it, in the same words the chord uses: sending
+a frozen prompt, or scheduling one with no cats socket. Everything else about
+the box — `↑`/`↓` and `enter`, a click off it to dismiss, any other key taking it
+down, floating over the list rather than replacing it — works exactly as [the
+prompt editor's context menu](#the-prompt-editors-context-menu) does, because it
+is the same box.
+
+### Marking priority and quick wins from the list
+
+The four middle rows are the reason this menu exists. A prompt's annotations —
+its [priority](#priority) and its [low-hanging fruit](#low-hanging-fruit) mark —
+are facts you read straight off a list row, but until now the only way to *set*
+one was to open the editor and find the annotation bar: a full round trip
+through a form, to change a fact about a row you were already looking at.
+
+They are the editor's controls, in the editor's glyphs, laid out down instead of
+across. **☐ 🍏 Quick win** is a checkbox and toggles. The three **Priority** rows
+are radios and set exactly their level, so pressing `▲ critical` on a prompt that
+is already critical leaves it there rather than switching it off — and `none` is
+a row of its own, which makes clearing a level the same gesture as setting one.
+The status line names the result either way.
+
+Unlike the editor's bar, these write **immediately**: there is no form open to
+save, so the mark lands in the backlog on the press. With the priority lens on
+(`ctrl+l`) raising a prompt lifts it past everything unraised, and the highlight
+rides with the row so the next keystroke still acts on the prompt you just
+marked; the status line says the list reordered, since on a tall pane the row can
+travel most of it.
+
+A value the program cannot read — the retired `low` from an old backlog, or a
+typo in a hand-edited one — fills no radio, exactly as it draws no mark on the
+row. All three levels are then offered as replacements, which is the honest
+reading of a level that is not one.
 
 ## Quick capture from a shell
 

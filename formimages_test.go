@@ -41,6 +41,10 @@ func pressKey(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyPgUp}
 	case "pgdown":
 		return tea.KeyPressMsg{Code: tea.KeyPgDown}
+	case "home":
+		return tea.KeyPressMsg{Code: tea.KeyHome}
+	case "end":
+		return tea.KeyPressMsg{Code: tea.KeyEnd}
 	}
 	// ctrl+<letter>
 	if r, ok := strings.CutPrefix(s, "ctrl+"); ok && len(r) == 1 {
