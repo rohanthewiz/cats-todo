@@ -16,24 +16,17 @@
 //
 // It is built fresh on every press, from what the press was actually aimed at:
 // an item that cannot act on this selection is drawn dim and says why when it is
-// pressed, rather than being left off the menu. A menu whose contents move
-// between presses is a menu nobody learns the shape of, and "why is this one
-// grey" is a question the program can answer — "where did that item go" is not.
+// pressed, rather than being left off the menu.
 //
-// The menu is drawn over the form rather than replacing it (see
-// overlayPromptMenu), because a context menu that hid its own context would be
-// asking about a selection the user can no longer see. It is composited with
-// lipgloss's canvas, which merges cell by cell and keeps the styles on both
-// sides — a splice done by hand on the rendered strings would drop the escape
-// runs the form opened left of the box.
+// The box itself — its geometry, its keys, its drawing and the compositing that
+// floats it over the form — is menuBox (menu.go), shared with the list's own
+// context menu. What is left here is the part that is about a prompt: which rows
+// there are, what makes each one live, and what pressing one does.
 
 package main
 
 import (
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/rohanthewiz/cats-todo/internal/spell"
 )
@@ -56,33 +49,16 @@ const (
 	menuActionCount
 )
 
-// promptMenuItem is one row. why non-empty means the item cannot act right now:
-// it is drawn dim, and pressing it says this instead of doing nothing.
-type promptMenuItem struct {
-	act   int
-	label string
-	hint  string
-	why   string
-}
-
-func (it promptMenuItem) live() bool { return it.why == "" }
-
-// promptMenu is the open menu: where its box sits, what is on it, and which row
-// the keyboard is on. The zero value is a closed menu, which is what makes
-// `m.menu.open` the one thing every caller has to test.
+// promptMenu is the open menu: the shared box, plus the one thing this menu
+// carries that a generic one cannot — the flagged word ✓ Spelling would open on,
+// resolved from the cell the press landed in rather than guessed from the caret.
+// The zero value is a closed menu, which is what makes `m.menu.open` the one
+// thing every caller has to test.
 type promptMenu struct {
-	open          bool
-	x, y          int // top-left cell of the box, in screen coordinates
-	w, h          int // its size, kept so a click can be hit-tested against it
-	items         []promptMenuItem
-	cursor        int
-	word          spell.Span // the flagged word ✓ Spelling would open on
+	menuBox
+	word          spell.Span
 	wordAvailable bool
 }
-
-// menuChromeWidth is the box's border and inner padding: one border cell and one
-// space on each side, plus the two spaces between a label and its chord.
-const menuChromeWidth = 6
 
 // openPromptMenu builds the menu for a right-click at msg and opens it.
 //
@@ -108,7 +84,7 @@ func (m model) openPromptMenu(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			rowsWhy = "sweep two or more lines"
 		}
 	}
-	mu.items = []promptMenuItem{
+	mu.items = []menuItem{
 		{act: menuSplit, label: "✂ Split into prompts", hint: "ctrl+x", why: selWhy},
 		{act: menuSort, label: "⇅ Sort lines", why: rowsWhy},
 		{act: menuCarets, label: "⌶ Caret on every line", why: rowsWhy},
@@ -133,90 +109,17 @@ func (m model) openPromptMenu(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// firstLive is the row the menu opens on: the first one that can actually act.
-// A menu that opened with the cursor on a dim row would make enter — the key a
-// hand reaches for straight after the click — a refusal.
-func (mu promptMenu) firstLive() int {
-	for i, it := range mu.items {
-		if it.live() {
-			return i
-		}
-	}
-	return 0
-}
-
-// size measures the box around its widest row.
-func (mu *promptMenu) size() {
-	w := 0
-	for _, it := range mu.items {
-		w = max(w, lipgloss.Width(it.label)+lipgloss.Width(it.hint))
-	}
-	mu.w, mu.h = w+menuChromeWidth, len(mu.items)+2 // +2 for the border rows
-}
-
-// place puts the box below and right of the pointer, then pulls it back inside
-// the pane.
-//
-// Below-right first because that is where a menu goes when there is room, and
-// because it leaves the cell that was clicked — and the selection around it —
-// visible rather than covered by the answer to the question about it. When the
-// box would fall off the bottom it flips above the pointer instead of being
-// pushed up over it, which keeps the same cell uncovered on the other side.
-func (mu *promptMenu) place(x, y, width, height int) {
-	mu.x = min(max(x, 0), max(width-mu.w, 0))
-	mu.y = y + 1
-	if mu.y+mu.h > height {
-		mu.y = y - mu.h
-	}
-	mu.y = min(max(mu.y, 0), max(height-mu.h, 0))
-}
-
-// hit reports which row a click at (x, y) landed on. The border is not a row, so
-// a click on it is inside the menu (it does not dismiss) but presses nothing.
-func (mu promptMenu) hit(x, y int) (int, bool) {
-	if x < mu.x || x >= mu.x+mu.w || y < mu.y || y >= mu.y+mu.h {
-		return 0, false
-	}
-	row := y - mu.y - 1 // the top border
-	if row < 0 || row >= len(mu.items) {
-		return 0, false
-	}
-	return row, true
-}
-
-// inside reports whether a click landed anywhere on the box, border included —
-// what decides whether a press dismisses the menu.
-func (mu promptMenu) inside(x, y int) bool {
-	return x >= mu.x && x < mu.x+mu.w && y >= mu.y && y < mu.y+mu.h
-}
-
 // --- Driving it -----------------------------------------------------------------
 
-// updatePromptMenu is the keyboard while the menu is up. It owns every key:
-// anything that is not a move or a press closes the menu and is swallowed, which
-// is what a menu does everywhere else — the next keystroke after that reaches the
-// editor as usual.
+// updatePromptMenu is the keyboard while the menu is up — the shared walk (see
+// menuBox.key), with this menu's own answer to a press.
 func (m model) updatePromptMenu(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "down", "ctrl+n", "tab":
-		m.menu.cursor = (m.menu.cursor + 1) % len(m.menu.items)
-		return m, nil
-	case "up", "ctrl+p", "shift+tab":
-		m.menu.cursor = (m.menu.cursor - 1 + len(m.menu.items)) % len(m.menu.items)
-		return m, nil
-	case "home":
-		m.menu.cursor = 0
-		return m, nil
-	case "end":
-		m.menu.cursor = len(m.menu.items) - 1
-		return m, nil
-	case "enter", " ":
+	switch m.menu.key(msg) {
+	case menuKeyPress:
 		return m.pressPromptMenu(m.menu.cursor)
+	case menuKeyClose:
+		m.menu = promptMenu{}
 	}
-	// esc and everything else: the menu goes, and the key is spent on closing
-	// it. ctrl+c is deliberately not special-cased into a quit here — a menu is
-	// up, and the first thing that chord should do is take it down.
-	m.menu = promptMenu{}
 	return m, nil
 }
 
@@ -274,43 +177,8 @@ func (m model) pressPromptMenu(i int) (tea.Model, tea.Cmd) {
 
 // --- Drawing --------------------------------------------------------------------
 
-// overlayPromptMenu composites the menu over the form's rendered frame.
-//
-// lipgloss's compositor does the merge cell by cell, so the form keeps its own
-// styling everywhere the box does not cover and the box keeps its own where it
-// does. Doing this by cutting and re-joining the rendered lines — the technique
-// the selection overlay uses inside one editor line — would work only as far as
-// the first escape sequence the form opened left of the box's left edge.
+// overlayPromptMenu floats the menu over the form's rendered frame (see
+// overlayMenu, menu.go, for why it is composited rather than spliced).
 func (m model) overlayPromptMenu(view string) string {
-	if !m.menu.open {
-		return view
-	}
-	return lipgloss.NewCompositor(
-		lipgloss.NewLayer(view),
-		lipgloss.NewLayer(m.viewPromptMenu()).X(m.menu.x).Y(m.menu.y).Z(1),
-	).Render()
-}
-
-// viewPromptMenu renders the box.
-//
-// The cursor's row takes the accent field the action bars use for a pressed
-// chip, so "where the keyboard is" reads the same on this menu as it does
-// everywhere else in the program. A dim row is drawn in colFaint with its chord
-// dropped: an item that cannot act has no key worth teaching.
-func (m model) viewPromptMenu() string {
-	inner := m.menu.w - 2 // less the border columns
-	rows := make([]string, 0, len(m.menu.items))
-	for i, it := range m.menu.items {
-		gap := inner - 2 - lipgloss.Width(it.label) - lipgloss.Width(it.hint)
-		text := " " + it.label + strings.Repeat(" ", max(gap, 0)) + it.hint + " "
-		switch {
-		case i == m.menu.cursor:
-			rows = append(rows, menuRowSelStyle.Render(text))
-		case !it.live():
-			rows = append(rows, menuRowOffStyle.Render(text))
-		default:
-			rows = append(rows, menuRowStyle.Render(text))
-		}
-	}
-	return menuBoxStyle.Render(strings.Join(rows, "\n"))
+	return overlayMenu(view, m.menu.menuBox)
 }
