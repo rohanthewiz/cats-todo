@@ -710,6 +710,9 @@ func (m model) startExportSubject(sub exportSubject) (tea.Model, tea.Cmd) {
 	// The anchor: the prompt the heading names when the subject is one prompt,
 	// and what a destination that can only take one would act on.
 	m.exportRef = sub.refs[0]
+	// The machines settings remembers are on screen from the first frame; the
+	// ones that answer replace them when the discovery lands (applyPeers).
+	m.peers = mergePeers(knownPeers(), m.peers)
 	m.exportTargets = appendPeerExportTargets(
 		buildExportTargets(sub.scope, gatherExportSources(m.client), m.project, m.global),
 		m.peers)

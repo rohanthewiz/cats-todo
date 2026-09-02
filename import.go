@@ -130,7 +130,7 @@ func (m model) beginImport() (tea.Model, tea.Cmd) {
 		m.setStatus("no backlog here to import into — relaunch from a project, or with --global", true)
 		return m, nil
 	}
-	m.importTargets = buildImportTargets(knownPeers())
+	m.importTargets = buildImportTargets(mergePeers(knownPeers(), m.peers))
 	m.importList = newFuzzyList("Filter sources…", importItems(m.importTargets))
 	m.stage = stageImport
 	return m, tea.Batch(textinput.Blink, discoverPeersCmd())

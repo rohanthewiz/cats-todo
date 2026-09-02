@@ -75,6 +75,11 @@ const (
 	listMenuPrioNone
 	listMenuPrioHigh
 	listMenuPrioCritical
+	// Select sits just above Export because it is the thing you do *to* several
+	// rows before pressing Export once — and because a tick is a per-row mark
+	// like the four above it, just one the list rather than the prompt
+	// remembers.
+	listMenuSelect
 	listMenuExport
 	listMenuDelete
 	listMenuActionCount
@@ -176,6 +181,19 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		return "( )"
 	}
 
+	// The two rows that read the selection rather than the prompt: whether this
+	// row is in it, and — on Export — how much the next press would send. A menu
+	// opened on a row while three prompts are ticked must not say "Export" and
+	// mean four.
+	selectLabel := markGlyph + " Select"
+	if m.marked[ref] {
+		selectLabel = "  Unselect"
+	}
+	exportLabel := "➦ Export…"
+	if n := m.markCount(); n > 0 {
+		exportLabel = "➦ Export " + promptWord(n) + "…"
+	}
+
 	var mu listMenu
 	mu.open, mu.ref = true, ref
 	mu.items = []menuItem{
@@ -196,7 +214,8 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		// Export needs no socket — the picker is shorter without one (no
 		// workspace rows), not gone — and delete is answerable from any state,
 		// so neither is ever dim.
-		{act: listMenuExport, label: "➦ Export…", hint: "ctrl+o"},
+		{act: listMenuSelect, label: selectLabel, hint: "ctrl+space"},
+		{act: listMenuExport, label: exportLabel, hint: "ctrl+o"},
 		{act: listMenuDelete, label: "✖ Delete…", hint: "ctrl+x"},
 	}
 	mu.cursor = mu.firstLive()
@@ -286,8 +305,13 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 		return m.freezeSelected()
 	case listMenuFruit, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical:
 		return m.setMenuAnnots(ref, it.act)
+	case listMenuSelect:
+		return m.markSelected()
 	case listMenuExport:
-		return m.startExport(ref)
+		// The chip and the chord both send the selection when there is one;
+		// the menu row has to mean the same thing, or the pointer and the
+		// keyboard would be two different features.
+		return m.beginExport()
 	case listMenuDelete:
 		return m.beginDelete()
 	}

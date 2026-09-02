@@ -59,11 +59,16 @@ func (m model) markSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.rebuildList()
-	verb := "unselected"
+	n := m.markCount()
 	if marked {
-		verb = "selected"
+		m.setStatus(fmt.Sprintf("selected · %s held · ctrl+o sends them", promptWord(n)), false)
+		return m, nil
 	}
-	m.setStatus(fmt.Sprintf("%s · %d selected · ctrl+o sends them", verb, m.markCount()), false)
+	if n == 0 {
+		m.setStatus("unselected · nothing held now", false)
+		return m, nil
+	}
+	m.setStatus(fmt.Sprintf("unselected · %s still held", promptWord(n)), false)
 	return m, nil
 }
 

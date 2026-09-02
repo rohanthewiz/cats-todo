@@ -446,6 +446,168 @@ and a launch directory of the project it was set in — the status line says so
 when one is left behind. A copy takes a fresh id; a move keeps its own. Exporting
 a prompt into the backlog it already lives in is refused rather than duplicated.
 
+### Selecting more than one prompt
+
+Every action in the list has always meant "the highlighted row", because every
+action was about one prompt: edit it, drop it, freeze it. Sending prompts
+somewhere else is the first thing that is naturally about *several* — a handful
+of related todos to a colleague, an afternoon's captures to the machine across
+the room — so the list has a selection.
+
+`ctrl+space` ticks the highlighted row (`ctrl+b` does the same, for terminals
+that swallow the first one). A **✓ column** appears while anything is ticked and
+goes away again when nothing is, so a backlog nobody is selecting in looks
+exactly as it always did; the header counts what is held (`· 3 selected`).
+`ctrl+o` then sends the selection instead of the highlight, and `esc` clears it
+— before it clears the filter, and long before it quits, since the selection is
+the most consequential state on the screen.
+
+The set is remembered by *prompt*, never by row number. Move a prompt, delete
+the one above it, type a filter, fold the closed rows away: the ticks stay on
+the prompts they were put on, and a prompt that is hidden by a filter or a fold
+is still in the set. A prompt that is deleted leaves it. Actions that cannot
+take a set — a drop, a schedule — still mean the highlighted row and say so.
+
+## Bundles: disk, email, and the machine across the room
+
+Exporting into another project writes straight into that project's
+`todos.json`, which works because both ends are directories this process can
+open. Everywhere else a prompt might go — a file to pick up later, a mail
+message, another machine — needs the prompts to become something that stands on
+its own. That is a **bundle**.
+
+A bundle is deliberately close to a backlog: a small envelope (schema version,
+when, who wrote it, which backlog it left) wrapped around the prompts in
+exactly the JSON `todos.json` uses. That is the whole compatibility story — the
+same additive rule the backlog format keeps means a bundle written by a newer
+cats-todo loses only fields an older one never knew about. Two containers,
+chosen for you:
+
+- `<project>-<date>.catstodo.json` — the manifest alone, when nothing is
+  attached. A file you can read, diff, or paste into a message.
+- `<project>-<date>.catstodo.zip` — `manifest.json` plus `images/`, when at
+  least one prompt carries an attachment. The paths inside are the same strings
+  the backlog stores, so nothing is rewritten at either end.
+
+**A schedule never travels.** It names a pane id and a launch directory of the
+machine being left, and a prompt that fired itself into a stranger's session
+would be worse than one that quietly needs re-scheduling. The status line says
+how many were left behind.
+
+The `ctrl+o` picker's rows are in two blocks now. Above, the backlogs on this
+machine, exactly as before. Below an **Off this machine** heading:
+
+- **Save a bundle to disk…** — the folder browser again, opening on Downloads
+  (a bundle is a file on its way somewhere), and the status line names what was
+  written. Nothing is ever overwritten.
+- **Email — prompts in the message body** — your mail client opens with the
+  prompts written out as markdown. There is no SMTP server to configure here
+  and no password for this tool to keep: it hands a `mailto:` link to the
+  machine, which already knows how you send mail.
+- **Email — with a bundle file** — the same composer, and the bundle written to
+  disk and shown in your file manager to drag in. A `mailto:` URL *cannot*
+  carry an attachment; rather than pretend otherwise, this does the two halves
+  it can do and says so.
+- **The machines on your local network**, and **Enter a host…** for one that
+  discovery missed.
+
+Everything in that second block is a copy by construction — there is no backlog
+at the far end of a file or a message to have moved a prompt *into* — so the
+`shift+enter` move chord is refused there in words rather than deleting your
+only copy.
+
+Inside the picker, `ctrl+a` widens what is being sent to **everything in this
+backlog**, done and frozen rows included (a backlog handed to another machine is
+a record, and dropping the finished half would make the copy a worse record than
+the original). `ctrl+a` again puts it back. The heading always says what is
+about to travel.
+
+## Importing
+
+`ctrl+r` opens **Import from…**: a bundle file on disk, or a machine on the
+local network. The disk row browses with everything that is not a bundle
+filtered out — a downloads folder holds hundreds of files and exactly one of
+them can be imported.
+
+Whatever the source, the bundle is read *before* anything is written and what
+would happen goes on screen first:
+
+```
+Import
+
+  12 prompts from ~/Downloads/studio-2026-09-02.catstodo.zip
+  written by cats-todo v0.25.0 on studio.local
+  → the project backlog · 9 prompts new · 3 already here, skipped
+
+y import · tab other backlog · n / esc cancel
+```
+
+`tab` sends it to the other backlog instead, re-counting as it goes. Imported
+prompts take **fresh ids** — an import is new work in *this* backlog, with its
+own life from here — and a prompt whose title and text this backlog already
+holds is skipped, because the common mistake is importing the same bundle
+twice. A prompt whose attachment cannot be brought across still lands, without
+it, and is counted: the text is the part with the value.
+
+## Sending to a machine on the local network
+
+cats' control socket is a unix socket — it reaches the cats on *this* machine
+and nothing else. So the box on the other side of the desk needs a service of
+its own:
+
+```
+$ cats-todo serve --name studio
+cats-todo v0.25.0 serving on [::]:8422
+  project  cats-todo (7 open)
+  global   global (2 open)
+  inbox    the project backlog
+  token    ca7d0e81b137a28cf8f27f6cc7275bf1
+  the machine sending to this one needs that token in its settings.json (peerToken)
+```
+
+The other machine's export and import pickers then list it by name, usually
+before you have finished reading the screen: a manager opening a picker asks a
+multicast group who is there and every server answers directly. Asking rather
+than announcing is what makes it quick *and* quiet — no chatter on the network
+for a screen nobody has open. A machine discovery cannot reach (another subnet,
+multicast filtered) is reached with **Enter a host…** and remembered afterwards,
+and it keeps a row even while it is asleep, saying so, because "the studio is
+not answering" is a more useful screen than an empty list.
+
+Three rules hold the service up, and each is a refusal rather than a warning:
+
+1. **A token is required.** It is generated on the first `serve`, printed every
+   time, and lives in `~/.config/cats-todo/settings.json` as `peerToken`; the
+   sending machine needs the same string. A `serve` with no token refuses to
+   start rather than opening a port that is a stranger's write access to your
+   backlog.
+2. **The local network only.** A request from outside this machine's own
+   private ranges is refused — that is the whole feature — with
+   `--allow-remote` there for someone who has deliberately tunnelled in.
+3. **Nothing that arrives is ever run.** A bundle becomes rows in a backlog.
+   Schedules are stripped on the way in, attachment names are reduced to a bare
+   file name, sizes are capped. Getting a prompt into someone's list is not the
+   same as getting it into their agent, and the distance between the two is a
+   keystroke they make themselves.
+
+`--inbox project|global` chooses where arriving prompts land, `--port` and
+`--name` are remembered in the same settings file, and the sender's status line
+is the *receiver's* own sentence — what it says landed is what actually landed.
+
+### The same three from a shell
+
+```
+cats-todo export [-g] [--all] [--out DIR] [--markdown] [--to HOST] [--mail]
+cats-todo import [-g] [--keep-ids] [--allow-duplicates] <file|directory|host>
+cats-todo serve  [--port N] [--name LABEL] [--inbox project|global] [--allow-remote]
+```
+
+`export` takes the open prompts of a backlog unless `--all`; with no
+destination flag it writes a bundle into `--out` (or the current directory).
+`import` tells its argument apart by looking: a path that exists is a file (or a
+directory holding exactly one bundle — two is a question, not a guess), and
+anything else is a machine.
+
 ## The list's context menu
 
 The list can do a dozen things to a prompt and the button bar has room for five,
@@ -465,6 +627,7 @@ on the prompt you pointed at.
 │ (•) Priority: none              │
 │ ( ) Priority: △ high            │
 │ ( ) Priority: ▲ critical        │
+│ ✓ Select             ctrl+space │
 │ ➦ Export…                ctrl+o │
 │ ✖ Delete…                ctrl+x │
 ╰─────────────────────────────────╯
@@ -488,6 +651,11 @@ the box — `↑`/`↓` and `enter`, a click off it to dismiss, any other key ta
 down, floating over the list rather than replacing it — works exactly as [the
 prompt editor's context menu](#the-prompt-editors-context-menu) does, because it
 is the same box.
+
+Two rows read the *selection* rather than the prompt: **✓ Select** reads
+**Unselect** on a row that is already ticked, and **➦ Export…** becomes
+**➦ Export 3 prompts…** while three are held — a menu opened on one row must not
+say "Export" and quietly mean four.
 
 ### Marking priority and quick wins from the list
 

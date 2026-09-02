@@ -12,7 +12,7 @@ func TestMarkTogglesAndCounts(t *testing.T) {
 	if m.markCount() != 1 {
 		t.Fatalf("after one ctrl+space, markCount = %d, want 1", m.markCount())
 	}
-	if !strings.Contains(m.status, "1 selected") {
+	if !strings.Contains(m.status, "1 prompt held") {
 		t.Errorf("status = %q, want the count spoken", m.status)
 	}
 	// A second press on the same row takes it back out — the tick is a toggle,
