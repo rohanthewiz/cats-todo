@@ -74,6 +74,8 @@ const (
 	exportToFile     // write a bundle into a folder, browsed for
 	exportToMailBody // hand the prompts to the mail client, in the message body
 	exportToMailFile // write a bundle, reveal it, and open a composer naming it
+	exportToPeer     // post a bundle to a machine found on the local network
+	exportToPeerAddr // ask for a host, then post to it
 	// exportSection is a heading row: not a destination, not selectable. It
 	// separates the backlogs on this machine from everywhere else, which is a
 	// bigger difference than any two rows in the old list had between them.
@@ -553,6 +555,8 @@ func exportDesc(t exportTarget) string {
 			return "the global backlog"
 		}
 		return "this project's backlog"
+	case exportToPeer, exportToPeerAddr:
+		return t.label
 	case exportToDir:
 		if root := findProjectRoot(t.dir); root != "" {
 			return firstNonEmpty(baseName(root), shortenHome(root))
@@ -706,10 +710,44 @@ func (m model) startExportSubject(sub exportSubject) (tea.Model, tea.Cmd) {
 	// The anchor: the prompt the heading names when the subject is one prompt,
 	// and what a destination that can only take one would act on.
 	m.exportRef = sub.refs[0]
-	m.exportTargets = buildExportTargets(sub.scope, gatherExportSources(m.client), m.project, m.global)
+	m.exportTargets = appendPeerExportTargets(
+		buildExportTargets(sub.scope, gatherExportSources(m.client), m.project, m.global),
+		m.peers)
 	m.exportList = newFuzzyList("Filter destinations…", exportItems(m.exportTargets))
 	m.stage = stageExport
-	return m, textinput.Blink
+	// The picker opens with the machines it remembers and fills in the ones
+	// that answer — a discovery takes a beat, and a screen that waited for the
+	// network before drawing would feel broken on a laptop with none.
+	return m, tea.Batch(textinput.Blink, discoverPeersCmd())
+}
+
+// applyPeers folds a finished discovery into whichever picker is open, keeping
+// the query and the highlight: the rows change under a user who is mid-type,
+// and losing what they had typed because a machine answered would be the worst
+// possible moment to do it.
+func (m model) applyPeers(found []peer) (tea.Model, tea.Cmd) {
+	m.peers = mergePeers(knownPeers(), found)
+	switch m.stage {
+	case stageExport:
+		query := m.exportList.input.Value()
+		cursor := m.exportList.selectedIndex()
+		m.exportTargets = appendPeerExportTargets(
+			buildExportTargets(m.exportSub.scope, gatherExportSources(m.client), m.project, m.global),
+			m.peers)
+		m.exportList.setItems(exportItems(m.exportTargets))
+		m.exportList.input.SetValue(query)
+		m.exportList.filter()
+		m.exportList.selectRef(cursor)
+	case stageImport:
+		query := m.importList.input.Value()
+		cursor := m.importList.selectedIndex()
+		m.importTargets = buildImportTargets(m.peers)
+		m.importList.setItems(importItems(m.importTargets))
+		m.importList.input.SetValue(query)
+		m.importList.filter()
+		m.importList.selectRef(cursor)
+	}
+	return m, nil
 }
 
 // exportItems turns the destinations into rows. The heading rows are the
@@ -817,6 +855,10 @@ func (m model) chooseExport(move bool) (tea.Model, tea.Cmd) {
 		return m.mailPrompts(false)
 	case exportToMailFile:
 		return m.mailPrompts(true)
+	case exportToPeer:
+		return m.sendToPeer(t.dir, t.label)
+	case exportToPeerAddr:
+		return m.beginPeerAddr(peerAddrForExport)
 	}
 	return m.performExport(t, move)
 }
@@ -826,6 +868,28 @@ func (m model) chooseExport(move bool) (tea.Model, tea.Cmd) {
 // that are themselves backlogs (see chooseExport).
 func exportKindTakesMove(k exportKind) bool {
 	return k == exportToDir || k == exportToStore || k == exportBrowse
+}
+
+// appendPeerExportTargets adds the machines on the network under the same
+// "Off this machine" heading the bundle rows sit under — they are the same kind
+// of destination, and a second heading for two rows would be chrome for its own
+// sake. Kept apart from buildExportTargets because the peers arrive
+// asynchronously (see peersMsg): the rows are rebuilt when a discovery lands,
+// and rebuilding the whole picker would throw away a filter being typed.
+func appendPeerExportTargets(targets []exportTarget, peers []peer) []exportTarget {
+	for _, p := range peers {
+		targets = append(targets, exportTarget{
+			kind:  exportToPeer,
+			dir:   p.addr, // the address rides in dir; exportDesc uses the label
+			label: p.name,
+			desc:  p.describe(),
+		})
+	}
+	return append(targets, exportTarget{
+		kind:  exportToPeerAddr,
+		label: "Enter a host…",
+		desc:  "host or host:port of a machine running `cats-todo serve`",
+	})
 }
 
 // chooseExportFolder is the browser's choice: the highlighted folder, or — on

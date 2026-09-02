@@ -15,6 +15,9 @@
 //	                                  --perm, --clear, --sess-load, --sess-use,
 //	                                  --ctx, --finish, --review, --release
 //	cats-todo init [-f]           create this project's backlog (committed with the repo)
+//	cats-todo export [-g] …       write the backlog as a bundle, mail it, or send it to a machine
+//	cats-todo import <file|host>  read a bundle into a backlog
+//	cats-todo serve …             offer this machine's backlogs to the local network
 //	cats-todo version
 //
 // The manager talks to the cats server over the local control socket
@@ -44,6 +47,18 @@ func main() {
 		case "init":
 			initFromCLI(os.Args[2:])
 			return
+		// The transfer commands (transfercli.go): the pickers' three operations
+		// for the places a TUI cannot go — a script, an ssh session, a machine
+		// that is only ever the receiving end.
+		case "export":
+			exportFromCLI(os.Args[2:])
+			return
+		case "import":
+			importFromCLI(os.Args[2:])
+			return
+		case "serve":
+			serveFromCLI(os.Args[2:])
+			return
 		// Hidden: cats's shell completion execs this (see complete.go). It has to
 		// come before the flag-shaped cases below, and stays out of `help` — it is
 		// a protocol, not something to type.
@@ -63,7 +78,7 @@ func main() {
 			fmt.Println("cats-todo", version)
 			return
 		case "help", "--help", "-h":
-			fmt.Println("usage: cats-todo [-p|-g] [add [-g] [-t title] [-i image]... [prompt...] | init [-f] | version]")
+			fmt.Println("usage: cats-todo [-p|-g] [add … | init [-f] | export … | import <src> | serve … | version]")
 			fmt.Println("  with no arguments, opens the manager TUI on both backlogs (project + global)")
 			fmt.Println("  -p / --project opens it on this project's backlog only")
 			fmt.Println("  -g / --global opens it on the global backlog only")
@@ -71,6 +86,11 @@ func main() {
 			fmt.Println("  add --model/--effort/--perm/--clear/--sess-load/--sess-use/--ctx/--finish/--review/--release")
 			fmt.Println("      record how the agent receiving the prompt should be set up (ctrl+r in the editor)")
 			fmt.Println("  init creates this project's backlog (.cats-todo/, committed with the repo)")
+			fmt.Println("  export [-g] [--all] [--out DIR] [--markdown] [--to HOST] [--mail]")
+			fmt.Println("      write the backlog as a bundle, mail it, or send it to a machine running `serve`")
+			fmt.Println("  import [-g] <file|directory|host>  read a bundle into a backlog")
+			fmt.Println("  serve [--port N] [--name LABEL] [--inbox project|global]")
+			fmt.Println("      offer this machine's backlogs to the local network (prints the shared token)")
 			return
 		default:
 			errExit(fmt.Sprintf("unknown subcommand %q — run `cats-todo help`", os.Args[1]))

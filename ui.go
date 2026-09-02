@@ -35,8 +35,12 @@ const (
 	stageSession                 // edit the form's per-todo session options
 	stageFiles                   // browse the file system for an @mention in the prompt, or a folder to export to
 	stageSnippets                // pick a prompt (or a slash command) out of the user's library to insert
-	stageExport                  // pick another project's backlog to copy / move the chosen prompt into
-	stageSpell                   // correct, or accept, the misspelled word nearest the prompt's caret
+	stageExport
+	// stageImport is the Import from… picker (import.go), and stagePeerAddr the
+	// one-line "which machine" prompt both pickers can open (peer.go).
+	stageImport
+	stagePeerAddr // pick another project's backlog to copy / move the chosen prompt into
+	stageSpell    // correct, or accept, the misspelled word nearest the prompt's caret
 	// stageViewOpts is the list's View panel: how the list is drawn, as against
 	// stageView above, which is one prompt's text. The names are close because
 	// the words are; stageView is the older of the two and renaming it to
@@ -49,8 +53,11 @@ const (
 type confirmKind int
 
 const (
-	confirmDelete    confirmKind = iota // delete the selected todo
-	confirmClearDone                    // remove every done todo in both scopes
+	confirmDelete confirmKind = iota // delete the selected todo
+	confirmClearDone
+	// confirmImport is the arithmetic screen an import stops at: how many
+	// prompts, into which backlog, how many already here (see import.go).
+	confirmImport // remove every done todo in both scopes
 )
 
 // formMode distinguishes adding a new todo from editing an existing one.
@@ -434,6 +441,19 @@ type model struct {
 	// one prompt, which is the case the screen has always drawn.
 	exportSub exportSubject
 
+	// Import stage (see import.go) and the machines both pickers can reach.
+	importTargets []importTarget
+	importList    fuzzyList
+	pendingImport pendingImport
+	// peers is what the last discovery found, merged with the machines settings
+	// remembers (see beacon.go). Shared by the export and import pickers
+	// because it is a fact about the network rather than about either screen.
+	peers []peer
+	// peerAddrInput is the one-line host prompt, and peerAddrFor is which
+	// picker asked for it.
+	peerAddrInput textinput.Model
+	peerAddrFor   peerAddrPurpose
+
 	// Schedule stage.
 	schedRef   todoRef
 	schedInput textinput.Model
@@ -616,6 +636,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.deletePromptSelection()
 		}
 		return m.forward(msg)
+	case peersMsg:
+		// A discovery landed (beacon.go). Whichever picker is open takes the
+		// new rows; one that has since closed simply keeps the list for next
+		// time.
+		return m.applyPeers(msg.peers)
 	case tea.KeyPressMsg:
 		switch m.stage {
 		case stageList:
@@ -640,6 +665,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSnippets(msg)
 		case stageExport:
 			return m.updateExport(msg)
+		case stageImport:
+			return m.updateImport(msg)
+		case stagePeerAddr:
+			return m.updatePeerAddr(msg)
 		case stageSpell:
 			return m.updateSpell(msg)
 		case stageViewOpts:
@@ -675,6 +704,10 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = m.snips.list.editQuery(msg)
 	case stageExport:
 		cmd = m.exportList.editQuery(msg)
+	case stageImport:
+		cmd = m.importList.editQuery(msg)
+	case stagePeerAddr:
+		m.peerAddrInput, cmd = m.peerAddrInput.Update(msg)
 	case stageSpell:
 		cmd = m.spellList.editQuery(msg)
 	}
@@ -796,6 +829,8 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.beginSchedule()
 	case "ctrl+w":
 		return m.beginClearDone()
+	case "ctrl+r":
+		return m.beginImport()
 	case "ctrl+o":
 		return m.beginExport()
 	case "ctrl+up":
@@ -875,6 +910,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.clickSnippets(msg)
 	case stageExport:
 		return m.clickExport(msg)
+	case stageImport:
+		return m.clickImport(msg)
 	case stageSpell:
 		return m.clickSpell(msg)
 	case stageViewOpts:
@@ -1622,6 +1659,10 @@ func (m *model) backToList() {
 	// flag may only live for one list → schedule → picker traversal, or an
 	// esc out of the picker would leave the next manual drop scheduling.
 	m.pickForSchedule = false
+	// The import's pending bundle can be tens of megabytes of attachment bytes
+	// held in memory; an esc out of the confirm has decided not to write it, so
+	// it goes rather than sitting there until the next import replaces it.
+	m.pendingImport = pendingImport{}
 	_ = m.setActionFocus(false)
 }
 
@@ -3466,10 +3507,20 @@ func (m model) updateConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+	case "tab":
+		// Only the import has a second answer to "where": the delete and the
+		// clear are about prompts that already have a place.
+		if m.confirmKind == confirmImport {
+			return m.toggleImportScope()
+		}
+		return m, nil
 	case "y", "Y", "enter":
-		if m.confirmKind == confirmClearDone {
+		switch {
+		case m.confirmKind == confirmImport:
+			return m.performImport()
+		case m.confirmKind == confirmClearDone:
 			m.clearDone()
-		} else {
+		default:
 			if err := m.storeFor(m.pendingDelete.scope).delete(m.pendingDelete.id); err != nil {
 				m.setStatus("delete failed: "+err.Error(), true)
 			} else {
@@ -4237,7 +4288,7 @@ func (m model) View() tea.View {
 	// Cell motion is also exactly the mode a drag needs: it reports motion only
 	// while a button is held, so the manager hears the gesture without paying for
 	// a message on every idle sweep of the pointer across the pane.
-	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageSpell || m.stage == stageViewOpts {
+	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageImport || m.stage == stageSpell || m.stage == stageViewOpts {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -4274,6 +4325,10 @@ func (m model) renderStage() string {
 		return m.viewSnippets()
 	case stageExport:
 		return m.viewExport()
+	case stageImport:
+		return m.viewImport()
+	case stagePeerAddr:
+		return m.viewPeerAddr()
 	case stageSpell:
 		return m.viewSpell()
 	case stageViewOpts:
@@ -4615,7 +4670,7 @@ func (m model) listFooter() string {
 		// double-click is a guess worth confirming, not one worth making blind.
 		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+space select · ctrl+o export · ctrl+x delete") +
 			"\n" +
-			footerStyle.Render("ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
+			footerStyle.Render("ctrl+r import · ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
 	}
 	// Freeze rides directly after done: the two are the ways a prompt leaves the
 	// open list, and reading them side by side is what teaches that they are
@@ -4640,7 +4695,7 @@ func (m model) listFooter() string {
 	// the concessions from the right, since the ✓ column it explains is the one
 	// piece of chrome on this screen with no chip anywhere naming its key.
 	segs := []string{
-		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze", "ctrl+space select",
+		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze", "ctrl+space select", "ctrl+r import",
 		"ctrl+↑/↓ or drag move", "ctrl+d hide closed", "ctrl+l view options", "ctrl+w clear done", "esc quit",
 		"right-click menu",
 	}
@@ -5506,6 +5561,9 @@ func (m model) wrapToPane(st lipgloss.Style, s string) string {
 
 func (m model) viewConfirm() string {
 	var b strings.Builder
+	if m.confirmKind == confirmImport {
+		return m.viewImportConfirm()
+	}
 	if m.confirmKind == confirmClearDone {
 		b.WriteString(titleStyle.Render("Clear completed prompts?"))
 		b.WriteString("\n\n")
@@ -5650,6 +5708,10 @@ func (m *model) applySizes() {
 		m.snips.resize(m.width, m.height)
 	case stageExport:
 		m.exportList.input.SetWidth(w)
+	case stageImport:
+		m.importList.input.SetWidth(w)
+	case stagePeerAddr:
+		m.peerAddrInput.SetWidth(w)
 	case stageSpell:
 		m.spellList.input.SetWidth(w)
 	case stageView:

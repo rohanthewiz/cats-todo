@@ -40,6 +40,34 @@ type settings struct {
 	// declined is a standing decision about whether that record is worth the
 	// rows.
 	showFrozen bool
+	// peerToken is the shared secret the LAN service demands on every request
+	// (see peer.go). Empty until the first `cats-todo serve`, which generates
+	// one and prints it — the two machines have to hold the same string, and
+	// the honest way to arrange that is for a person to copy it across.
+	peerToken string
+	// peerName is what this machine calls itself in another manager's picker.
+	// Empty means the hostname, which is right often enough that most people
+	// will never set this.
+	peerName string
+	// peerPort is where `cats-todo serve` listens. Zero means peerDefaultPort.
+	peerPort int
+	// peerInbox is the backlog an arriving bundle lands in. Project by default:
+	// a machine serving from a project is almost always being sent work about
+	// that project.
+	peerInbox scope
+	// peerAllowRemote turns off the local-network check in the service. Off,
+	// and only worth turning on for someone who has deliberately tunnelled in.
+	peerAllowRemote bool
+	// peers are machines this manager has been told about by hand — the ones
+	// the beacon cannot reach (another subnet, multicast filtered) and the ones
+	// worth a row even while they are asleep.
+	peers []settingsPeer
+}
+
+// settingsPeer is one remembered machine.
+type settingsPeer struct {
+	Name string `json:"name"`
+	Addr string `json:"addr"`
 }
 
 // defaultSettings is what a missing or empty file means.
@@ -55,6 +83,17 @@ type settingsFile struct {
 	Spellcheck      *bool `json:"spellcheck,omitempty"`
 	OrderByPriority *bool `json:"orderByPriority,omitempty"`
 	ShowFrozen      *bool `json:"showFrozen,omitempty"`
+	// The LAN service's settings. Strings and numbers rather than pointers:
+	// their zero values are already "not set" and mean the documented default,
+	// so there is nothing for a pointer to distinguish. peerInbox is spelled
+	// on the wire ("project"/"global") rather than numbered, because a config
+	// file a person edits should not ask them to remember that 1 is global.
+	PeerToken       string         `json:"peerToken,omitempty"`
+	PeerName        string         `json:"peerName,omitempty"`
+	PeerPort        int            `json:"peerPort,omitempty"`
+	PeerInbox       string         `json:"peerInbox,omitempty"`
+	PeerAllowRemote *bool          `json:"peerAllowRemote,omitempty"`
+	Peers           []settingsPeer `json:"peers,omitempty"`
 }
 
 // settingsPath is where the file lives, or "" when the config directory
@@ -96,6 +135,13 @@ func loadSettings() settings {
 	if f.ShowFrozen != nil {
 		s.showFrozen = *f.ShowFrozen
 	}
+	s.peerToken, s.peerName, s.peerPort, s.peers = f.PeerToken, f.PeerName, f.PeerPort, f.Peers
+	if f.PeerInbox == "global" {
+		s.peerInbox = scopeGlobal
+	}
+	if f.PeerAllowRemote != nil {
+		s.peerAllowRemote = *f.PeerAllowRemote
+	}
 	return s
 }
 
@@ -115,6 +161,16 @@ func (s settings) save() error {
 		Spellcheck:      &s.spellcheck,
 		OrderByPriority: &s.orderByPriority,
 		ShowFrozen:      &s.showFrozen,
+		PeerToken:       s.peerToken,
+		PeerName:        s.peerName,
+		PeerPort:        s.peerPort,
+		PeerAllowRemote: &s.peerAllowRemote,
+		Peers:           s.peers,
+	}
+	// Written only when it is not the default, so a settings file belonging to
+	// someone who has never run `serve` says nothing about peers at all.
+	if s.peerInbox == scopeGlobal {
+		f.PeerInbox = "global"
 	}
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {

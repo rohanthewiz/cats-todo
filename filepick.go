@@ -66,6 +66,10 @@ const (
 	// the folder means a place to put a file rather than a project to send a
 	// prompt to, so it has no copy/move split and says "save here".
 	filesForBundle
+	// filesForImport finds a bundle to read (see import.go): files as well as
+	// folders, filtered to the two bundle extensions, and a choice hands off to
+	// the import confirm.
+	filesForImport
 )
 
 // browsingForExport reports whether the picker was opened by an export — for a
@@ -91,6 +95,11 @@ const thisFolderRef = -1
 type filePicker struct {
 	// purpose is who opened the picker and what a choice means (see filePurpose).
 	purpose filePurpose
+	// onlyBundles keeps directories and bundle files and drops everything else
+	// (see isBundleName). A downloads folder holds hundreds of files and
+	// exactly one of them can be imported; listing the rest would make the user
+	// do the filtering the picker is for.
+	onlyBundles bool
 	// dirsOnly lists directories alone and leads with the "./" row: the shape a
 	// picker takes when the thing being chosen is a place rather than a file.
 	dirsOnly bool
@@ -148,6 +157,18 @@ func (p filePicker) query() string {
 // .git and .DS_Store in the way, and anyone who wants a dotfile types the dot).
 func (p *filePicker) refresh() {
 	items := fileListItems(p.entries, strings.HasPrefix(p.query(), "."), p.dirsOnly)
+	if p.onlyBundles {
+		kept := items[:0]
+		for _, it := range items {
+			// Refs index into entries, so the entry a row stands for is the
+			// authority on whether it is a directory — the trailing slash on
+			// the drawn name is decoration.
+			if it.ref >= 0 && it.ref < len(p.entries) && (p.entries[it.ref].dir || isBundleName(p.entries[it.ref].name)) {
+				kept = append(kept, it)
+			}
+		}
+		items = kept
+	}
 	if p.dirsOnly {
 		// The directory being listed, as the first row — the natural default:
 		// tab into a folder and enter chooses it, ↓ chooses one below it. Its
@@ -549,6 +570,10 @@ func (m model) beginExportBrowse() (tea.Model, tea.Cmd) {
 // so the picker and the attachment editor close the same way and neither can
 // be the one that quietly breaks when that changes.
 func (m model) closeFiles() (tea.Model, tea.Cmd) {
+	if m.files.purpose == filesForImport {
+		m.stage = stageImport
+		return m, textinput.Blink
+	}
 	if m.files.browsingForExport() {
 		m.stage = stageExport
 		return m, textinput.Blink
@@ -564,6 +589,9 @@ func (m model) closeFiles() (tea.Model, tea.Cmd) {
 // makes. Nothing highlighted (an empty folder, a filter that matched nothing)
 // is a no-op rather than a close: the picker stays, so the filter can be fixed.
 func (m model) chooseFile() (tea.Model, tea.Cmd) {
+	if m.files.purpose == filesForImport {
+		return m.chooseImportFile()
+	}
 	if m.files.browsingForExport() {
 		return m.chooseExportFolder(false)
 	}
@@ -670,6 +698,9 @@ func (m model) clickFiles(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // construction (headingDir cuts the path from the front to fit), because every
 // row constant below it depends on that.
 func (m model) viewFiles() string {
+	if m.files.purpose == filesForImport {
+		return m.viewImportBrowse()
+	}
 	if m.files.browsingForExport() {
 		return m.viewExportBrowse()
 	}

@@ -48,10 +48,37 @@ type completion struct {
 var topLevelCompletions = []completion{
 	{"add", "quick-capture a prompt without opening the manager"},
 	{"init", "create this project's backlog (.cats-todo/, committed with the repo)"},
+	{"export", "write the backlog as a bundle, mail it, or send it to another machine"},
+	{"import", "read a bundle into a backlog"},
+	{"serve", "offer this machine's backlogs to the local network"},
 	{"version", "print the version"},
 	{"help", "usage summary"},
 	{"--project", "open the manager on this project's backlog only"},
 	{"--global", "open the manager on the global backlog only"},
+}
+
+// The transfer commands' flags (transfercli.go). Long spellings only, like
+// everything else here.
+var exportCompletions = []completion{
+	{"--global", "export the global backlog instead of this project's"},
+	{"--all", "include done and frozen prompts, not just the open ones"},
+	{"--out", "directory to write the bundle into"},
+	{"--markdown", "write readable markdown instead of a bundle"},
+	{"--to", "host[:port] of a machine running `cats-todo serve`"},
+	{"--mail", "open a mail composer with the prompts in the body"},
+}
+
+var importCompletions = []completion{
+	{"--global", "import into the global backlog instead of this project's"},
+	{"--keep-ids", "keep the prompts' original ids instead of minting new ones"},
+	{"--allow-duplicates", "import prompts this backlog already holds"},
+}
+
+var serveCompletions = []completion{
+	{"--port", "port to listen on (default 8422)"},
+	{"--name", "what this machine calls itself in another manager's picker"},
+	{"--inbox", "backlog arriving prompts land in: project or global"},
+	{"--allow-remote", "answer requests from outside the local network"},
 }
 
 var addCompletions = []completion{
@@ -168,6 +195,18 @@ func completeFromCLI(args []string) {
 		offer = addCompletions
 	case prior[0] == "init" && strings.HasPrefix(cur, "-"):
 		offer = initCompletions
+	case prior[0] == "export" && strings.HasPrefix(cur, "-"):
+		offer = exportCompletions
+	case prior[0] == "import" && strings.HasPrefix(cur, "-"):
+		offer = importCompletions
+	case prior[0] == "serve" && strings.HasPrefix(cur, "-"):
+		offer = serveCompletions
+	case prior[0] == "import":
+		// The one argument that is a path: the shell's own file completion is
+		// better at finding a bundle in a downloads folder than a fixed list
+		// could be, and a host is free text either way.
+		emitCompletions(nil, completeFiles)
+		return
 	}
 	// Everything else — the prompt words after `add`, anything after `version` —
 	// is free text.
