@@ -94,12 +94,20 @@ func (b *menuBox) size() {
 // fall off the bottom it flips above the pointer instead of being pushed up over
 // it, which keeps the same cell uncovered on the other side.
 func (b *menuBox) place(x, y, width, height int) {
-	b.x = min(max(x, 0), max(width-b.w, 0))
-	b.y = y + 1
-	if b.y+b.h > height {
-		b.y = y - b.h
+	b.x, b.y = placeBelowRight(x, y, b.w, b.h, width, height)
+}
+
+// placeBelowRight is that rule on its own, so the list's hover card
+// (listhover.go) lands the way a menu does without being one. A floating box is
+// a floating box: whatever the user learned about where the answer to a press
+// appears should hold for where the answer to a hover appears too.
+func placeBelowRight(x, y, w, h, width, height int) (int, int) {
+	bx := min(max(x, 0), max(width-w, 0))
+	by := y + 1
+	if by+h > height {
+		by = y - h
 	}
-	b.y = min(max(b.y, 0), max(height-b.h, 0))
+	return bx, min(max(by, 0), max(height-h, 0))
 }
 
 // hit reports which row a click at (x, y) landed on. The border is not a row, so

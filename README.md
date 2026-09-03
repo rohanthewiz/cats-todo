@@ -149,15 +149,18 @@ mouse — they act on the highlight), a **double-click** on a prompt opens it fo
 editing, holding the button down and moving **drags the prompt into a new
 place in the list** (below), and a **right-click** opens [the row's context
 menu](#the-lists-context-menu) — everything the list can do to that prompt, named
-in one place. To send one, click the prompt and then the **Send**
+in one place. Simply **resting** the pointer on a row floats
+[the hover card](#the-hover-card), which reads out the prompt's body and the
+session it would launch under without leaving the list. To send one, click the prompt and then the **Send**
 button, which opens the drop picker, where a click on a target hands the prompt
 over and starts it — a click on a row is the same choice `enter` makes, mode
 and all. So a prompt gets from the backlog into an agent without the keyboard,
 and never on one stray gesture: it takes a click on the prompt, a click on
 **Send**, and then a click on the target you meant. Pausing instead of running
 is the one thing the pointer does not offer, because it is a modifier chord.
-Mouse reporting is only asked for on the screens with something to click; the
-prompt view leaves the terminal's own text selection alone.
+Mouse reporting is only asked for on the screens with something to click — and
+only the list asks for idle motion, which is what the hover card is drawn from;
+the prompt view leaves the terminal's own text selection alone.
 
 A backlog longer than the pane **scrolls**, and says so. The list keeps a window
 sized to whatever the pane has left once the header, the buttons, the status line
@@ -445,6 +448,54 @@ and the open/frozen/done state. What does not: a schedule, which names a pane
 and a launch directory of the project it was set in — the status line says so
 when one is left behind. A copy takes a fresh id; a move keeps its own. Exporting
 a prompt into the backlog it already lives in is refused rather than duplicated.
+
+## The hover card
+
+A list row is one line, so it shows the prompt's first line and nothing else.
+Everything that decides whether *this* is the prompt to send right now — the
+rest of the body, and the model and effort a drop will run it under — was behind
+`ctrl+v` or the edit form, which is a screen change to answer "what is this one
+again?".
+
+**Rest the pointer on a row** and the card says it in place:
+
+```
+╭──────────────────────────────────────────────────╮
+│ Fix the drop timeout                             │
+│ The 12s wait comes from stale ready probes in    │
+│ client.go — capture a startup and re-check       │
+│ claudeReadyProbes before touching anything else, │
+│ then re-run the drop tests…                      │
+│                                                  │
+│ Model   claude-opus-5                            │
+│ Effort  high                                     │
+╰──────────────────────────────────────────────────╯
+```
+
+It is [cats' own pane hover card](https://github.com/rohanthewiz/cats) brought to
+the TUI, and it keeps that card's rule: a field with nothing in it drops its row,
+so the card is as tall as the prompt has things to say rather than a fixed form
+with blanks in it. A prompt with no session options gets no **Model**/**Effort**
+rows; a prompt whose body is only the line the row is already showing gets no
+card at all, rather than a bordered box repeating it back at you.
+
+Four lines of body is the reading budget. A longer prompt ends in an ellipsis,
+which is the invitation to press `ctrl+v` — the card is a glance, not the prompt
+view with a border on it. It lands below and right of the pointer and flips or
+pulls back inside the pane at the edges, exactly as a context menu does, and for
+the same reason: it leaves the row it is about visible rather than covering it.
+
+The card belongs to the *row*, not to the cell, so drifting across the same row
+leaves the box exactly where it was. It is taken down by the next thing the hand
+does — a keystroke, a click, a resize, or the pointer moving onto a heading, a
+button or the empty space below the list. Nothing on it can be pressed; while
+[the context menu](#the-lists-context-menu) is up or a row is being dragged, no
+card is built at all, because those gestures already own the pointer.
+
+The one cost is that the list asks the terminal to report *all* pointer motion
+rather than only motion under a held button. That is a message per cell the
+pointer crosses, and it is paid on the list stage alone — the prompt view, the
+one screen whose text gets copied out, still claims no mouse at all.
 
 ## The list's context menu
 

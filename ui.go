@@ -252,6 +252,11 @@ type model struct {
 	// which is what lets every caller test one field; like the editor's it lives
 	// and dies with the gesture that opened it.
 	listMenu listMenu
+	// The list's hover card (listhover.go) — what the prompt under the pointer
+	// says, without leaving the list to find out. Like the menu its zero value
+	// is "not showing", and it lives and dies with the gesture: the pointer
+	// leaving the row takes it down, and so does anything the hand does next.
+	hover hoverCard
 
 	// Form stage.
 	formMode   formMode
@@ -495,6 +500,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// them, since a resize can arrive on either stage.
 		m.menu = promptMenu{}
 		m.listMenu = listMenu{}
+		// And the hover card with them, for the same reason and one more: it was
+		// placed against a row that has just been re-laid-out, so it would be
+		// naming a prompt that is no longer under it.
+		m.clearHover()
 		return m, nil
 	case scheduleTickMsg:
 		// Handled above the stage switch, so schedules fire whatever screen is
@@ -548,16 +557,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseClickMsg:
 		return m.updateMouse(msg)
 	case tea.MouseMotionMsg:
-		// Motion only arrives while a button is held (MouseModeCellMotion — see
-		// View), so this is a drag by definition. It is answered only when the
-		// button went down on a todo row, or inside the prompt editor; anything
-		// else falls through to the active input below, which is where these
-		// messages went before drag existed.
+		// A held button makes this a drag, which is answered only when the button
+		// went down on a todo row or inside the prompt editor.
 		if m.dragging {
 			return m.dragOver(msg)
 		}
 		if m.promptSelDrag {
 			return m.promptSelOver(msg)
+		}
+		// Otherwise it is the pointer moving with nothing held. Everywhere but
+		// the list that is a message the terminal was never asked for
+		// (MouseModeCellMotion reports motion only under a button — see View),
+		// so it falls through to the active input as it always has. The list
+		// asks for all motion, and this is where its hover card is built.
+		if m.stage == stageList {
+			return m.hoverMotion(msg)
 		}
 	case tea.MouseReleaseMsg:
 		if m.dragging {
@@ -676,6 +690,11 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.listMenu.open {
 		return m.updateListMenu(msg)
 	}
+	// The hand is on the keyboard, so the pointer is not what the eye is
+	// following: the hover card goes before the key is even read. A card left
+	// standing over a list the keys are moving through would be describing a row
+	// the highlight has already left.
+	m.clearHover()
 	// A keystroke ends any drag still thought to be in progress. The release
 	// that should have ended it can genuinely go missing — a button let go
 	// outside the pane, a terminal that reports presses but not releases — and
@@ -793,6 +812,10 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // focus where the eye already is, rather than acting from one place while tab or
 // ↑/↓ resumes from another.
 func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	// Any press answers the card: the question it was floating ("what is this
+	// one?") has been answered by the hand doing something about it, and a card
+	// left up would sit over the menu or the form the press is about to open.
+	m.clearHover()
 	if msg.Button == tea.MouseRight {
 		// The right button means one thing on the two screens that have a menu's
 		// worth of answers to give: on the form, what a swept run of the prompt
@@ -1734,6 +1757,11 @@ func (m *model) setStatus(s string, isErr bool) {
 // because it is not work waiting to be picked up. The middle is the only place
 // left, and it happens to be the honest one.
 func (m *model) rebuildList() {
+	// The rows are about to move, so a card placed against one of them stops
+	// being about the row it is sitting next to. It goes rather than being
+	// re-placed: the pointer is the only thing that should ever put one on
+	// screen, and the next motion message builds a fresh one.
+	m.clearHover()
 	var items []listItem
 	var rows []todoRef
 
@@ -4200,7 +4228,18 @@ func (m model) View() tea.View {
 	// Cell motion is also exactly the mode a drag needs: it reports motion only
 	// while a button is held, so the manager hears the gesture without paying for
 	// a message on every idle sweep of the pointer across the pane.
-	if m.stage == stageList || m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageSpell || m.stage == stageViewOpts {
+	//
+	// The list is the one stage that asks for more than that. Its hover card
+	// (listhover.go) is drawn from motion with nothing held, which cell motion
+	// by definition never reports, so it takes MouseModeAllMotion and pays a
+	// message per cell the pointer crosses. That is a real cost and it buys the
+	// one thing the list cannot otherwise say — what is inside a prompt without
+	// leaving the list to find out — on the only screen where the rows are too
+	// narrow to say it themselves.
+	switch {
+	case m.stage == stageList:
+		v.MouseMode = tea.MouseModeAllMotion
+	case m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageSpell || m.stage == stageViewOpts:
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -4247,7 +4286,10 @@ func (m model) renderStage() string {
 		// is: every row constant the list hit-tests against is measured on the
 		// frame underneath, and a menu spliced in before those were computed
 		// would move the rows out from under the pointer while it was open.
-		return m.overlayListMenu(m.viewList())
+		// The hover card goes on under the menu for the same reason it is never
+		// built while one is open (see hoverMotion): the menu is the box that can
+		// be pressed, so it is the box that has to be on top.
+		return m.overlayListMenu(m.overlayHoverCard(m.viewList()))
 	}
 }
 

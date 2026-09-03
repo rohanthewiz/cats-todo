@@ -395,4 +395,24 @@ var (
 	// about a button with nothing to act on.
 	menuRowOffStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colFaint)).Background(lipgloss.Color(colPanel))
+
+	// The list's hover card (listhover.go). It floats over the list the way a
+	// menu floats over its screen, so it borrows the menu's box and field
+	// wholesale — two temporary surfaces that looked different would read as two
+	// different programs — and spends its own choices only on the three tiers of
+	// text inside it.
+	//
+	// The title takes colFg at weight, the body the muted grey secondary text is
+	// drawn in everywhere else, and the field rows colFaint: a descending ramp,
+	// so the eye lands on which prompt this is, then reads it, and finds the
+	// launch flags last — which is the order the questions are asked in.
+	hoverTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colFg)).Background(lipgloss.Color(colPanel)).Bold(true).
+			Padding(0, 1)
+	hoverBodyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colMuted)).Background(lipgloss.Color(colPanel)).
+			Padding(0, 1)
+	hoverFieldStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colFaint)).Background(lipgloss.Color(colPanel)).
+			Padding(0, 1)
 )
