@@ -1865,10 +1865,9 @@ func (m *model) rebuildList() {
 				name:      name,
 				desc:      desc,
 				descMarks: marks,
-				// The annotation columns, after the badge — every slot, blanks
-				// included, because which columns survive is a decision about
-				// the whole list rather than this row (see trimAnnotColumns,
-				// applied once the last row is in).
+				// The annotations, after the badge and packed together: only
+				// the marks this todo actually wears, so an unannotated row
+				// pays nothing for the ones it does not (see annotMarksFor).
 				annots: annotMarksFor(t),
 				// Match against the whole prompt (flattened to one line), not
 				// just the rendered first-line preview, so a filter can hit
@@ -1944,10 +1943,6 @@ func (m *model) rebuildList() {
 	add(m.global)
 
 	m.rows = rows
-	// Now that every row is built, drop the annotation columns nobody filled —
-	// a whole-list decision, so it can only be made once the last row is in (see
-	// trimAnnotColumns).
-	trimAnnotColumns(items)
 	// Swap in the new rows while keeping the existing query box and cursor
 	// (setItems re-filters and clamps), so an add/edit/toggle doesn't disturb
 	// what the user has typed or where they were.

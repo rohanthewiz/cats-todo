@@ -39,18 +39,16 @@ import (
 // there to say what a row is: a heading is a separator row, and separators are
 // dropped while a query filters — so a fact that must survive filtering has to
 // ride the row itself.
-// annots are the annotation columns between the badge and the name — the todo
+// annots are the annotation marks between the badge and the name — the todo
 // list's priority mark and its low-hanging-fruit apple (see annotations.go).
 // They are separate from badge because the badge holds one mutually-exclusive
 // state and an annotation is not one of them: a row can be critical and cheap
-// and scheduled all at once, and three facts need three columns to be true
+// and scheduled all at once, and three facts need three glyphs to be true
 // together.
 //
-// Each column keeps its width on every row whether or not that row fills it, so
-// the marks line up down the pane and the names start in one place — a column of
-// glyphs that cannot be scanned straight down is not worth the cells it costs.
-// The caller drops the columns nobody uses before handing the items over (see
-// trimAnnotColumns), so a list with no annotations in it pays nothing.
+// They carry only the marks the row actually has, packed one after another, so
+// an unannotated row spends nothing on them and its name starts where the badge
+// ends. Nothing here reserves space for a mark this row does not wear.
 //
 // descMarks are the small flags that lead the description — the fire time, the
 // session cog, the attachment count — each drawn in its own hue and in the order
@@ -74,14 +72,12 @@ type listItem struct {
 	ref        int
 }
 
-// annotMark is one annotation column on one row: the glyph to draw (empty when
-// this row has nothing to say in this column), the cells the column occupies
-// either way, and the two styles — ordinary and on the highlighted row, so a
-// mark drawn in a receded tone can be lifted there the way the name's own greys
-// are. A mark that does not recede carries the same style twice.
+// annotMark is one annotation on one row: the glyph to draw and the two styles
+// to draw it in — ordinary and on the highlighted row, so a mark drawn in a
+// receded tone can be lifted there the way the name's own greys are. A mark that
+// does not recede carries the same style twice.
 type annotMark struct {
 	text     string
-	width    int
 	style    lipgloss.Style
 	selStyle lipgloss.Style
 }
@@ -676,24 +672,17 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 		if it.badge != "" {
 			r.WriteString(onRow(it.badgeStyle, selected).Render(it.badge + " "))
 		}
-		// One segment per column, each padded out to the column's width and
-		// followed by the separating space — so an empty column still spends its
-		// cells and the names below stay in line. Its own segment with its own
-		// style, like every other part of the row (see descMark).
+		// One segment per mark, each followed by a single space — the last one
+		// included, which is what stands the group off the name. No padding and
+		// no reserved cells: a row wears the marks it has and no more, so the
+		// group is as wide as it has something to say. Its own segment with its
+		// own style, like every other part of the row (see descMark).
 		for _, an := range it.annots {
 			st := an.style
 			if selected {
 				st = an.selStyle
 			}
-			pad := an.width - lipgloss.Width(an.text)
-			if pad < 0 {
-				// A glyph wider than its column would push the names right on
-				// this row alone. Spend the extra cell rather than truncate a
-				// mark into nonsense; the slot widths are declared to make this
-				// unreachable (see annotSlot).
-				pad = 0
-			}
-			r.WriteString(onRow(st, selected).Render(an.text + strings.Repeat(" ", pad+1)))
+			r.WriteString(onRow(st, selected).Render(an.text + " "))
 		}
 		r.WriteString(highlightName(it.name, s.matched, selected, it.strike, it.dim))
 		if it.tag != "" {

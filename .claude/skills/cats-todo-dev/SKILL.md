@@ -64,8 +64,9 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
    Annotations (`priority`, `fruit`) are one set, edited and saved together
    (`annots`, `store.setAnnots`); a new mark is a field on `Todo`, a field on
    `annots`, a line in its three methods and an entry in `annotSlots`. The row
-   reads badge → annotation columns → name, each column fixed-width and dropped
-   list-wide when nobody fills it.
+   reads badge → annotations → name, and the annotations are **packed**: only the
+   marks a row wears, in slot order, one space apart, so an unmarked row spends
+   nothing. No reserved widths, so every slot's glyph must be distinct.
 2. **Two-place version bump.** `const version` in `main.go` **and** `version =` in
    `cats-plugin.toml` must match (the title chip shows it). Release = bump both,
    commit `chore(release): vX.Y.Z`. Bump the minor for a feature, patch for a fix.

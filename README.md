@@ -238,21 +238,28 @@ So the row reads outward from the cursor as state, then annotations, then the
 prompt:
 
 ```
-❯ ○ ▲ 🍏  fix the drop path       the daemon cannot resolve a bare agent name
-  ○ △     context menu grammar    right click across the manager screens
-  ○   🍏  bump the version        two files, one number
-  ○       ordinary work           nothing said about it
-  ❄       shelved idea            not doing this
-  ✓ ▲     shipped it              done and dusted
+❯ ○ ▲ 🍏 fix the drop path        the daemon cannot resolve a bare agent name
+  ○ △ context menu grammar        right click across the manager screens
+  ○ 🍏 bump the version           two files, one number
+  ○ ordinary work                 nothing said about it
+  ❄ shelved idea                  not doing this
+  ✓ ▲ shipped it                  done and dusted
 ```
 
 The badge leads because it is what the list is grouped by — arriving at a row you
-want "is this still work" before "how much work". Each annotation then has a
-column of its own, in a fixed order, and **keeps that column on every row whether
-or not the row fills it**: a mark you cannot scan straight down the pane is not
-worth the cell it costs. The columns nobody in the list uses are dropped
-entirely, so a backlog with nothing annotated looks exactly as it did before
-annotations existed, and one that uses a single mark pays for a single column.
+want "is this still work" before "how much work". The annotations follow it as
+**one compact group**: a row draws the marks it actually wears and nothing else,
+in a fixed order among themselves, and then the name starts. A prompt nobody has
+annotated spends no cells at all on them.
+
+They were columns once — a reserved slot per mark on every row, blanks included,
+so the glyphs could be scanned straight down the pane. That bought the scan by
+charging every row for every mark anyone might use, and the bill grows with each
+mark added: in a backlog where two rows are marked, every other name sat three
+cells right of where it belonged. The marks are few and they lead the row, so
+they are found by reading the left edge rather than by their column — the group
+that varies in width is the cheaper trade, and it is why the names below are
+allowed to be ragged.
 
 Two annotations exist today:
 
@@ -288,7 +295,7 @@ none, keeps its key until something rewrites the todo, and `--priority low` stil
 works and still means what it meant.
 
 The mark is a triangle rather than a dot so it cannot be confused with the state
-badge two cells to its left, which is a circle in every one of its four forms
+badge immediately to its left, which is a circle in every one of its four forms
 (`○ ✓ ❄ ◷`) — a shape says "different kind of fact" where a hue alone only says
 "different value". The pair escalates by *fill* as well as by colour, hollow to
 solid, so the level survives a colourblind reader, a monochrome capture, and a
@@ -308,11 +315,11 @@ but the glyph stays, so the record of what the prompt was rated still reads. A
 `🍏` marks a prompt whose payoff is out of proportion to what it costs — the one
 worth grabbing while you wait on something else. It answers a different question
 from priority (how *cheap*, not how *much*), which is exactly why it is a second
-column rather than a fourth level: a critical one-liner is both, and one column
-could only have told you one of them.
+mark rather than a fourth level: a critical one-liner is both, and one mark could
+only have told you one of them.
 
-Green rather than red: the critical mark one column to its left is red already,
-and two reds on a row read as one signal repeated.
+Green rather than red: where a row carries both, the critical mark beside it is
+red already, and two reds on a row read as one signal repeated.
 
 On a completed or frozen row the apple **goes away** rather than fading, which is
 the one place the two annotations part company. Priority can drop to that row's
@@ -323,6 +330,8 @@ that exists to stop shouting, so it stops being drawn: the fruit says "worth
 grabbing", and there is nothing to grab on work that is finished or shelved. The
 flag itself is untouched — the editor still shows it ticked, `ctrl+v` still
 spells it out in words, and unticking **Done** brings the apple straight back.
+The row gives the cells back with it: a finished quick win reads like any other
+finished row.
 
 #### Where they are set
 

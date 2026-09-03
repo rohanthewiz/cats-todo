@@ -6,20 +6,28 @@
 // one glyph. How much does it matter and how cheap is it are not exclusive, not
 // exclusive of each other, and not exclusive of the state either — a critical
 // one-liner is critical *and* a quick win *and* still open. Those are
-// annotations: independent facts a todo carries, each with its own glyph, each in
-// its own column so the pane can be read straight down.
+// annotations: independent facts a todo carries, each with its own glyph, drawn
+// together in front of the name so a marked prompt is spotted at the left edge.
 //
 // The row therefore reads outward from the cursor as
 //
-//	❯ ✓  ▲ 🍏  fix the thing            the prompt's first line
-//	  │  └─┴── annotations: what is true about this prompt
-//	  └─────── the state badge: which of the three groups it lives in
+//	❯ ✓ ▲ 🍏 fix the thing              the prompt's first line
+//	  │ └─┴── annotations: what is true about this prompt
+//	  └────── the state badge: which of the three groups it lives in
 //
 // The badge leads because it is the fact the list is grouped by — the eye
 // arriving at a row wants "is this still work" before "how much work". The
-// annotations follow in a fixed order, so the same mark is always in the same
-// column, which is the only thing that makes a glyph worth more than the word it
-// replaces.
+// annotations follow it as one compact group, in a fixed order among themselves,
+// and a row draws only the marks it actually has: a prompt with nothing said
+// about it spends no cells at all, and its name starts where the badge ends.
+//
+// They used to be columns — one reserved slot per mark on every row, blanks
+// included, so the glyphs could be scanned straight down the pane. That bought
+// the scan by charging every row for every mark anyone might use, and it grows
+// with each mark added: the names in a mostly-unannotated backlog all sat three
+// cells right of where they belonged, pushed there by two glyphs on one row. The
+// marks are few and they lead the row, so they are found by reading the left
+// edge rather than by their column; packing them is the cheaper trade.
 //
 // Frozen is not here. It is a state, mutually exclusive with done, and it stays
 // in the badge where the three render groups are read from (see rebuildList).
@@ -82,26 +90,18 @@ func (a annots) summary() string {
 	return strings.Join(parts, " · ")
 }
 
-// annotSlot is one annotation column: what it is called, how many cells it keeps
-// whether or not a given row fills it, and how to read it off a todo.
-//
-// width is declared rather than measured because it is a property of the column,
-// not of the row being drawn: every glyph a slot can produce is the same width,
-// and a blank slot has to reserve exactly that much so the names below it stay in
-// one line. The fruit is two cells because it is an emoji and emoji are wide;
-// the geometric marks are one, being East Asian Ambiguous like the ○ this list
-// has always drawn.
+// annotSlot is one annotation: what it is called and how to read it off a todo.
 //
 // mark returns the glyph and the two styles to draw it in — ordinary and on the
-// highlighted row. A slot with nothing to say returns an empty glyph, and the
-// column goes blank rather than falling back to a default: an annotation is
+// highlighted row. A slot with nothing to say returns an empty glyph and is left
+// off the row entirely rather than falling back to a default: an annotation is
 // something someone said about this prompt, and "nobody said anything" is not a
 // value to be drawn.
 //
 // label is the same fact in words, for the screens that have room to spell it
 // out (the prompt view) and the ones with no room to draw a glyph at all (the
 // CLI's echo). It is empty exactly when the todo has nothing to say in this
-// slot — but not merely when the slot declines to *draw*: a column can go quiet
+// slot — but not merely when the slot declines to *draw*: a mark can go quiet
 // on a closed row (see fruitMark) while the fact it records is still worth
 // spelling out, so the screens that print words key off label alone and the row
 // keys off mark. It is the *value* rather than the column — "critical", not
@@ -109,17 +109,18 @@ func (a annots) summary() string {
 // the whole fact.
 type annotSlot struct {
 	name  string
-	width int
 	mark  func(t Todo) (glyph string, style, selStyle lipgloss.Style)
 	label func(t Todo) string
 }
 
-// annotSlots is the layout: the annotation columns, left to right, in the order
-// they are drawn. Priority leads because it is the one that decides what happens
-// next; the fruit qualifies it ("…and it's cheap").
+// annotSlots is the layout: the annotations, left to right, in the order they
+// are drawn — the order is fixed even though the positions are not, so a row
+// wearing both marks always reads the same way round. Priority leads because it
+// is the one that decides what happens next; the fruit qualifies it ("…and it's
+// cheap").
 var annotSlots = []annotSlot{
-	{name: "priority", width: 1, mark: priorityMark, label: priorityAnnotLabel},
-	{name: "low-hanging fruit", width: 2, mark: fruitMark, label: fruitAnnotLabel},
+	{name: "priority", mark: priorityMark, label: priorityAnnotLabel},
+	{name: "low-hanging fruit", mark: fruitMark, label: fruitAnnotLabel},
 }
 
 // priorityAnnotLabel names the level, or says nothing at a level that draws
@@ -139,8 +140,8 @@ func fruitAnnotLabel(t Todo) string {
 	return "low-hanging fruit"
 }
 
-// priorityMark is the priority column. Only a raised level draws — see the
-// Priority constants for why "none" is a blank column rather than a third glyph.
+// priorityMark is the priority annotation. Only a raised level draws — see the
+// Priority constants for why "none" draws nothing rather than a third glyph.
 //
 // A hand-edited backlog can hold anything, including the "low" the old scheme
 // wrote. Anything unrecognized draws nothing, which is the honest reading: the
@@ -166,7 +167,7 @@ func priorityMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 	return glyph, st, st
 }
 
-// fruitMark is the low-hanging-fruit column.
+// fruitMark is the low-hanging-fruit annotation.
 //
 // A closed row does not recede here the way the priority mark does — it goes
 // quiet. That is a limitation of the glyph rather than a different opinion about
@@ -174,8 +175,8 @@ func priorityMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 // never reaches it, so a done quick win drawn at all is drawn at full colour,
 // shouting from the one tier of the list that exists to stop shouting. Unicode
 // has no grey apple to swap in and a second shape for the same fact would cost
-// the column the thing that makes it scannable, so the honest recession is to
-// stop drawing: the mark is for work you might still pick up, and there is none
+// the mark the thing that makes it legible at a glance, so the honest recession
+// is to stop drawing: the mark is for work you might still pick up, and there is none
 // of that on a done or frozen row.
 //
 // Nothing is lost with it. The flag is still on the todo, the editor's
@@ -192,56 +193,19 @@ func fruitMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 	return fruitGlyph, fruitStyle, fruitStyle
 }
 
-// annotMarksFor renders a todo's annotations into one column per slot, blanks
-// included. The blanks matter: trimAnnotColumns needs to see which columns are
-// empty across the whole list before any of them can be dropped, and the
-// renderer needs every row to carry the same columns in the same order.
+// annotMarksFor renders a todo's annotations, packed: one entry per mark this
+// row actually draws, in slot order, and nothing for the slots it has nothing to
+// say in. A row with no annotations gets an empty slice and spends no cells —
+// which is what lets the marks cost only the backlogs that use them, without the
+// whole-list bookkeeping a reserved column needs.
 func annotMarksFor(t Todo) []annotMark {
-	marks := make([]annotMark, len(annotSlots))
-	for i, sl := range annotSlots {
+	marks := make([]annotMark, 0, len(annotSlots))
+	for _, sl := range annotSlots {
 		glyph, st, sel := sl.mark(t)
-		marks[i] = annotMark{text: glyph, width: sl.width, style: st, selStyle: sel}
+		if glyph == "" {
+			continue
+		}
+		marks = append(marks, annotMark{text: glyph, style: st, selStyle: sel})
 	}
 	return marks
-}
-
-// trimAnnotColumns drops the columns that no row in the list fills, in place.
-//
-// Without it every backlog would pay for every annotation anyone might use:
-// three cells of indent on every row of a list where nothing is annotated at all,
-// growing each time a mark is added. With it, a backlog that uses no annotations
-// looks exactly as it did before they existed, one that uses only the fruit
-// spends one column, and the columns that are drawn are still drawn on every row
-// — which is what keeps them scannable.
-//
-// It is a whole-list decision on purpose: deciding per row would leave the names
-// ragged, which costs more than the indent saves.
-func trimAnnotColumns(items []listItem) {
-	used := make([]bool, len(annotSlots))
-	for _, it := range items {
-		for i, an := range it.annots {
-			if an.text != "" {
-				used[i] = true
-			}
-		}
-	}
-	keep := make([]int, 0, len(used))
-	for i, u := range used {
-		if u {
-			keep = append(keep, i)
-		}
-	}
-	if len(keep) == len(used) {
-		return // every column is in use; nothing to do
-	}
-	for i := range items {
-		if len(items[i].annots) == 0 {
-			continue // separators and headings carry no marks
-		}
-		trimmed := make([]annotMark, 0, len(keep))
-		for _, k := range keep {
-			trimmed = append(trimmed, items[i].annots[k])
-		}
-		items[i].annots = trimmed
-	}
 }

@@ -38,53 +38,57 @@ func rowNamed(t *testing.T, m model, name string) listItem {
 	return listItem{}
 }
 
-// keptSlots recomputes which annotation columns survived the trim, the same way
-// rebuildList decided: a column stays when any visible row fills it. Derived
-// rather than assumed, so these tests keep pointing at the right column as slots
-// are added — and so they fail if the trim ever disagrees with its own rule.
-func keptSlots(m model) []int {
-	used := make([]bool, len(annotSlots))
+// todoNamed finds the stored todo behind a row, so a test can ask what that row
+// *should* be drawing without assuming which marks it kept.
+func todoNamed(t *testing.T, m model, name string) Todo {
+	t.Helper()
 	for _, st := range []*store{m.project, m.global} {
 		for _, td := range st.todos {
-			if m.folded(td) {
-				continue
-			}
-			for i, sl := range annotSlots {
-				if glyph, _, _ := sl.mark(td); glyph != "" {
-					used[i] = true
-				}
+			if td.Title == name {
+				return td
 			}
 		}
 	}
-	var kept []int
-	for i, u := range used {
-		if u {
-			kept = append(kept, i)
-		}
-	}
-	return kept
+	t.Fatalf("no todo titled %q", name)
+	return Todo{}
 }
 
-// annotMarkFor is the column a named slot occupies on a named row, or a blank
-// mark when the trim dropped that column list-wide — which is the same answer
-// the row gives the reader.
+// annotMarkFor is the mark a named slot has on a named row, or a blank mark when
+// that row draws nothing in that slot — which is the same answer the row gives
+// the reader.
+//
+// The position is recomputed the way rebuildList packed it: the marks are
+// packed, so a slot's index on one row says nothing about its index on the next,
+// and a test that hard-coded a position would be pinning a layout the row no
+// longer has. Derived rather than assumed, so these tests keep pointing at the
+// right mark as slots are added — and so they fail if the packing ever
+// disagrees with its own rule.
 func annotMarkFor(t *testing.T, m model, name, slot string) annotMark {
 	t.Helper()
 	it := rowNamed(t, m, name)
-	for pos, i := range keptSlots(m) {
-		if annotSlots[i].name != slot {
-			continue
+	td := todoNamed(t, m, name)
+	pos := 0
+	for _, sl := range annotSlots {
+		glyph, _, _ := sl.mark(td)
+		if sl.name == slot {
+			if glyph == "" {
+				return annotMark{}
+			}
+			if pos >= len(it.annots) {
+				t.Fatalf("row %q carries %d annotations, want the %s mark at %d",
+					name, len(it.annots), slot, pos)
+			}
+			return it.annots[pos]
 		}
-		if pos >= len(it.annots) {
-			t.Fatalf("row %q has %d annotation columns, want the %s column at %d",
-				name, len(it.annots), slot, pos)
+		if glyph != "" {
+			pos++
 		}
-		return it.annots[pos]
 	}
+	t.Fatalf("no annotation slot named %q", slot)
 	return annotMark{}
 }
 
-// prioMark is the priority column of a row.
+// prioMark is the priority mark of a row.
 func prioMark(t *testing.T, m model, name string) annotMark {
 	t.Helper()
 	return annotMarkFor(t, m, name, "priority")
@@ -150,36 +154,46 @@ func TestTheBadgeLeadsTheAnnotations(t *testing.T) {
 	}
 }
 
-// TestUnusedAnnotationColumnsAreDropped pins what keeps the marks from costing
-// every backlog that does not use them: a list with nothing annotated draws no
-// annotation columns at all, and one that uses a single mark pays for one.
-func TestUnusedAnnotationColumnsAreDropped(t *testing.T) {
+// TestRowsCarryOnlyTheMarksTheyWear pins what keeps the annotations from costing
+// the backlogs that do not use them: a row draws the marks it has and nothing
+// else, so an unannotated row spends no cells at all and one carrying a single
+// mark spends one. This replaced a reserved column per slot on every row, which
+// charged every name in the list for the marks a couple of rows happened to use.
+func TestRowsCarryOnlyTheMarksTheyWear(t *testing.T) {
 	plain := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p"})
 	if n := len(rowNamed(t, plain, "a").annots); n != 0 {
-		t.Errorf("an unannotated list kept %d annotation columns, want 0", n)
+		t.Errorf("an unannotated row kept %d annotations, want 0", n)
 	}
 
 	one := prioModel(t,
 		Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityCritical},
 		Todo{ID: "b", Title: "b", Prompt: "p"},
 	)
-	// Both rows keep the same one column — the unmarked row's is blank, which is
-	// what holds the names in line.
-	for _, name := range []string{"a", "b"} {
-		if n := len(rowNamed(t, one, name).annots); n != 1 {
-			t.Errorf("row %q has %d annotation columns, want 1", name, n)
-		}
+	// The marked row carries its one mark; the row beside it carries nothing —
+	// no blank held open for a mark it does not wear.
+	if n := len(rowNamed(t, one, "a").annots); n != 1 {
+		t.Errorf("the critical row has %d annotations, want 1", n)
 	}
-	if got := rowNamed(t, one, "b").annots[0]; got.text != "" || got.width != 1 {
-		t.Errorf("the unmarked row's column = %+v, want a blank one cell wide", got)
+	if n := len(rowNamed(t, one, "b").annots); n != 0 {
+		t.Errorf("the unmarked row beside it kept %d annotations, want 0", n)
 	}
 
+	// Two rows using different marks each pay for their own, and neither pays
+	// for the other's — the case reserved columns could not express.
 	both := prioModel(t,
 		Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityHigh},
 		Todo{ID: "b", Title: "b", Prompt: "p", Fruit: true},
 	)
-	if n := len(rowNamed(t, both, "a").annots); n != len(annotSlots) {
-		t.Errorf("a list using every mark kept %d columns, want %d", n, len(annotSlots))
+	for _, name := range []string{"a", "b"} {
+		if n := len(rowNamed(t, both, name).annots); n != 1 {
+			t.Errorf("row %q has %d annotations, want the 1 it wears", name, n)
+		}
+	}
+	// And a row wearing both packs them in slot order, priority first.
+	all := prioModel(t, Todo{ID: "a", Title: "a", Prompt: "p", Priority: priorityHigh, Fruit: true})
+	marks := rowNamed(t, all, "a").annots
+	if len(marks) != 2 || marks[0].text != prioHighGlyph || marks[1].text != fruitGlyph {
+		t.Errorf("a doubly marked row carries %+v, want the triangle then the apple", marks)
 	}
 }
 
@@ -205,18 +219,13 @@ func TestFruitMarksTheRow(t *testing.T) {
 	}
 }
 
-// TestFruitGlyphFitsItsColumn pins the emoji against the width annotSlots
-// declares for it. It is the one mark that is not one cell, so a slot width that
-// stopped matching would push every name on the list a column right.
-func TestFruitGlyphFitsItsColumn(t *testing.T) {
-	var width int
-	for _, sl := range annotSlots {
-		if sl.name == "low-hanging fruit" {
-			width = sl.width
-		}
-	}
-	if w := lipgloss.Width(fruitGlyph); w != width {
-		t.Errorf("the fruit glyph is %d cells wide, its column reserves %d", w, width)
+// TestTheFruitStaysTwoCells pins the emoji's width. Nothing reserves cells for
+// it any more, but it still shares a row with the name that follows it: a glyph
+// that measured differently from what the terminal paints would leave the group
+// and the name overlapping or a cell apart, on the rows that carry it alone.
+func TestTheFruitStaysTwoCells(t *testing.T) {
+	if w := lipgloss.Width(fruitGlyph); w != 2 {
+		t.Errorf("the fruit glyph is %d cells wide, want 2", w)
 	}
 }
 
@@ -742,8 +751,8 @@ func TestPromptViewSpellsOutTheAnnotations(t *testing.T) {
 // priority mark greys itself on a done or frozen row; the apple cannot — the
 // font paints it and never sees a foreground — so a mark left there would be the
 // one full-colour thing in the tier of the list that exists to stop shouting.
-// It leaves instead, and the fixed column still holds the names in line as long
-// as anything open fills it.
+// It leaves instead, and with the marks packed the closed row simply gives the
+// cells back: its name moves left rather than sitting behind a blank.
 func TestClosedRowsDropTheFruit(t *testing.T) {
 	m := prioModel(t,
 		Todo{ID: "open", Title: "open", Prompt: "p", Fruit: true},
@@ -757,24 +766,22 @@ func TestClosedRowsDropTheFruit(t *testing.T) {
 		if got := annotMarkFor(t, m, name, "low-hanging fruit").text; got != "" {
 			t.Errorf("the %s quick win still draws %q", name, got)
 		}
-		// The column itself stays — an open row above fills it, and a row that
-		// dropped its columns would put its name a cell to the left of the rest.
-		if n := len(rowNamed(t, m, name).annots); n != 1 {
-			t.Errorf("the %s row has %d annotation columns, want the 1 the open row keeps", name, n)
+		// And it takes its cells with it: a closed quick win wearing no other
+		// mark carries nothing, exactly like a row nobody annotated.
+		if n := len(rowNamed(t, m, name).annots); n != 0 {
+			t.Errorf("the %s row has %d annotations, want 0 once the apple is gone", name, n)
 		}
 	}
 
-	// And when every quick win in the list is finished, nobody fills the column
-	// and the usual trim takes it away entirely — the same answer an unannotated
-	// backlog gets, which is the point: these rows are no longer marked.
-	closed := prioModel(t,
-		Todo{ID: "done", Title: "done", Prompt: "p", Fruit: true, Done: true},
-		Todo{ID: "plain", Title: "plain", Prompt: "p"},
+	// A closed row that is *also* rated keeps that mark, which is what says the
+	// apple left on its own account rather than the whole group going quiet on
+	// finished work.
+	rated := prioModel(t,
+		Todo{ID: "d", Title: "done", Prompt: "p", Fruit: true, Priority: priorityCritical, Done: true},
 	)
-	for _, name := range []string{"done", "plain"} {
-		if n := len(rowNamed(t, closed, name).annots); n != 0 {
-			t.Errorf("a list whose only quick win is finished kept %d columns on %q, want 0", n, name)
-		}
+	marks := rowNamed(t, rated, "done").annots
+	if len(marks) != 1 || marks[0].text != prioCriticalGlyph {
+		t.Errorf("a finished critical quick win carries %+v, want the triangle alone", marks)
 	}
 }
 
