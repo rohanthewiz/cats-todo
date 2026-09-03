@@ -7,13 +7,20 @@
 // prompt is actually written showed neither. The bar puts them on the form
 // itself, where the title they qualify is, as one horizontal line of segments:
 //
-//	☐ 🍏 Quick win   Priority  (•) none   ( ) △ high   ( ) ▲ critical
+//	☐ 🍏 Quick win   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☐ ⚑ Flag
 //
-// One checkbox and one radio group, because that is what the two facts are:
+// Two checkboxes and one radio group, because that is what the three facts are:
 // the fruit is independent ("cheap, whatever else is true"), and the priority
-// is exactly one of three levels. The glyphs each segment carries — 🍏, △, ▲ —
+// is exactly one of three levels; the flag is independent again ("and there is
+// something to say about it"). The glyphs each segment carries — 🍏, △, ▲, ⚑ —
 // are the marks the choice will draw on the list row, so the bar teaches the
 // legend at the moment the mark is made.
+//
+// The flag trails the radios rather than joining the fruit at the head, because
+// it is the one segment that is not the whole of its own answer: pressing it
+// raises a note field on the line below (formFieldFlagNote, ui.go), and a
+// control that opens something belongs at the end of the row it opens it under
+// rather than in the middle of a group the eye is still reading across.
 //
 // The bar edits m.formAnnots, the same by-value copy the panel rows used to
 // edit, so every promise the form makes still holds: nothing reaches the
@@ -37,6 +44,7 @@ const (
 	annotSegPrioNone            // the priority radios, one per level, in
 	annotSegPrioHigh            // the order they escalate — the same walk
 	annotSegPrioCritical        // the old panel row cycled
+	annotSegFlag                // the ⚑ Flag checkbox, and its note field
 	annotSegCount
 )
 
@@ -57,13 +65,19 @@ type annotSeg struct {
 // shrink rather than wrap, because it sits on a row every click is hit-tested
 // against (formAnnotRow), and a bar that wrapped would put the prompt editor
 // one line down from where the pointer finds it. The full tier spells the
-// levels out; the compact one keeps the state glyphs (the box, the holes, the
-// marks) and gives up the words, which the marks themselves still teach.
+// levels out; the compact one keeps the state glyphs (the boxes, the holes, the
+// marks) and gives up the words, which the marks themselves still teach. The
+// compact tier comes to 30 cells with all five segments on it, which is the
+// narrowest pane this form is drawn in at all.
 func (m model) annotBarLayout() (segs [annotSegCount]annotSeg, line string) {
 	a := m.formAnnots
 	box := "☐"
 	if a.Fruit {
 		box = "☑"
+	}
+	flagBox := "☐"
+	if a.Flag {
+		flagBox = "☑"
 	}
 	// The radio that is filled. An exact match on purpose: a hand-edited
 	// backlog can hold anything, including the retired "low", and a value this
@@ -82,14 +96,21 @@ func (m model) annotBarLayout() (segs [annotSegCount]annotSeg, line string) {
 		annotSegPrioNone:     radio(priorityNone) + " none",
 		annotSegPrioHigh:     radio(priorityHigh) + " " + prioHighGlyph + " high",
 		annotSegPrioCritical: radio(priorityCritical) + " " + prioCriticalGlyph + " critical",
+		annotSegFlag:         flagBox + " " + flagGlyph + " Flag",
 	}
 	gap, divider := 3, "Priority"
 	if m.width > 0 && annotBarWidth(texts, gap, divider) > m.width {
 		texts = [annotSegCount]string{
-			annotSegFruit:        box + " " + fruitGlyph,
-			annotSegPrioNone:     radio(priorityNone) + " none",
+			annotSegFruit: box + " " + fruitGlyph,
+			// "none" gives up its word with the rest of them, and takes a dash
+			// in its place rather than standing as a bare hole: it is the one
+			// radio with no mark of its own, so an unlabelled "( )" would be
+			// the only segment on the compact bar saying nothing at all. The
+			// dash is the mark for "nothing said", which is exactly the level.
+			annotSegPrioNone:     radio(priorityNone) + " –",
 			annotSegPrioHigh:     radio(priorityHigh) + " " + prioHighGlyph,
 			annotSegPrioCritical: radio(priorityCritical) + " " + prioCriticalGlyph,
+			annotSegFlag:         flagBox + " " + flagGlyph,
 		}
 		gap, divider = 2, ""
 	}
@@ -153,6 +174,8 @@ func (m model) annotSegStyle(i int) lipgloss.Style {
 		st = prioHighStyle
 	case i == annotSegPrioCritical && a.Priority == priorityCritical:
 		st = prioCriticalStyle
+	case i == annotSegFlag && a.Flag:
+		st = flagStyle
 	}
 	if m.formFocus == formFieldAnnots && i == m.annotCursor {
 		st = st.Underline(true)
@@ -170,7 +193,10 @@ func (m model) annotBar() string {
 // the level outright. Choosing an already-filled radio keeps it — radios do
 // not un-choose — and "none" is a hole of its own rather than the absence of
 // one, so clearing a level is the same gesture as setting it.
-func (m *model) activateAnnotSeg(i int) {
+// The flag is the one segment with something underneath it: ticking it raises
+// the note field on the line below (setFormFlag, ui.go), and clearing it takes
+// the field and its words away again.
+func (m *model) activateAnnotSeg(i int) tea.Cmd {
 	switch i {
 	case annotSegFruit:
 		m.formAnnots.Fruit = !m.formAnnots.Fruit
@@ -180,7 +206,25 @@ func (m *model) activateAnnotSeg(i int) {
 		m.formAnnots.Priority = priorityHigh
 	case annotSegPrioCritical:
 		m.formAnnots.Priority = priorityCritical
+	case annotSegFlag:
+		return m.setFormFlag(!m.formAnnots.Flag)
 	}
+	return nil
+}
+
+// pressAnnotSeg is a segment pressed from the keyboard: the state change, and
+// then the keys, which the flag moves. Ticking ⚑ Flag puts the caret straight
+// into the note it just opened, because the gesture is one thought — "flag this,
+// because…" — and a field that appeared but had to be tabbed to would break it
+// in half. Nothing else on the bar moves the focus: the other three segments are
+// whole answers on their own, and the walk should stay where the hand left it.
+func (m model) pressAnnotSeg(i int) (tea.Model, tea.Cmd) {
+	flagged := m.formAnnots.Flag
+	cmd := m.activateAnnotSeg(i)
+	if i == annotSegFlag && !flagged && m.formAnnots.Flag {
+		return m, m.focusForm(formFieldFlagNote)
+	}
+	return m, cmd
 }
 
 // updateAnnotBar handles the keys while the bar holds the form's focus: ←/→
@@ -200,7 +244,7 @@ func (m model) updateAnnotBar(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.annotCursor++
 		}
 	case " ", "space":
-		m.activateAnnotSeg(m.annotCursor)
+		return m.pressAnnotSeg(m.annotCursor)
 	}
 	return m, nil
 }
@@ -215,8 +259,11 @@ func (m model) clickAnnotBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	for i, seg := range segs {
 		if msg.X >= seg.start && msg.X < seg.end {
 			m.annotCursor = i
-			m.activateAnnotSeg(i)
-			return m, nil
+			// The focus deliberately does not follow the pointer here (see the
+			// doc comment) — the one cmd this can return is setFormFlag's, and
+			// that one only fires when clearing the flag stranded the keys in
+			// the note field it just took away.
+			return m, m.activateAnnotSeg(i)
 		}
 	}
 	return m, nil

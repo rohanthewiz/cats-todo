@@ -19,15 +19,26 @@
 //	│ (•) Priority: none              │
 //	│ ( ) Priority: △ high            │
 //	│ ( ) Priority: ▲ critical        │
+//	│ ☐ ⚑ Flag                        │
 //	│ ➦ Export…                ctrl+o │
 //	│ ✖ Delete…                ctrl+x │
 //	╰─────────────────────────────────╯
 //
 // Every row that has a chord keeps it, so the menu doubles as the keyboard's own
 // reference — the action bar's five chips already work this way, and the actions
-// that never had a chip are exactly the ones nothing was teaching. The four
+// that never had a chip are exactly the ones nothing was teaching. The five
 // annotation rows carry no chord because there is none to carry: this menu is
 // the list's only road to them.
+//
+// The flag is a checkbox here like the fruit, and it flips the mark alone: its
+// note is words, and a menu row is a press rather than a place to type. A flag
+// raised from the menu therefore comes up bare, which is the honest shape of the
+// gesture — "there is something about this one" is exactly what a right-click
+// and one press can say. The words are added on the form, where the ⚑ segment
+// raises a note field beside the prompt they are about (annotbar.go). A flagged
+// prompt's row here shows the note it already carries, so pressing ✎ Edit… to
+// write one is a decision made with the current note in sight rather than a
+// screen away.
 //
 // Rows that name a state rather than an action say what the press will do, which
 // is the only thing a menu row ever promises: ✓ Mark done reads ↺ Reopen on a
@@ -49,8 +60,16 @@
 package main
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 )
+
+// listMenuNoteWidth is how much of a flag's note the menu row will show. Wide
+// enough for the phrase a note usually is, short enough that the box stays a
+// menu rather than becoming a reading pane — the rest is on the hover card and
+// the prompt view, both of which have room for the whole line.
+const listMenuNoteWidth = 32
 
 // The menu's actions, which are also its row order. Reading order is roughly
 // least to most committing: the two that only look at the prompt, then the two
@@ -66,7 +85,7 @@ const (
 	listMenuFreeze
 	// The annotations sit directly after the two state rows, and in the
 	// annotation bar's own order — the fruit, then the three priority levels as
-	// they escalate. All four are per-row marks and are learned together, which
+	// they escalate, then the flag. All five are per-row marks and are learned together, which
 	// is the same reason the list footer keeps done, freeze and priority
 	// adjacent; putting them between the state rows and the two that move or
 	// destroy the prompt also means the destructive end of the menu stays the
@@ -75,9 +94,10 @@ const (
 	listMenuPrioNone
 	listMenuPrioHigh
 	listMenuPrioCritical
+	listMenuFlag
 	// Select sits just above Export because it is the thing you do *to* several
 	// rows before pressing Export once — and because a tick is a per-row mark
-	// like the four above it, just one the list rather than the prompt
+	// like the five above it, just one the list rather than the prompt
 	// remembers.
 	listMenuSelect
 	listMenuExport
@@ -174,6 +194,16 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 	if td.Fruit {
 		box = "☑"
 	}
+	// The flag's row wears its note, trimmed to something a menu can hold — the
+	// menu sizes itself to its widest row (menuBox.size), and a long note would
+	// stretch the whole box across the pane for one line of it.
+	flagLabel := "☐ " + flagGlyph + " Flag"
+	if td.Flag {
+		flagLabel = "☑ " + flagGlyph + " Flag"
+		if note := strings.TrimSpace(td.FlagNote); note != "" {
+			flagLabel += ": " + truncate(note, listMenuNoteWidth)
+		}
+	}
 	radio := func(level string) string {
 		if td.Priority == level {
 			return "(•)"
@@ -211,6 +241,7 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		{act: listMenuPrioNone, label: radio(priorityNone) + " Priority: none"},
 		{act: listMenuPrioHigh, label: radio(priorityHigh) + " Priority: " + prioHighGlyph + " high"},
 		{act: listMenuPrioCritical, label: radio(priorityCritical) + " Priority: " + prioCriticalGlyph + " critical"},
+		{act: listMenuFlag, label: flagLabel},
 		// Export needs no socket — the picker is shorter without one (no
 		// workspace rows), not gone — and delete is answerable from any state,
 		// so neither is ever dim.
@@ -303,7 +334,7 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 		return m.toggleSelected()
 	case listMenuFreeze:
 		return m.freezeSelected()
-	case listMenuFruit, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical:
+	case listMenuFruit, listMenuFlag, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical:
 		return m.setMenuAnnots(ref, it.act)
 	case listMenuSelect:
 		return m.markSelected()
@@ -345,9 +376,15 @@ func (m model) setMenuAnnots(ref todoRef, act int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	a := annotsOf(td)
-	if act == listMenuFruit {
+	switch act {
+	case listMenuFruit:
 		a.Fruit = !a.Fruit
-	} else {
+	case listMenuFlag:
+		// Only the mark: the note is left exactly as it was, and applyTo drops
+		// it with the flag on the way to the file (see annots.applyTo), so a
+		// prompt unflagged from here does not keep words nothing draws.
+		a.Flag = !a.Flag
+	default:
 		a.Priority = listMenuPrio[act]
 	}
 	if err := m.storeFor(ref.scope).setAnnots(ref.id, a); err != nil {
@@ -361,6 +398,12 @@ func (m model) setMenuAnnots(ref todoRef, act int) (tea.Model, tea.Cmd) {
 		m.setStatus("marked a quick win", false)
 	case act == listMenuFruit:
 		m.setStatus("no longer a quick win", false)
+	case act == listMenuFlag && a.Flag:
+		// The invitation is the point: the row can only raise the mark, and
+		// someone who wanted to say why has to be told where that is done.
+		m.setStatus("flagged — enter to add a note", false)
+	case act == listMenuFlag:
+		m.setStatus("flag cleared", false)
 	default:
 		// The lens only reorders when the level actually moved; pressing the
 		// row a prompt already sits on leaves the list exactly where it was.

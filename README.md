@@ -149,15 +149,18 @@ mouse — they act on the highlight), a **double-click** on a prompt opens it fo
 editing, holding the button down and moving **drags the prompt into a new
 place in the list** (below), and a **right-click** opens [the row's context
 menu](#the-lists-context-menu) — everything the list can do to that prompt, named
-in one place. To send one, click the prompt and then the **Send**
+in one place. Simply **resting** the pointer on a row floats
+[the hover card](#the-hover-card), which reads out the prompt's body and the
+session it would launch under without leaving the list. To send one, click the prompt and then the **Send**
 button, which opens the drop picker, where a click on a target hands the prompt
 over and starts it — a click on a row is the same choice `enter` makes, mode
 and all. So a prompt gets from the backlog into an agent without the keyboard,
 and never on one stray gesture: it takes a click on the prompt, a click on
 **Send**, and then a click on the target you meant. Pausing instead of running
 is the one thing the pointer does not offer, because it is a modifier chord.
-Mouse reporting is only asked for on the screens with something to click; the
-prompt view leaves the terminal's own text selection alone.
+Mouse reporting is only asked for on the screens with something to click — and
+only the list asks for idle motion, which is what the hover card is drawn from;
+the prompt view leaves the terminal's own text selection alone.
 
 A backlog longer than the pane **scrolls**, and says so. The list keeps a window
 sized to whatever the pane has left once the header, the buttons, the status line
@@ -235,33 +238,42 @@ So the row reads outward from the cursor as state, then annotations, then the
 prompt:
 
 ```
-❯ ○ ▲ 🍏  fix the drop path       the daemon cannot resolve a bare agent name
-  ○ △     context menu grammar    right click across the manager screens
-  ○   🍏  bump the version        two files, one number
-  ○       ordinary work           nothing said about it
-  ❄       shelved idea            not doing this
-  ✓ ▲     shipped it              done and dusted
+❯ ○ ▲ 🍏 fix the drop path        the daemon cannot resolve a bare agent name
+  ○ △ context menu grammar        right click across the manager screens
+  ○ ⚑ port the export picker      blocked until the api rename lands
+  ○ 🍏 bump the version           two files, one number
+  ○ ordinary work                 nothing said about it
+  ❄ shelved idea                  not doing this
+  ✓ ▲ shipped it                  done and dusted
 ```
 
 The badge leads because it is what the list is grouped by — arriving at a row you
-want "is this still work" before "how much work". Each annotation then has a
-column of its own, in a fixed order, and **keeps that column on every row whether
-or not the row fills it**: a mark you cannot scan straight down the pane is not
-worth the cell it costs. The columns nobody in the list uses are dropped
-entirely, so a backlog with nothing annotated looks exactly as it did before
-annotations existed, and one that uses a single mark pays for a single column.
+want "is this still work" before "how much work". The annotations follow it as
+**one compact group**: a row draws the marks it actually wears and nothing else,
+in a fixed order among themselves, and then the name starts. A prompt nobody has
+annotated spends no cells at all on them.
 
-Two annotations exist today:
+They were columns once — a reserved slot per mark on every row, blanks included,
+so the glyphs could be scanned straight down the pane. That bought the scan by
+charging every row for every mark anyone might use, and the bill grows with each
+mark added: in a backlog where two rows are marked, every other name sat three
+cells right of where it belonged. The marks are few and they lead the row, so
+they are found by reading the left edge rather than by their column — the group
+that varies in width is the cheaper trade, and it is why the names below are
+allowed to be ragged.
+
+Three annotations exist today:
 
 | Mark | Means | Set by |
 |---|---|---|
 | `▲` `△` | **priority** — critical, high | the editor's **Priority** radios, `--priority` |
 | `🍏` | **low-hanging fruit** — a quick win | the editor's **Quick win** checkbox, `--fruit` |
+| `⚑` | **flagged** — singled out, with an optional note saying why | the editor's **Flag** checkbox and its note field, `--flag` |
 
 Freezing is *not* an annotation. It is a state, mutually exclusive with done, and
 it stays in the badge (`❄`) where the three groups are read from.
 
-Both are stored as nothing at all when nothing has been said — so a backlog
+All three are stored as nothing at all when nothing has been said — so a backlog
 nobody has annotated is byte-for-byte the file it was before the feature existed,
 and a teammate on an older build reads it unchanged.
 
@@ -285,7 +297,7 @@ none, keeps its key until something rewrites the todo, and `--priority low` stil
 works and still means what it meant.
 
 The mark is a triangle rather than a dot so it cannot be confused with the state
-badge two cells to its left, which is a circle in every one of its four forms
+badge immediately to its left, which is a circle in every one of its four forms
 (`○ ✓ ❄ ◷`) — a shape says "different kind of fact" where a hue alone only says
 "different value". The pair escalates by *fill* as well as by colour, hollow to
 solid, so the level survives a colourblind reader, a monochrome capture, and a
@@ -305,11 +317,11 @@ but the glyph stays, so the record of what the prompt was rated still reads. A
 `🍏` marks a prompt whose payoff is out of proportion to what it costs — the one
 worth grabbing while you wait on something else. It answers a different question
 from priority (how *cheap*, not how *much*), which is exactly why it is a second
-column rather than a fourth level: a critical one-liner is both, and one column
-could only have told you one of them.
+mark rather than a fourth level: a critical one-liner is both, and one mark could
+only have told you one of them.
 
-Green rather than red: the critical mark one column to its left is red already,
-and two reds on a row read as one signal repeated.
+Green rather than red: where a row carries both, the critical mark beside it is
+red already, and two reds on a row read as one signal repeated.
 
 On a completed or frozen row the apple **goes away** rather than fading, which is
 the one place the two annotations part company. Priority can drop to that row's
@@ -320,25 +332,76 @@ that exists to stop shouting, so it stops being drawn: the fruit says "worth
 grabbing", and there is nothing to grab on work that is finished or shelved. The
 flag itself is untouched — the editor still shows it ticked, `ctrl+v` still
 spells it out in words, and unticking **Done** brings the apple straight back.
+The row gives the cells back with it: a finished quick win reads like any other
+finished row.
+
+#### Flag
+
+`⚑` is the open question, where the other two are closed ones. Priority asks how
+much a prompt matters and the fruit asks how cheap it is; both have an answer the
+program can read. The flag says only **there is something about this one** — it
+is blocked, it is waiting on an answer, it needs a word before anyone starts —
+and what that something *is* goes in the flag's **note**.
+
+That makes it the only mark that carries words, and the note is optional: a bare
+`⚑` still means "look at this one", and demanding a sentence would make the mark
+cost more than it is worth. Where the note exists it is shown wherever there is
+room for a line of prose — hover a flagged row and the card carries it, `ctrl+v`
+spells it out on the meta line as `⚑ flagged: blocked on the api rename`, and the
+list's context menu prints it beside the checkbox so a decision to open the
+editor is made with the current note in sight.
+
+The pennant takes the palette's one cool blue, deliberately off the warm ramp the
+other two marks sit on. That ramp runs from "ordinary outstanding work" up to
+"alarm", and the flag is not a point on it: it is a different kind of claim, and
+it should not read as a third loudness. Unlike the apple it is a text glyph, so a
+foreground actually reaches it — which is why on a completed or frozen row it
+**recedes to that row's greys** rather than going away. A flag is a note to a
+reader, and "there was something about this one" is worth as much on finished
+work as on open work once it has stopped competing for attention.
+
+The note lives and dies with the mark. Clearing the flag drops the words with it,
+in the editor and in the file both, so a backlog never holds a note about a
+prompt whose row draws nothing.
 
 #### Where they are set
 
-Both are set in two places, on the same controls. On the editor itself, on a
-segmented bar between the title and the prompt body — a checkbox and a radio
-group, because that is what the two facts are: the fruit is independent, and the
-priority is exactly one of three levels. And on the list, without opening
-anything, from [the row's context menu](#marking-priority-and-quick-wins-from-the-list)
-— the same checkbox and the same three radios, laid out down instead of across.
+All three are set in two places, on the same controls. On the editor itself, on a
+segmented bar between the title and the prompt body — two checkboxes and a radio
+group, because that is what the three facts are: the fruit is independent, the
+priority is exactly one of three levels, and the flag is independent again. And
+on the list, without opening anything, from
+[the row's context menu](#marking-priority-and-quick-wins-from-the-list) — the
+same checkboxes and the same three radios, laid out down instead of across.
 
 ```
 Title
 fix the drop path
 
-☐ 🍏 Quick win   Priority  (•) none   ( ) △ high   ( ) ▲ critical
+☐ 🍏 Quick win   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☑ ⚑ Flag
+⚑ note  blocked until the api rename lands
 
 Prompt
 …
 ```
+
+**☑ ⚑ Flag** trails the radios because it is the one segment that is not the whole
+of its own answer: ticking it raises the note field on the line below and puts the
+caret straight in it, because "flag this, because…" is one thought and a field you
+had to go and find would break it in half. Unticking it takes the field and its
+words away again. The note is a `tab` stop of the form's ring exactly while the
+flag is up, and it is the one stop the walk steps over otherwise — a tab that
+appeared to do nothing would be worse than one stop fewer.
+
+The note takes over the blank line that was already there between the bar and the
+**Prompt** label rather than being inserted below it. Everything under that line
+— the editor, its height, the toolbar, and every click hit-tested against them —
+is arithmetic on a layout that must not move, and a field that pushed the form
+down a row when a checkbox was ticked would slide the buttons out from under the
+pointer.
+
+A narrow pane drops the bar's words and keeps its glyphs (`☐ 🍏  ( ) –  ( ) △
+( ) ▲  ☐ ⚑`); it never wraps, for the same reason — it sits on a hit-tested row.
 
 They used to be the first two rows of the ⚙ session panel, above a seam —
 accurate, but a screen away: the marks describe **the prompt**, the panel
@@ -361,7 +424,8 @@ keystrokes into a row that is not a text field.
 Nothing is written until the form is saved, so an abandoned edit leaves the
 marks as they were — the one difference from the context menu, which has no form
 to abandon and therefore writes on the press. `ctrl+v` on a list row spells the marks out in words as
-well — `▲ critical · 🍏 low-hanging fruit` on the prompt view's meta line —
+well — `▲ critical · 🍏 low-hanging fruit · ⚑ flagged: blocked on the api` on the
+prompt view's meta line —
 which is where to look when a glyph on a row is not yet familiar. That line is
 built from the words rather than from the glyphs, so it still reads
 `▲ critical · low-hanging fruit` on a finished prompt whose row has dropped the
@@ -608,6 +672,54 @@ destination flag it writes a bundle into `--out` (or the current directory).
 directory holding exactly one bundle — two is a question, not a guess), and
 anything else is a machine.
 
+## The hover card
+
+A list row is one line, so it shows the prompt's first line and nothing else.
+Everything that decides whether *this* is the prompt to send right now — the
+rest of the body, and the model and effort a drop will run it under — was behind
+`ctrl+v` or the edit form, which is a screen change to answer "what is this one
+again?".
+
+**Rest the pointer on a row** and the card says it in place:
+
+```
+╭──────────────────────────────────────────────────╮
+│ Fix the drop timeout                             │
+│ The 12s wait comes from stale ready probes in    │
+│ client.go — capture a startup and re-check       │
+│ claudeReadyProbes before touching anything else, │
+│ then re-run the drop tests…                      │
+│                                                  │
+│ Model   claude-opus-5                            │
+│ Effort  high                                     │
+╰──────────────────────────────────────────────────╯
+```
+
+It is [cats' own pane hover card](https://github.com/rohanthewiz/cats) brought to
+the TUI, and it keeps that card's rule: a field with nothing in it drops its row,
+so the card is as tall as the prompt has things to say rather than a fixed form
+with blanks in it. A prompt with no session options gets no **Model**/**Effort**
+rows; a prompt whose body is only the line the row is already showing gets no
+card at all, rather than a bordered box repeating it back at you.
+
+Four lines of body is the reading budget. A longer prompt ends in an ellipsis,
+which is the invitation to press `ctrl+v` — the card is a glance, not the prompt
+view with a border on it. It lands below and right of the pointer and flips or
+pulls back inside the pane at the edges, exactly as a context menu does, and for
+the same reason: it leaves the row it is about visible rather than covering it.
+
+The card belongs to the *row*, not to the cell, so drifting across the same row
+leaves the box exactly where it was. It is taken down by the next thing the hand
+does — a keystroke, a click, a resize, or the pointer moving onto a heading, a
+button or the empty space below the list. Nothing on it can be pressed; while
+[the context menu](#the-lists-context-menu) is up or a row is being dragged, no
+card is built at all, because those gestures already own the pointer.
+
+The one cost is that the list asks the terminal to report *all* pointer motion
+rather than only motion under a held button. That is a message per cell the
+pointer crosses, and it is paid on the list stage alone — the prompt view, the
+one screen whose text gets copied out, still claims no mouse at all.
+
 ## The list's context menu
 
 The list can do a dozen things to a prompt and the button bar has room for five,
@@ -627,6 +739,7 @@ on the prompt you pointed at.
 │ (•) Priority: none              │
 │ ( ) Priority: △ high            │
 │ ( ) Priority: ▲ critical        │
+│ ☑ ⚑ Flag: blocked on the api    │
 │ ✓ Select             ctrl+space │
 │ ➦ Export…                ctrl+o │
 │ ✖ Delete…                ctrl+x │
@@ -659,15 +772,15 @@ say "Export" and quietly mean four.
 
 ### Marking priority and quick wins from the list
 
-The four middle rows are the reason this menu exists. A prompt's annotations —
-its [priority](#priority) and its [low-hanging fruit](#low-hanging-fruit) mark —
-are facts you read straight off a list row, but until now the only way to *set*
+The five middle rows are the reason this menu exists. A prompt's annotations —
+its [priority](#priority), its [low-hanging fruit](#low-hanging-fruit) mark and
+its [flag](#flag) — are facts you read straight off a list row, but until now the only way to *set*
 one was to open the editor and find the annotation bar: a full round trip
 through a form, to change a fact about a row you were already looking at.
 
 They are the editor's controls, in the editor's glyphs, laid out down instead of
-across. **☐ 🍏 Quick win** is a checkbox and toggles. The three **Priority** rows
-are radios and set exactly their level, so pressing `▲ critical` on a prompt that
+across. **☐ 🍏 Quick win** and **☐ ⚑ Flag** are checkboxes and toggle. The three
+**Priority** rows are radios and set exactly their level, so pressing `▲ critical` on a prompt that
 is already critical leaves it there rather than switching it off — and `none` is
 a row of its own, which makes clearing a level the same gesture as setting one.
 The status line names the result either way.
@@ -678,6 +791,12 @@ save, so the mark lands in the backlog on the press. With the priority lens on
 rides with the row so the next keystroke still acts on the prompt you just
 marked; the status line says the list reordered, since on a tall pane the row can
 travel most of it.
+
+The flag row flips the mark alone — a menu row is a press, and a note is words,
+so a flag raised from here comes up bare and the status line says where the words
+are written. The row shows whatever note the prompt already carries, trimmed to
+something a menu can hold, and clearing the flag from here takes those words with
+it exactly as the editor does.
 
 A value the program cannot read — the retired `low` from an old backlog, or a
 typo in a hand-edited one — fills no radio, exactly as it draws no mark on the
@@ -696,6 +815,7 @@ cats-todo add -g clean up the dotfiles      # → the global one
 cats-todo add -t "flaky test" fix the …     # → an explicit title
 cats-todo add --priority critical fix the … # → marked critical
 cats-todo add --fruit bump the version …    # → marked 🍏 low-hanging fruit
+cats-todo add --flag="waiting on the api" …  # → flagged, with a note
 git log -p | cats-todo add -t "review this diff"   # → the prompt from piped stdin
 ```
 
@@ -709,8 +829,8 @@ type — so `add` is safe to bind to a key or drop in a script.
 setting when the prompt starts mid-thought, or when it arrives on stdin and its
 first line is a diff header.
 
-`--priority` and `--fruit` set the prompt's [annotations](#annotations)
-(`critical`, `high`, `none`; and the `🍏` quick-win mark), so a prompt captured
+`--priority`, `--fruit` and `--flag` set the prompt's [annotations](#annotations)
+(`critical`, `high`, `none`; the `🍏` quick-win mark; and the `⚑` flag), so a prompt captured
 mid-firefight arrives already marked rather than needing to be opened afterwards
 to say so:
 
@@ -728,7 +848,12 @@ the flags have no effect on a backlog until someone actually marks something.
 `--priority` is long-only on purpose — a bare `-p` beside `--perm` reads as an
 abbreviation of it, and a flag that looks like it means permissions while meaning
 priority is the kind of thing that gets found out at the wrong moment — and
-`--fruit` follows it for the same reason.
+`--fruit` and `--flag` follow it for the same reason.
+
+`--flag` carries its note in the same breath as the mark: bare, it raises a flag
+with nothing to say; `--flag="blocked on the api rename"` raises one with the
+words. The value must be attached with `=`, because the words after a bare
+`--flag` are the prompt — which is the whole shape of this command.
 
 Without `-g`, `add` writes to the project backlog rooted the way everything else
 here roots it — nearest `.cats-todo/`, else the repo root, else the current

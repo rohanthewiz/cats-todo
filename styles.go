@@ -323,6 +323,14 @@ var (
 	// that cannot reach the glyph is not a recession, so a closed row stops
 	// drawing the apple instead (see fruitMark).
 	fruitStyle = lipgloss.NewStyle()
+	// The flag. colInfo is the palette's one cool hue, and that is the point:
+	// the other two annotations sit on the warm ramp that runs from "ordinary
+	// work" up to "alarm", and the flag is not a point on that ramp — it says
+	// "there is something else about this one", which is a different kind of
+	// claim and should not read as a third loudness. It is a text glyph rather
+	// than an emoji, so unlike the apple it can take a foreground at all, which
+	// is what lets it recede on a closed row instead of going quiet (flagMark).
+	flagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colInfo))
 )
 
 // The annotation glyphs (see annotations.go for the columns they live in).
@@ -345,6 +353,12 @@ const (
 	prioCriticalGlyph = "▲"
 	prioHighGlyph     = "△"
 	fruitGlyph        = "🍏"
+	// The pennant is the flag mark. A shape with no fill and no colour twin —
+	// unlike the triangles, it has no second level to escalate to, because the
+	// flag is one bit and everything else it has to say is in its note. One cell
+	// wide (East Asian Ambiguous, like the triangles and the badge), so a row
+	// wearing all three marks still costs what the packing promised.
+	flagGlyph = "⚑"
 )
 
 var (
@@ -411,4 +425,24 @@ var (
 	// about a button with nothing to act on.
 	menuRowOffStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colFaint)).Background(lipgloss.Color(colPanel))
+
+	// The list's hover card (listhover.go). It floats over the list the way a
+	// menu floats over its screen, so it borrows the menu's box and field
+	// wholesale — two temporary surfaces that looked different would read as two
+	// different programs — and spends its own choices only on the three tiers of
+	// text inside it.
+	//
+	// The title takes colFg at weight, the body the muted grey secondary text is
+	// drawn in everywhere else, and the field rows colFaint: a descending ramp,
+	// so the eye lands on which prompt this is, then reads it, and finds the
+	// launch flags last — which is the order the questions are asked in.
+	hoverTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colFg)).Background(lipgloss.Color(colPanel)).Bold(true).
+			Padding(0, 1)
+	hoverBodyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colMuted)).Background(lipgloss.Color(colPanel)).
+			Padding(0, 1)
+	hoverFieldStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colFaint)).Background(lipgloss.Color(colPanel)).
+			Padding(0, 1)
 )

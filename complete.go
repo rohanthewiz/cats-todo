@@ -111,8 +111,9 @@ var addCompletions = []completion{
 // that: --priority is an annotation and not a session option (it is a fact about
 // the prompt, not about the agent that will read it) but it is the same kind of
 // flag, and a second map holding one entry would be worse than a name that
-// overstates by one. --fruit is the other annotation and takes no value, so it
-// has nothing to offer here.
+// overstates by one. --fruit is another annotation and takes no value, so it has
+// nothing to offer here; --flag's value is free text, which is the other kind of
+// flag a completion menu has nothing to say about.
 var sessionValueCompletions = map[string][]completion{
 	"--priority": {
 		{"critical", "do this first"},

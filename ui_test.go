@@ -508,8 +508,11 @@ func stepForm(t *testing.T, m model, key string) model {
 // must not turn it on.
 func TestMouseReportingScopedToList(t *testing.T) {
 	m := withTodo("ship it")
-	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {
-		t.Errorf("list stage MouseMode = %v, want cell motion so the bar is clickable", got)
+	// The list asks for all motion rather than cell motion: its hover card
+	// (listhover.go) is drawn from the pointer moving with nothing held, which
+	// cell motion never reports.
+	if got := m.View().MouseMode; got != tea.MouseModeAllMotion {
+		t.Errorf("list stage MouseMode = %v, want all motion so the bar is clickable and hover reports", got)
 	}
 	m.stage = stageTarget
 	if got := m.View().MouseMode; got != tea.MouseModeCellMotion {

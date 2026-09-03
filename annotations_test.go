@@ -117,31 +117,25 @@ func TestSetAnnotsWritesTheWholeSetAtOnce(t *testing.T) {
 	}
 }
 
-// TestEverySlotDeclaresItsOwnWidth pins the assumption the whole annotation zone
-// rests on: within a slot every glyph is the same width, and that width is what
-// the slot reserves. A glyph wider than its column would push every name on the
-// list right by a cell on the rows that carry it, which is exactly the ragged
-// edge the fixed columns exist to prevent.
-func TestEverySlotDeclaresItsOwnWidth(t *testing.T) {
+// TestEverySlotDrawsADistinctGlyph pins what the packed group rests on. With
+// reserved columns a mark was identified by where it sat, so two slots could in
+// principle have shared a shape; packed, position says nothing — a lone apple
+// and a lone triangle both sit in the first cell after the badge — and the glyph
+// is the whole of the answer. Two slots drawing the same shape would leave the
+// row ambiguous with no way for the reader to resolve it.
+func TestEverySlotDrawsADistinctGlyph(t *testing.T) {
 	// One todo carrying every mark this build knows how to draw, so each slot
 	// has something to hand back.
-	all := Todo{ID: "x", Prompt: "p", Priority: priorityCritical, Fruit: true}
+	all := Todo{ID: "x", Prompt: "p", Priority: priorityCritical, Fruit: true, Flag: true}
 	for _, sl := range annotSlots {
-		glyph, _, _ := sl.mark(all)
-		if glyph == "" {
+		if glyph, _, _ := sl.mark(all); glyph == "" {
 			t.Errorf("slot %q drew nothing for a fully annotated todo — this test can no longer measure it", sl.name)
-			continue
-		}
-		if sl.width < 1 {
-			t.Errorf("slot %q reserves %d cells", sl.name, sl.width)
 		}
 	}
-	// And the marks are distinct across slots, which is what lets a reader tell
-	// two adjacent columns apart without counting cells.
 	seen := map[string]string{}
 	for _, sl := range annotSlots {
 		for _, td := range []Todo{
-			{Priority: priorityCritical}, {Priority: priorityHigh}, {Fruit: true},
+			{Priority: priorityCritical}, {Priority: priorityHigh}, {Fruit: true}, {Flag: true},
 		} {
 			glyph, _, _ := sl.mark(td)
 			if glyph == "" {
