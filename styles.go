@@ -307,6 +307,14 @@ var (
 	// that cannot reach the glyph is not a recession, so a closed row stops
 	// drawing the apple instead (see fruitMark).
 	fruitStyle = lipgloss.NewStyle()
+	// The flag. colInfo is the palette's one cool hue, and that is the point:
+	// the other two annotations sit on the warm ramp that runs from "ordinary
+	// work" up to "alarm", and the flag is not a point on that ramp — it says
+	// "there is something else about this one", which is a different kind of
+	// claim and should not read as a third loudness. It is a text glyph rather
+	// than an emoji, so unlike the apple it can take a foreground at all, which
+	// is what lets it recede on a closed row instead of going quiet (flagMark).
+	flagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colInfo))
 )
 
 // The annotation glyphs (see annotations.go for the columns they live in).
@@ -329,6 +337,12 @@ const (
 	prioCriticalGlyph = "▲"
 	prioHighGlyph     = "△"
 	fruitGlyph        = "🍏"
+	// The pennant is the flag mark. A shape with no fill and no colour twin —
+	// unlike the triangles, it has no second level to escalate to, because the
+	// flag is one bit and everything else it has to say is in its note. One cell
+	// wide (East Asian Ambiguous, like the triangles and the badge), so a row
+	// wearing all three marks still costs what the packing promised.
+	flagGlyph = "⚑"
 )
 
 var (

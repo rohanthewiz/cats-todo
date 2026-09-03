@@ -74,6 +74,24 @@ type Todo struct {
 	// false, so a backlog nobody has marked reads exactly as it did before the
 	// field existed, and an older binary ignores the key rather than choking.
 	Fruit bool `json:"fruit,omitempty"`
+	// Flag marks a prompt someone wanted to single out for a reason the other
+	// two marks cannot express — blocked on something, waiting on an answer,
+	// "ask me before doing this". Priority and fruit are closed questions with
+	// an answer each program can read; the flag is the open one, which is why
+	// it is the only annotation that carries words.
+	//
+	// FlagNote is those words, and it is optional: a bare flag still means
+	// "look at this one", and forcing a sentence out of someone who only wanted
+	// the mark would make the mark cost more than it is worth. The note is only
+	// ever kept while the flag is up — applyTo clears it with the flag (see
+	// annots.applyTo), so the file never holds a note about a prompt whose row
+	// draws nothing.
+	//
+	// Same compat contract as the fields above: both omitted when zero, so a
+	// backlog nobody has flagged is byte-identical to what it was before the
+	// fields existed, and an older binary ignores the keys rather than choking.
+	Flag     bool   `json:"flag,omitempty"`
+	FlagNote string `json:"flagNote,omitempty"`
 }
 
 // Schedule is a one-shot auto-drop waiting to fire: at time At, the todo's
@@ -420,8 +438,8 @@ func (s *store) setSession(id string, o *SessionOpts) error {
 	return errTodoNotFound
 }
 
-// setAnnots replaces the annotations of the todo with id — its priority and its
-// low-hanging-fruit mark — and persists. Zero values clear them, which is what
+// setAnnots replaces the annotations of the todo with id — its priority, its
+// low-hanging-fruit mark and its flag — and persists. Zero values clear them, which is what
 // writes the keys back out of the file rather than storing "none"/false (see the
 // Priority and Fruit fields).
 //

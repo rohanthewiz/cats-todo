@@ -167,7 +167,7 @@ func TestListMenuDimsWhatCannotAct(t *testing.T) {
 		for _, row := range []int{
 			listMenuEdit, listMenuView, listMenuDone, listMenuFreeze,
 			listMenuFruit, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical,
-			listMenuExport, listMenuDelete,
+			listMenuFlag, listMenuExport, listMenuDelete,
 		} {
 			if !m.listMenu.items[row].live() {
 				t.Errorf("row %d is dim, but it never needed the socket", row)
@@ -438,7 +438,7 @@ func TestListMenuDiesWithItsStage(t *testing.T) {
 	})
 }
 
-// TestListMenuAnnotationRowsDrawTheirState: the four annotation rows are the
+// TestListMenuAnnotationRowsDrawTheirState: the five annotation rows are the
 // list's only road to a prompt's marks, so they have to say what is already true
 // as well as what pressing them would do — a checkbox and one filled radio out
 // of three, in the annotation bar's own glyphs.
@@ -572,6 +572,77 @@ func TestListMenuSetsTheAnnotations(t *testing.T) {
 		td, _ := next.(model).project.find("a")
 		if !td.Fruit || td.Priority != priorityHigh {
 			t.Fatalf("todo = %+v, want both marks standing", td)
+		}
+	})
+}
+
+// TestListMenuFlagRow: the flag is a checkbox on this menu like the fruit — it
+// flips the mark and nothing else, because a menu row is a press and a note is
+// words. The row wears whatever note the prompt already carries, so the decision
+// to open the form and write one is made with the current note in sight.
+func TestListMenuFlagRow(t *testing.T) {
+	t.Run("the row flips the mark both ways", func(t *testing.T) {
+		m := withTodos(t, "the prompt")
+		m = rightClickRow(t, m, 0)
+		next, _ := m.pressListMenu(listMenuFlag)
+		on := next.(model)
+
+		if td, _ := on.project.find("a"); !td.Flag {
+			t.Fatal("the flag row did not mark the prompt")
+		}
+		// The row can only raise the mark, so the status has to say where the
+		// words are written — otherwise "with note" is a promise nothing keeps.
+		if !strings.Contains(on.status, "note") {
+			t.Errorf("status = %q, want the note's road named", on.status)
+		}
+
+		next, _ = rightClickRow(t, on, 0).pressListMenu(listMenuFlag)
+		if td, _ := next.(model).project.find("a"); td.Flag {
+			t.Fatal("a second press did not clear the flag")
+		}
+	})
+
+	t.Run("the row draws the state and the note", func(t *testing.T) {
+		m := withTodos(t, "the prompt")
+		if got := rightClickRow(t, m, 0).listMenu.items[listMenuFlag].label; !strings.HasPrefix(got, "☐") {
+			t.Errorf("flag row = %q, want an empty box on an unflagged prompt", got)
+		}
+
+		markTodo(t, m.project, "a", false, false, annots{Flag: true, FlagNote: "blocked on the api"})
+		m.rebuildList()
+		got := rightClickRow(t, m, 0).listMenu.items[listMenuFlag].label
+		if !strings.HasPrefix(got, "☑") || !strings.Contains(got, "blocked on the api") {
+			t.Errorf("flag row = %q, want a ticked box carrying the note", got)
+		}
+	})
+
+	// Clearing the flag from here takes its words with it: applyTo drops the
+	// note with the mark, so the file never holds words no screen draws.
+	t.Run("clearing the flag drops its note", func(t *testing.T) {
+		m := withTodos(t, "the prompt")
+		markTodo(t, m.project, "a", false, false, annots{Flag: true, FlagNote: "why"})
+		m.rebuildList()
+		m = rightClickRow(t, m, 0)
+		next, _ := m.pressListMenu(listMenuFlag)
+
+		td, _ := next.(model).project.find("a")
+		if td.Flag || td.FlagNote != "" {
+			t.Fatalf("todo = %+v, want the flag and its note both gone", td)
+		}
+	})
+
+	// The set is written whole (store.setAnnots), so the flag must not clobber
+	// the marks beside it — the same guard the fruit and priority rows carry.
+	t.Run("the flag does not clobber the other marks", func(t *testing.T) {
+		m := withTodos(t, "the prompt")
+		markTodo(t, m.project, "a", false, false, annots{Priority: priorityCritical, Fruit: true})
+		m.rebuildList()
+		m = rightClickRow(t, m, 0)
+		next, _ := m.pressListMenu(listMenuFlag)
+
+		td, _ := next.(model).project.find("a")
+		if !td.Flag || !td.Fruit || td.Priority != priorityCritical {
+			t.Fatalf("todo = %+v, want all three marks standing", td)
 		}
 	})
 }

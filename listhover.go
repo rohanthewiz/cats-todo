@@ -185,6 +185,18 @@ func hoverLines(td Todo, inner int) []string {
 		}
 	}
 
+	// The flag's note, when it has one. This is the card's reason for carrying
+	// anything other than the prompt's own text: the row draws ⚑ and the glyph
+	// alone cannot say what it was about, so the words go where the pointer
+	// already is rather than behind the edit form. A bare flag adds no row — the
+	// mark on the row has already said everything there is.
+	if td.Flag {
+		if note := strings.TrimSpace(td.FlagNote); note != "" {
+			row("", hoverBodyStyle) // the separator the fields below use too
+			row(truncate(flagGlyph+" "+note, inner), hoverFieldStyle)
+		}
+	}
+
 	// The session's launch flags — the two that decide what the receiving agent
 	// *is*, and the pair a drop is most often reconsidered over. The rest of the
 	// setup (context, reviews, wrap-up) is deliberately left to the ⚙ panel:

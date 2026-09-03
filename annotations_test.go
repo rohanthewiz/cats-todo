@@ -126,7 +126,7 @@ func TestSetAnnotsWritesTheWholeSetAtOnce(t *testing.T) {
 func TestEverySlotDrawsADistinctGlyph(t *testing.T) {
 	// One todo carrying every mark this build knows how to draw, so each slot
 	// has something to hand back.
-	all := Todo{ID: "x", Prompt: "p", Priority: priorityCritical, Fruit: true}
+	all := Todo{ID: "x", Prompt: "p", Priority: priorityCritical, Fruit: true, Flag: true}
 	for _, sl := range annotSlots {
 		if glyph, _, _ := sl.mark(all); glyph == "" {
 			t.Errorf("slot %q drew nothing for a fully annotated todo — this test can no longer measure it", sl.name)
@@ -135,7 +135,7 @@ func TestEverySlotDrawsADistinctGlyph(t *testing.T) {
 	seen := map[string]string{}
 	for _, sl := range annotSlots {
 		for _, td := range []Todo{
-			{Priority: priorityCritical}, {Priority: priorityHigh}, {Fruit: true},
+			{Priority: priorityCritical}, {Priority: priorityHigh}, {Fruit: true}, {Flag: true},
 		} {
 			glyph, _, _ := sl.mark(td)
 			if glyph == "" {

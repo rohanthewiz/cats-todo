@@ -264,8 +264,15 @@ type model struct {
 	editID     string
 	titleInput textinput.Model
 	promptArea textarea.Model
-	formFocus  int // the formField* stop holding the keys (title, prompt, annotation bar)
-	formErr    string
+	// flagInput is the ⚑ flag's note, the form's third text field — a single
+	// line under the annotation bar, drawn and reachable only while the flag is
+	// actually up (see formFieldFlagNote and viewForm). It is kept in step with
+	// m.formAnnots.FlagNote on every keystroke rather than committed on the way
+	// out, so the bar's ☑ and the words beneath it can never describe different
+	// states, and a save from any stop writes what is on screen.
+	flagInput textinput.Model
+	formFocus int // the formField* stop holding the keys (title, prompt, annotation bar, flag note)
+	formErr   string
 	// formNote is the form's one non-error message, drawn on the same line
 	// formErr uses and yielding to it when both are set. Today it says a
 	// selection was copied. It is not folded into formErr because a save failure
@@ -1173,6 +1180,14 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case msg.Y == formAnnotRow:
 		return m.clickAnnotBar(msg)
+	case msg.Y == formFlagNoteRow && m.formAnnots.Flag:
+		// Unlike the bar above it, this row is a text field, so a click does
+		// take the keys — that is what clicking into a field means everywhere
+		// else on this form. While the flag is down the row is blank and the
+		// click falls through to nothing, which is what a blank line should do.
+		cmd := m.focusForm(formFieldFlagNote)
+		m.placeFlagCursor(msg.X)
+		return m, cmd
 	case msg.Y == formPromptLabelRow:
 		return m, m.focusForm(formFieldPrompt)
 	case msg.Y >= formPromptRow && msg.Y < formPromptRow+m.promptArea.Height():
@@ -2105,6 +2120,7 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	// behaviour a drop had before options existed.
 	m.formSession = SessionOpts{}
 	m.formAnnots = annots{}
+	m.flagInput = m.newFlagInput("")
 	m.annotCursor = 0
 	m.discardClipboardCaptures()
 	// Start in the prompt — that's the point of an entry.
@@ -2148,6 +2164,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 		m.formSession = td.Session.clone()
 	}
 	m.formAnnots = annotsOf(td)
+	m.flagInput = m.newFlagInput(td.FlagNote)
 	m.annotCursor = 0
 	m.discardClipboardCaptures()
 	cmd := m.focusForm(formFieldPrompt)
@@ -2203,6 +2220,87 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 	}
 	ta.SetHeight(h)
 	return ti, ta
+}
+
+// --- The flag's note ----------------------------------------------------------
+
+// flagNoteLabel prefixes the note field, so the row says which mark it belongs
+// to without a label line of its own — there is exactly one line to spend here
+// (formFlagNoteRow) and a heading would have taken it.
+const flagNoteLabel = "⚑ note  "
+
+// flagInputWidth budgets the note box: the pane less the form's usual margin,
+// less the label the row leads with. Clamped rather than allowed to go tiny, so
+// a very narrow pane gets a cramped field instead of a field that cannot show
+// the caret.
+func flagInputWidth(paneWidth int) int {
+	w := paneWidth - 4 - lipgloss.Width(flagNoteLabel)
+	if w < 12 || paneWidth <= 0 {
+		w = 12
+	}
+	return w
+}
+
+// newFlagInput builds the note field, pre-filled with whatever the todo already
+// says. Built per form rather than once for the model's life, for the reason
+// newFormInputs is: the value belongs to the prompt being edited, and a field
+// carried between forms is the one that shows the last prompt's words.
+func (m model) newFlagInput(note string) textinput.Model {
+	ti := textinput.New()
+	ti.Placeholder = "why this one is flagged (optional)"
+	ti.Prompt = ""
+	// A note is a phrase, not a paragraph — the row it is read back on (the
+	// list's hover card, the prompt view's meta line) has one line for it.
+	ti.CharLimit = 120
+	ti.SetWidth(flagInputWidth(m.width))
+	ti.SetValue(note)
+	return ti
+}
+
+// flagNoteLine is row formFlagNoteRow: the note field while the flag is up, and
+// the blank that row has always been while it is down.
+func (m model) flagNoteLine() string {
+	if !m.formAnnots.Flag {
+		return ""
+	}
+	return flagStyle.Render(flagNoteLabel) + m.flagInput.View()
+}
+
+// placeFlagCursor drops the note field's caret on the column that was clicked,
+// on placeTitleCursor's terms — the click's X less the label the field starts
+// after, and nothing at all on a value scrolled sideways, where the origin the
+// column would be computed from is not the one on screen.
+func (m *model) placeFlagCursor(x int) {
+	runes := []rune(m.flagInput.Value())
+	if lipgloss.Width(string(runes)) > m.flagInput.Width() {
+		return
+	}
+	m.flagInput.SetCursor(colAtWidth(runes, x-lipgloss.Width(flagNoteLabel)))
+}
+
+// setFormFlag raises or clears the flag on the form's copy and keeps the note
+// field in step: raising arms the box with whatever the prompt already said,
+// clearing drops the words with the mark — the same turn annots.applyTo makes on
+// the way to the file, made here so the screen and the file agree before the
+// save rather than after it.
+//
+// Clearing while the keys are in the note field hands them back to the bar,
+// which is where the press that cleared it came from. A caret left blinking on
+// a row that is now blank would be a field the form is no longer drawing.
+func (m *model) setFormFlag(on bool) tea.Cmd {
+	m.formAnnots.Flag = on
+	if !on {
+		m.formAnnots.FlagNote = ""
+		m.flagInput.SetValue("")
+		if m.formFocus == formFieldFlagNote {
+			return m.focusForm(formFieldAnnots)
+		}
+		m.flagInput.Blur()
+		return nil
+	}
+	m.flagInput.SetValue(m.formAnnots.FlagNote)
+	m.flagInput.CursorEnd()
+	return nil
 }
 
 func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -2333,8 +2431,7 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		if m.formFocus == formFieldAnnots {
-			m.activateAnnotSeg(m.annotCursor)
-			return m, nil
+			return m.pressAnnotSeg(m.annotCursor)
 		}
 		return m.saveForm()
 	case "tab":
@@ -2649,6 +2746,13 @@ const (
 	formFieldTitle = iota
 	formFieldPrompt
 	formFieldAnnots
+	// The flag's note, last because it is the only conditional stop: it exists
+	// exactly while the flag is up, and the walk skips it otherwise (see
+	// cycleFormFocus). It follows the bar rather than preceding it because the
+	// bar is where the field is turned on — pressing ⚑ Flag lands the keys here,
+	// so tab from the bar arriving at the same place is the walk agreeing with
+	// the gesture.
+	formFieldFlagNote
 	formFieldCount
 )
 
@@ -2661,18 +2765,31 @@ func (m *model) focusForm(field int) tea.Cmd {
 	m.formFocus = field
 	m.titleInput.Blur()
 	m.promptArea.Blur()
+	m.flagInput.Blur()
 	switch field {
 	case formFieldTitle:
 		return m.titleInput.Focus()
 	case formFieldPrompt:
 		return m.promptArea.Focus()
+	case formFieldFlagNote:
+		return m.flagInput.Focus()
 	}
 	return nil
 }
 
-// cycleFormFocus walks the tab ring one stop in either direction.
+// cycleFormFocus walks the tab ring one stop in either direction, stepping over
+// the note field while the flag is down — a stop for a field that is not on
+// screen would be a tab that appeared to do nothing, twice on the way round.
+// The loop is bounded by the ring's size because every skipped stop is the same
+// one: there is only ever one conditional stop, so at most one step is skipped.
 func (m model) cycleFormFocus(delta int) (tea.Model, tea.Cmd) {
 	next := (m.formFocus + delta + formFieldCount) % formFieldCount
+	for range formFieldCount {
+		if next != formFieldFlagNote || m.formAnnots.Flag {
+			break
+		}
+		next = (next + delta + formFieldCount) % formFieldCount
+	}
 	// The command is taken before m is returned: a returned value is a copy, and
 	// taking it first would hand back the model as it was before the focus moved.
 	cmd := m.focusForm(next)
@@ -2688,6 +2805,8 @@ func (m *model) restoreFormFocus() tea.Cmd {
 		return m.titleInput.Focus()
 	case formFieldPrompt:
 		return m.promptArea.Focus()
+	case formFieldFlagNote:
+		return m.flagInput.Focus()
 	}
 	return nil
 }
@@ -2699,6 +2818,12 @@ func (m model) forwardForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.titleInput, cmd = m.titleInput.Update(msg)
 	case formFieldPrompt:
 		m.promptArea, cmd = m.promptArea.Update(msg)
+	case formFieldFlagNote:
+		m.flagInput, cmd = m.flagInput.Update(msg)
+		// Committed here rather than on the way out of the field, so the
+		// annotation set the save writes is the one the screen is showing even
+		// if the save comes from a chord pressed in this very field.
+		m.formAnnots.FlagNote = m.flagInput.Value()
 	}
 	return m, cmd
 }
@@ -4775,9 +4900,19 @@ func (m *model) sizeListWindow() {
 
 // The form's fixed rows, counting from the top of that view: the heading (0), a
 // blank (1), the Title label (2), the title field (3), a blank (4), the
-// annotation bar (5), a blank (6), the Prompt label (7), then the prompt
-// editor. Every one of those is exactly one line, so a click's Y is compared
-// against these constants instead of the view being re-measured.
+// annotation bar (5), the flag's note (6), the Prompt label (7), then the
+// prompt editor. Every one of those is exactly one line, so a click's Y is
+// compared against these constants instead of the view being re-measured.
+//
+// Row 6 is the one line that is not always the same thing, and it is a line
+// either way: it was the blank between the bar and the Prompt label, and it
+// still is whenever the flag is down. The note field takes that blank over
+// rather than being inserted below it, because every constant under it — and
+// the editor's height, and the toolbar's row, and every hit-test that counts
+// from formPromptRow — is arithmetic on a layout that must not move. A field
+// that pushed the editor down one row when a checkbox was ticked would move the
+// buttons out from under the pointer, which is the one thing this form's
+// geometry promises it will never do.
 // TestFormRowsMatchWhatIsDrawn finds each of them in the rendered frame and
 // fails if the layout ever grows a line.
 //
@@ -4787,6 +4922,7 @@ const (
 	formTitleLabelRow  = 2
 	formTitleRow       = 3
 	formAnnotRow       = 5
+	formFlagNoteRow    = 6
 	formPromptLabelRow = 7
 	formPromptRow      = 8
 )
@@ -4821,7 +4957,15 @@ func (m model) viewForm() string {
 	// qualify and the body (annotbar.go). One line by construction, which
 	// formAnnotRow and every row constant below it depend on.
 	b.WriteString(m.annotBar())
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	// And the flag's note on the line below it — the blank that was there
+	// otherwise (see formFlagNoteRow). It sits directly under the bar rather
+	// than anywhere else on the form because it is not a field of its own: it
+	// is what the ⚑ segment two cells above it means, and a note about the flag
+	// that had to be looked for somewhere else would be a note nobody wrote.
+	b.WriteString(m.flagNoteLine())
+	b.WriteString("\n")
 
 	b.WriteString(promptStyle.Render("Prompt"))
 	b.WriteString("\n")
@@ -5622,6 +5766,7 @@ func (m *model) applySizes() {
 	case stageForm:
 		m.titleInput.SetWidth(w)
 		m.promptArea.SetWidth(w)
+		m.flagInput.SetWidth(flagInputWidth(m.width))
 		if h := m.height - formChromeHeight; h >= 4 {
 			m.promptArea.SetHeight(h)
 		}

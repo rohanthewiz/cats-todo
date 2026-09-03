@@ -65,9 +65,21 @@ func addFromCLI(args []string) {
 	// for the same reason: it is a fact about the prompt rather than one of the
 	// short flags that say where the prompt goes.
 	fruit := fs.Bool("fruit", false, "mark as low-hanging fruit — cheap for what it pays")
+	// The third annotation, and the only one that carries words. optString is
+	// what makes the note optional in the same breath as the mark: `--flag`
+	// raises a bare flag, `--flag="blocked on the api"` raises one with
+	// something to say. It borrows --sess-load's shape rather than splitting
+	// into a --flag/--flag-note pair, because the two would only ever be typed
+	// together and a note given without the mark would have nowhere to go.
+	//
+	// Unlike --sess-load it gets no expandSessLoad rewrite, so the value must be
+	// attached with "=". A bare word after `--flag` is prose, and the whole
+	// point of the flag is that the prompt following it is a sentence.
+	var flagged optString
+	fs.Var(&flagged, "flag", "single it out, optionally with a note (--flag, --flag=\"why\")")
 
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [--priority p] [--fruit] [session options] [prompt...]")
+		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [--priority p] [--fruit] [--flag[=note]] [session options] [prompt...]")
 		fmt.Fprintln(os.Stderr, "  the prompt is the remaining args joined; with none it is read from a piped stdin")
 		fmt.Fprintln(os.Stderr, "  session options: --model --effort --perm --clear --sess-load[=n] --sess-use --ctx")
 		fmt.Fprintln(os.Stderr, "                   --finish --review --release")
@@ -88,7 +100,7 @@ func addFromCLI(args []string) {
 	if err != nil {
 		errExit(err)
 	}
-	ann := annots{Priority: prio, Fruit: *fruit}
+	ann := annots{Priority: prio, Fruit: *fruit, Flag: flagged.set, FlagNote: flagged.value}
 
 	prompt := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if prompt == "" {

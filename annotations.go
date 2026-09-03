@@ -50,24 +50,37 @@ import (
 type annots struct {
 	Priority string // priorityNone | priorityHigh | priorityCritical
 	Fruit    bool   // low-hanging fruit — a quick win
+	Flag     bool   // singled out — see Todo.Flag
+	// FlagNote is the flag's optional words. It rides in the set rather than
+	// beside it because it is not a mark of its own: it is what this mark says,
+	// and every screen that edits the flag edits the two together.
+	FlagNote string
 }
 
 // annotsOf reads a todo's annotations off it.
 func annotsOf(t Todo) annots {
-	return annots{Priority: t.Priority, Fruit: t.Fruit}
+	return annots{Priority: t.Priority, Fruit: t.Fruit, Flag: t.Flag, FlagNote: t.FlagNote}
 }
 
 // applyTo writes the set back onto a todo, leaving everything else alone.
+// The note is dropped with the flag rather than kept for a later re-flag: a
+// stored note nothing draws is a fact about the prompt that no screen shows,
+// and the next flag would come up wearing words the user did not just write.
 func (a annots) applyTo(t *Todo) {
 	t.Priority = a.Priority
 	t.Fruit = a.Fruit
+	t.Flag = a.Flag
+	t.FlagNote = ""
+	if a.Flag {
+		t.FlagNote = strings.TrimSpace(a.FlagNote)
+	}
 }
 
 // any reports whether anything has actually been said. It is what lets a screen
 // stay silent about a prompt nobody has annotated — the CLI's echo — rather
 // than announce the defaults on every one.
 func (a annots) any() bool {
-	return a.Priority != priorityNone || a.Fruit
+	return a.Priority != priorityNone || a.Fruit || a.Flag
 }
 
 // summary is the annotations in words, for the screens with no room to draw
@@ -121,6 +134,11 @@ type annotSlot struct {
 var annotSlots = []annotSlot{
 	{name: "priority", mark: priorityMark, label: priorityAnnotLabel},
 	{name: "low-hanging fruit", mark: fruitMark, label: fruitAnnotLabel},
+	// The flag trails both. It is the mark whose meaning is written on the
+	// prompt rather than carried by the glyph, so it is the one a reader has to
+	// stop for — and a stop belongs at the end of the group, after the two
+	// facts that can be taken in at a glance.
+	{name: "flag", mark: flagMark, label: flagAnnotLabel},
 }
 
 // priorityAnnotLabel names the level, or says nothing at a level that draws
@@ -131,6 +149,19 @@ func priorityAnnotLabel(t Todo) string {
 		return ""
 	}
 	return priorityLabel(t.Priority)
+}
+
+// flagAnnotLabel is the flag in words, with its note when it has one — this is
+// the only annotation whose label carries anything the glyph did not, which is
+// the whole reason the screens that spell the marks out exist for it.
+func flagAnnotLabel(t Todo) string {
+	if !t.Flag {
+		return ""
+	}
+	if note := strings.TrimSpace(t.FlagNote); note != "" {
+		return "flagged: " + note
+	}
+	return "flagged"
 }
 
 func fruitAnnotLabel(t Todo) string {
@@ -191,6 +222,24 @@ func fruitMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 		return "", prioClosedStyle, prioClosedSelStyle
 	}
 	return fruitGlyph, fruitStyle, fruitStyle
+}
+
+// flagMark is the flag annotation.
+//
+// It recedes on a closed row the way priority does rather than going quiet the
+// way the fruit does, and for the same mechanical reason read the other way:
+// the pennant is a text glyph, so a grey foreground actually reaches it. The
+// mark stays because a flag is a note to a reader — "there was something about
+// this one" — and that is worth as much on finished work as on open work, once
+// it has stopped competing for attention with what is still to do.
+func flagMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
+	if !t.Flag {
+		return "", lipgloss.NewStyle(), lipgloss.NewStyle()
+	}
+	if t.closed() {
+		return flagGlyph, prioClosedStyle, prioClosedSelStyle
+	}
+	return flagGlyph, flagStyle, flagStyle
 }
 
 // annotMarksFor renders a todo's annotations, packed: one entry per mark this
