@@ -20,6 +20,7 @@
 //	│ ( ) Priority: △ high            │
 //	│ ( ) Priority: ▲ critical        │
 //	│ ☐ ⚑ Flag                        │
+//	│ ✎ Flag note…                    │
 //	│ ➦ Export…                ctrl+o │
 //	│ ✖ Delete…                ctrl+x │
 //	╰─────────────────────────────────╯
@@ -30,15 +31,15 @@
 // annotation rows carry no chord because there is none to carry: this menu is
 // the list's only road to them.
 //
-// The flag is a checkbox here like the fruit, and it flips the mark alone: its
-// note is words, and a menu row is a press rather than a place to type. A flag
-// raised from the menu therefore comes up bare, which is the honest shape of the
-// gesture — "there is something about this one" is exactly what a right-click
-// and one press can say. The words are added on the form, where the ⚑ segment
-// raises a note field beside the prompt they are about (annotbar.go). A flagged
-// prompt's row here shows the note it already carries, so pressing ✎ Edit… to
-// write one is a decision made with the current note in sight rather than a
-// screen away.
+// The flag is a checkbox here like the fruit, but it is the one mark that is
+// only half a thought: "there is something about this one" wants "…because"
+// straight after it. So raising it from the menu opens the note pad on the same
+// cell (listflagnote.go) — the mark is saved by the press, and the pad is an
+// invitation the next keystroke can either fill in or escape. ✎ Flag note…
+// under it is the same pad reached deliberately, which is how an existing note
+// is re-read and rewritten without opening the form. A flagged prompt's row
+// shows the note it already carries, so both of those are decisions made with
+// the current note in sight rather than a screen away.
 //
 // Rows that name a state rather than an action say what the press will do, which
 // is the only thing a menu row ever promises: ✓ Mark done reads ↺ Reopen on a
@@ -95,6 +96,13 @@ const (
 	listMenuPrioHigh
 	listMenuPrioCritical
 	listMenuFlag
+	// The note sits directly under the mark it belongs to, and is the one
+	// annotation row that opens something instead of answering it: a note is
+	// words, and words need a field (listflagnote.go). It stays on the menu
+	// while a prompt is unflagged rather than appearing with the mark — the
+	// dim-rather-than-omit rule (menu.go) — so the menu has one shape and the
+	// row can say what it is waiting for.
+	listMenuFlagNote
 	// Select sits just above Export because it is the thing you do *to* several
 	// rows before pressing Export once — and because a tick is a per-row mark
 	// like the five above it, just one the list rather than the prompt
@@ -124,6 +132,11 @@ var listMenuPrio = map[int]string{
 type listMenu struct {
 	menuBox
 	ref todoRef
+	// The cell the right-click landed on. A row that opens another floating box
+	// — the flag's note pad — anchors it here rather than at the menu's own
+	// corner, so the second box appears where the gesture started instead of
+	// walking down the screen away from the row it is about.
+	atX, atY int
 }
 
 // openListMenu builds the menu for a right-click on a todo row and opens it.
@@ -204,6 +217,17 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 			flagLabel += ": " + truncate(note, listMenuNoteWidth)
 		}
 	}
+	// The note row: the pad's own road, live only once there is a mark for the
+	// words to belong to. Its label says which of the two things pressing it
+	// will do, since a prompt that already has a note is being edited rather
+	// than annotated.
+	noteLabel, noteWhy := "✎ Flag note…", ""
+	switch {
+	case !td.Flag:
+		noteWhy = "not flagged — press ⚑ Flag and the note field comes with it"
+	case strings.TrimSpace(td.FlagNote) != "":
+		noteLabel = "✎ Edit flag note…"
+	}
 	radio := func(level string) string {
 		if td.Priority == level {
 			return "(•)"
@@ -226,6 +250,7 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 
 	var mu listMenu
 	mu.open, mu.ref = true, ref
+	mu.atX, mu.atY = msg.X, msg.Y
 	mu.items = []menuItem{
 		{act: listMenuEdit, label: "✎ Edit…", hint: "enter"},
 		{act: listMenuView, label: "◉ View", hint: "ctrl+v"},
@@ -242,6 +267,7 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		{act: listMenuPrioHigh, label: radio(priorityHigh) + " Priority: " + prioHighGlyph + " high"},
 		{act: listMenuPrioCritical, label: radio(priorityCritical) + " Priority: " + prioCriticalGlyph + " critical"},
 		{act: listMenuFlag, label: flagLabel},
+		{act: listMenuFlagNote, label: noteLabel, why: noteWhy},
 		// Export needs no socket — the picker is shorter without one (no
 		// workspace rows), not gone — and delete is answerable from any state,
 		// so neither is ever dim.
@@ -311,6 +337,7 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 	}
 	it := m.listMenu.items[i]
 	ref := m.listMenu.ref
+	atX, atY := m.listMenu.atX, m.listMenu.atY
 	m.listMenu = listMenu{}
 	if !it.live() {
 		m.setStatus(it.why, false)
@@ -335,7 +362,11 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 	case listMenuFreeze:
 		return m.freezeSelected()
 	case listMenuFruit, listMenuFlag, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical:
-		return m.setMenuAnnots(ref, it.act)
+		return m.setMenuAnnots(ref, it.act, atX, atY)
+	case listMenuFlagNote:
+		// Deliberate rather than raised: the mark was already up when the menu
+		// opened, so escaping this pad is "nothing changed" (see beginFlagNote).
+		return m.beginFlagNote(ref, atX, atY, false)
 	case listMenuSelect:
 		return m.markSelected()
 	case listMenuExport:
@@ -369,7 +400,7 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 // three priority rows are radios: pressing the level a prompt already holds is
 // a no-op by design, and answering that press with silence — or worse, with a
 // sentence about the quick-win flag — would read as a dead control.
-func (m model) setMenuAnnots(ref todoRef, act int) (tea.Model, tea.Cmd) {
+func (m model) setMenuAnnots(ref todoRef, act, atX, atY int) (tea.Model, tea.Cmd) {
 	td, ok := m.resolve(ref)
 	if !ok {
 		m.setStatus("could not find that prompt", true)
@@ -380,8 +411,10 @@ func (m model) setMenuAnnots(ref todoRef, act int) (tea.Model, tea.Cmd) {
 	case listMenuFruit:
 		a.Fruit = !a.Fruit
 	case listMenuFlag:
-		// Only the mark: the note is left exactly as it was, and applyTo drops
-		// it with the flag on the way to the file (see annots.applyTo), so a
+		// The mark, and only the mark. Raising it saves a bare flag before the
+		// note pad opens, so the press stands on its own whatever happens next;
+		// clearing it leaves the note alone here and applyTo drops the words
+		// with the mark on the way to the file (see annots.applyTo), so a
 		// prompt unflagged from here does not keep words nothing draws.
 		a.Flag = !a.Flag
 	default:
@@ -399,9 +432,12 @@ func (m model) setMenuAnnots(ref todoRef, act int) (tea.Model, tea.Cmd) {
 	case act == listMenuFruit:
 		m.setStatus("no longer a quick win", false)
 	case act == listMenuFlag && a.Flag:
-		// The invitation is the point: the row can only raise the mark, and
-		// someone who wanted to say why has to be told where that is done.
-		m.setStatus("flagged — enter to add a note", false)
+		// The mark is on disk; now the words are asked for, on the cell the
+		// press landed on. The pad is an invitation, never a gate — escaping it
+		// leaves exactly what this press already promised — and on a pane with
+		// no room for one it falls back to naming the form on the status line
+		// (see beginFlagNote).
+		return m.beginFlagNote(ref, atX, atY, true)
 	case act == listMenuFlag:
 		m.setStatus("flag cleared", false)
 	default:

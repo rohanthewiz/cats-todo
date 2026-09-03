@@ -348,8 +348,10 @@ That makes it the only mark that carries words, and the note is optional: a bare
 cost more than it is worth. Where the note exists it is shown wherever there is
 room for a line of prose — hover a flagged row and the card carries it, `ctrl+v`
 spells it out on the meta line as `⚑ flagged: blocked on the api rename`, and the
-list's context menu prints it beside the checkbox so a decision to open the
-editor is made with the current note in sight.
+list's context menu prints it beside the checkbox so a decision to rewrite it is
+made with the current note in sight. It is also written from there: raising the
+flag from the menu opens [a pad for the note](#the-flags-note-where-the-flag-was-raised)
+on the row it is about.
 
 The pennant takes the palette's one cool blue, deliberately off the warm ramp the
 other two marks sit on. That ramp runs from "ordinary outstanding work" up to
@@ -600,7 +602,7 @@ would happen goes on screen first:
 Import
 
   12 prompts from ~/Downloads/studio-2026-09-02.catstodo.zip
-  written by cats-todo v0.26.0 on studio.local
+  written by cats-todo v0.27.0 on studio.local
   → the project backlog · 9 prompts new · 3 already here, skipped
 
 y import · tab other backlog · n / esc cancel
@@ -621,7 +623,7 @@ its own:
 
 ```
 $ cats-todo serve --name studio
-cats-todo v0.26.0 serving on [::]:8422
+cats-todo v0.27.0 serving on [::]:8422
   project  cats-todo (7 open)
   global   global (2 open)
   inbox    the project backlog
@@ -740,6 +742,7 @@ on the prompt you pointed at.
 │ ( ) Priority: △ high            │
 │ ( ) Priority: ▲ critical        │
 │ ☑ ⚑ Flag: blocked on the api    │
+│ ✎ Edit flag note…               │
 │ ✓ Select             ctrl+space │
 │ ➦ Export…                ctrl+o │
 │ ✖ Delete…                ctrl+x │
@@ -792,11 +795,45 @@ rides with the row so the next keystroke still acts on the prompt you just
 marked; the status line says the list reordered, since on a tall pane the row can
 travel most of it.
 
-The flag row flips the mark alone — a menu row is a press, and a note is words,
-so a flag raised from here comes up bare and the status line says where the words
-are written. The row shows whatever note the prompt already carries, trimmed to
-something a menu can hold, and clearing the flag from here takes those words with
-it exactly as the editor does.
+The flag row shows whatever note the prompt already carries, trimmed to something
+a menu can hold, and clearing the flag from here takes those words with it exactly
+as the editor does. Raising it opens the note pad below.
+
+### The flag's note, where the flag was raised
+
+A flag is only half a thought: *there is something about this one* wants
+*…because* straight after it. So **☐ ⚑ Flag** does not just tick — the mark is
+written to the backlog on the press, and then a small pad opens on the same cell
+the menu was on, asking for the words while the prompt is still under the
+pointer:
+
+```
+╭──────────────────────────────────────╮
+│ ⚑ Fix the drop timeout               │
+│ blocked on the api rename            │
+│ enter save · esc leave it bare       │
+╰──────────────────────────────────────╯
+```
+
+`enter` saves the note, `esc` walks away. **Escaping never costs the mark** —
+the flag went to disk with the press, so the pad is an invitation and not a gate,
+and the honest one-press gesture ("there is something about this one, and I'll
+say why later") is still exactly one press. An emptied field is an answer too: it
+clears the words and leaves the flag standing.
+
+The pad is a text field, so while it is up it owns every key — a list chord fired
+from inside it would act on the row you are typing a sentence about. Otherwise it
+behaves like the boxes it borrows its frame from: it lands below-right of the
+press, a click off it dismisses (right button included), and a resize re-places
+it rather than throwing away a half-typed note. On a pane too small to float a
+box in, the press falls back to what it always did — the mark goes up, and the
+status line names the editor as the place to write the words.
+
+**✎ Flag note…** under the checkbox is the same pad reached deliberately: it
+reads **✎ Edit flag note…** once there is a note, opens with the current words in
+the field, and is dim on an unflagged prompt — pressing it there says so rather
+than doing nothing. It is how a note is rewritten without opening the editor at
+all.
 
 A value the program cannot read — the retired `low` from an old backlog, or a
 typo in a hand-edited one — fills no radio, exactly as it draws no mark on the

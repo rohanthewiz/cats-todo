@@ -576,12 +576,15 @@ func TestListMenuSetsTheAnnotations(t *testing.T) {
 	})
 }
 
-// TestListMenuFlagRow: the flag is a checkbox on this menu like the fruit — it
-// flips the mark and nothing else, because a menu row is a press and a note is
-// words. The row wears whatever note the prompt already carries, so the decision
-// to open the form and write one is made with the current note in sight.
+// TestListMenuFlagRow: the flag is a checkbox on this menu like the fruit — one
+// press, one mark. What follows the press is the note pad (listflagnote.go, and
+// the tests beside it); what this one pins is the mark itself, which lands on
+// disk either way. The row wears whatever note the prompt already carries, so
+// the decision to write over it is made with the current note in sight.
 func TestListMenuFlagRow(t *testing.T) {
 	t.Run("the row flips the mark both ways", func(t *testing.T) {
+		// A pane with no room for the pad, which is where the row is the whole
+		// gesture: the mark goes up and the status names the road to the words.
 		m := withTodos(t, "the prompt")
 		m = rightClickRow(t, m, 0)
 		next, _ := m.pressListMenu(listMenuFlag)
@@ -590,8 +593,6 @@ func TestListMenuFlagRow(t *testing.T) {
 		if td, _ := on.project.find("a"); !td.Flag {
 			t.Fatal("the flag row did not mark the prompt")
 		}
-		// The row can only raise the mark, so the status has to say where the
-		// words are written — otherwise "with note" is a promise nothing keeps.
 		if !strings.Contains(on.status, "note") {
 			t.Errorf("status = %q, want the note's road named", on.status)
 		}

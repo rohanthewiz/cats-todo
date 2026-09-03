@@ -83,11 +83,12 @@ type hoverCard struct {
 // Every reason not to have a card is answered here rather than at draw time, so
 // the model never holds a card that should not be on screen: a menu is up (it
 // owns the pointer, and a card floating over an open menu would be two answers
-// to two different questions on top of each other), a drag is in progress (the
+// to two different questions on top of each other), the flag's note pad is up
+// (the same reason, and it is being typed into), a drag is in progress (the
 // gesture is about where the row is going, not what is in it), or the pointer
 // is on chrome rather than on a row.
 func (m model) hoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
-	if m.listMenu.open || m.dragging {
+	if m.listMenu.open || m.flagPad.open || m.dragging {
 		m.clearHover()
 		return m, nil
 	}

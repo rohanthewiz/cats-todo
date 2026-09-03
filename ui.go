@@ -264,6 +264,11 @@ type model struct {
 	// is "not showing", and it lives and dies with the gesture: the pointer
 	// leaving the row takes it down, and so does anything the hand does next.
 	hover hoverCard
+	// The list's flag-note pad (listflagnote.go) — the field the ⚑ Flag row
+	// opens so the "because" can be typed on the row the flag was just raised
+	// on. Zero value closed, like the two boxes above it; unlike them it takes
+	// text, so it is modal on the list stage while it is up.
+	flagPad flagNotePad
 
 	// Form stage.
 	formMode   formMode
@@ -541,6 +546,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// them, since a resize can arrive on either stage.
 		m.menu = promptMenu{}
 		m.listMenu = listMenu{}
+		// The note pad is re-placed instead of dropped: it holds words someone
+		// is in the middle of typing, which a resize is no reason to throw
+		// away. Its anchor is a cell that may no longer exist, so placement
+		// clamps it back inside the new pane exactly as the first press did.
+		if m.flagPad.open {
+			m.flagPad.x, m.flagPad.y = placeBelowRight(m.flagPad.ax, m.flagPad.ay, m.flagPad.w, m.flagPad.h, m.width, m.height)
+		}
 		// And the hover card with them, for the same reason and one more: it was
 		// placed against a row that has just been re-laid-out, so it would be
 		// naming a prompt that is no longer under it.
@@ -704,6 +716,13 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch m.stage {
 	case stageList:
+		// The note pad is modal while it is up, so the blink — and a bracketed
+		// paste, which is how a note usually arrives — belongs to its field
+		// rather than to the list's query box behind it.
+		if m.flagPad.open {
+			m.flagPad.input, cmd = m.flagPad.input.Update(msg)
+			return m, cmd
+		}
 		cmd = m.list.editQuery(msg)
 	case stageTarget:
 		cmd = m.targetList.editQuery(msg)
@@ -743,6 +762,13 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// list's own chords would otherwise act on a row from behind it.
 	if m.listMenu.open {
 		return m.updateListMenu(msg)
+	}
+	// And the note pad before anything else, for the stronger version of the
+	// same reason: it is a field, so every printable key belongs to it — a
+	// list chord fired from inside it would act on a row while the hand is
+	// typing a sentence about that row.
+	if m.flagPad.open {
+		return m.updateFlagNote(msg)
 	}
 	// The hand is on the keyboard, so the pointer is not what the eye is
 	// following: the hover card goes before the key is even read. A card left
@@ -919,6 +945,12 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// list must not also act on.
 		if m.listMenu.open {
 			return m.clickListMenu(msg)
+		}
+		// The note pad takes the press on the same terms: on it, it places the
+		// caret; off it, it dismisses, and the list must not also act on that
+		// click (see clickFlagNote).
+		if m.flagPad.open {
+			return m.clickFlagNote(msg)
 		}
 		switch msg.Y {
 		case headerRow:
@@ -1173,6 +1205,13 @@ func (m model) clickTarget(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // press that quietly armed either would leave the list mid-gesture behind a menu
 // the user is about to dismiss.
 func (m model) rightClickList(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	// The note pad answers the press first, whichever button it was: a click
+	// off a floating box means "never mind" and nothing else, so a right-click
+	// takes the pad down rather than opening a menu behind it (see
+	// clickFlagNote). The next press gets the menu.
+	if m.flagPad.open {
+		return m.clickFlagNote(msg)
+	}
 	// A button going down is proof the one before it came up, the same reading
 	// the left button and a keystroke both make (see updateList). It matters more
 	// here: a hold left armed would hand the next motion message to dragOver,
@@ -1689,6 +1728,11 @@ func (m *model) backToList() {
 	// menu left standing would be composited over a list nobody is looking at
 	// and would swallow the next keystroke on arriving back.
 	m.listMenu = listMenu{}
+	// The note pad goes with it, and for the same reason: it is a box floated
+	// over the list, and one left standing would be composited over a screen
+	// nobody is on and would swallow the first keystroke back. Its words are
+	// lost, which is the same bargain esc makes — the flag itself is on disk.
+	m.clearFlagNote()
 	// Nothing on the list stage reads the editor's selection, but leaving a drag
 	// flag set would hand the next stray motion message to a handler that expects
 	// to be on the form.
@@ -4501,7 +4545,7 @@ func (m model) renderStage() string {
 		// The hover card goes on under the menu for the same reason it is never
 		// built while one is open (see hoverMotion): the menu is the box that can
 		// be pressed, so it is the box that has to be on top.
-		return m.overlayListMenu(m.overlayHoverCard(m.viewList()))
+		return m.overlayFlagNote(m.overlayListMenu(m.overlayHoverCard(m.viewList())))
 	}
 }
 
