@@ -31,7 +31,7 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
 | `drop.go` / `client.go` / `launch.go` | performing a drop; cats control-socket client (`pane.list`, `tab.create`, `pane.wait_for_output`, `pane.send_input`), `waitForAgentReady`, `claudeReadyProbes` |
 | `worktree.go` | "on a new worktree" drops (`todo/<slug>-<4hex>` branches via cats) |
 | `session.go` | `SessionOpts`, normalizers (`normalizeModel/Effort/Permission/Finish/Review`, `foldOption`), launch flags, prompt wrapping |
-| `annotations.go` | the `annots` set, the `annotSlot` table (priority, low-hanging fruit), `trimAnnotColumns` |
+| `annotations.go` | the `annots` set, the `annotSlot` table (priority, low-hanging fruit, the ⚑ flag and its note), `trimAnnotColumns` |
 | `annotbar.go` | the form's segmented annotation bar (Quick-win checkbox, Priority radios) between title and prompt |
 | `priority.go` | `normalizePriority`, labels, rank; none = `""` (levels: none/high/critical) |
 | `schedule.go` | parse `15:30` / `in 2h` / `tomorrow 9:00`; `Schedule` ⇄ dropTarget |

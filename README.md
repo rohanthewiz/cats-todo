@@ -600,7 +600,7 @@ would happen goes on screen first:
 Import
 
   12 prompts from ~/Downloads/studio-2026-09-02.catstodo.zip
-  written by cats-todo v0.25.0 on studio.local
+  written by cats-todo v0.26.0 on studio.local
   → the project backlog · 9 prompts new · 3 already here, skipped
 
 y import · tab other backlog · n / esc cancel
@@ -621,7 +621,7 @@ its own:
 
 ```
 $ cats-todo serve --name studio
-cats-todo v0.25.0 serving on [::]:8422
+cats-todo v0.26.0 serving on [::]:8422
   project  cats-todo (7 open)
   global   global (2 open)
   inbox    the project backlog

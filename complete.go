@@ -87,6 +87,7 @@ var addCompletions = []completion{
 	{"--image", "attach an image file (repeatable); copied into the backlog"},
 	{"--priority", "how much it matters: critical|high|none"},
 	{"--fruit", "mark as low-hanging fruit — cheap for what it pays"},
+	{"--flag", "single it out, optionally with a note (--flag=\"why\")"},
 	// The session options (see session.go). They are offered here rather than
 	// left to the manual for the reason the flags exist at all: the whole point
 	// of recording them on the prompt is not having to remember the setup, and a
