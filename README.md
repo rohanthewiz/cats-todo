@@ -60,19 +60,24 @@ hands the prompt over **and lets it run**, and `shift+enter` does the same drop
 but **pauses**, leaving the prompt sitting unsubmitted in the agent's input.
 Either way the todo is marked done. Inside the editor `enter` inserts a newline — the prompt
 is a text editor, so enter means there what it means in every other one — and
-`ctrl+s` (or `shift+enter`) saves. Outside cats it still manages backlogs; only drops need the
+`shift+enter` (or `cmd+s`) saves. Outside cats it still manages backlogs; only drops need the
 socket.
 
-The editor has its own row of buttons — **Save**, **Newline**, **Images**,
-**Session**, **Send**, **Cancel** — and **Send** is the one way to hand a prompt
-straight to an agent without going back to the list: it saves what you have
-typed and opens the target picker on it, so a prompt written from scratch
-reaches a session in one gesture. It is the only button on the row with no
-chord, and that is deliberate — it is click-only, because the editor is a screen
-you are typing into and a key one slip from the caret is how a half-written
-prompt gets sent. An empty prompt is refused there exactly as **Save** refuses
-it, and everything the picker itself refuses (no socket, a drop already in
-flight, a frozen prompt) still leaves your edit saved.
+The editor's row of buttons runs across the **top** of the form, on the line a
+"Edit prompt" heading used to take: **Images**, **Session**, **Save**, **Send**,
+**Cancel**. A screen whose whole job is to end an editing session is better
+opened by the buttons that end it than by a title repeating what you can already
+see — and a row on the form's first line cannot be pushed around by a taller
+editor or a wrapped note, so the buttons stay where your hand left them.
+
+**Send** is the one way to hand a prompt straight to an agent without going back
+to the list: it saves what you have typed and opens the target picker on it, so a
+prompt written from scratch reaches a session in one gesture. Its chord is the
+save chord with Option held — `shift+opt+enter` — because sending *is* saving
+plus one more thing, and holding a second modifier is not a key you hit one slip
+from the caret. An empty prompt is refused there exactly as **Save** refuses it,
+and everything the picker itself refuses (no socket, a drop already in flight, a
+frozen prompt) still leaves your edit saved.
 
 The picker's own list is every place the prompt could land: a new Claude Code
 session, a new **GitHub Copilot** session when `copilot` is on your `PATH`, a
@@ -139,9 +144,11 @@ button that needs a highlighted prompt is greyed out until there is one.
 
 Both button rows shrink rather than wrap as the pane narrows: the chips give up
 their chords first, then their words, then the gaps between them, down to a row
-of bare glyphs — `✔ ↵ ☑ ❐ ⚙ ✉ ✖` in the editor — and the footer names every chord
-the chips stopped teaching. No button is ever dropped, however narrow the pane;
-a control that vanishes is one you cannot learn is there.
+of bare glyphs — `❐ ⚙ ✔ ✉ ✖` in the editor — and the footer names every chord the
+chips stopped teaching. At that width it stops being a list of chords and becomes
+the legend for the row, each glyph beside the key that presses it, `✉` first. No
+button is ever dropped, however narrow the pane; a control that vanishes is one
+you cannot learn is there.
 
 The pointer works too, and the same way round: a click on a button presses it, a
 click on a prompt selects it (which is what makes the buttons useful with the
@@ -397,10 +404,11 @@ appeared to do nothing would be worse than one stop fewer.
 
 The note takes over the blank line that was already there between the bar and the
 **Prompt** label rather than being inserted below it. Everything under that line
-— the editor, its height, the toolbar, and every click hit-tested against them —
-is arithmetic on a layout that must not move, and a field that pushed the form
-down a row when a checkbox was ticked would slide the buttons out from under the
-pointer.
+— the editor, its height, and every click hit-tested against them — is arithmetic
+on a layout that must not move, and a field that pushed the form down a row when a
+checkbox was ticked would slide the rows out from under the pointer. (The buttons
+are safe from that in any case now: they sit on the form's first line, above
+everything that can grow.)
 
 A narrow pane drops the bar's words and keeps its glyphs (`☐ 🍏  ( ) –  ( ) △
 ( ) ▲  ☐ ⚑`); it never wraps, for the same reason — it sits on a hit-tested row.
@@ -1097,8 +1105,8 @@ not.
 `esc` ends the mode, and so does anything that means *one* caret — `enter`, `↑`,
 `↓`, a plain click. Enter in particular does not also insert: it is the key most likely
 to be pressed because you thought the mode was already over. A chord the mode has
-no meaning for ends it and then does its usual job, so `ctrl+s` still saves from
-inside it. Nothing is undone on the way out: everything typed is already in the
+no meaning for ends it and then does its usual job, so `shift+enter` still saves
+from inside it. Nothing is undone on the way out: everything typed is already in the
 prompt, exactly as if it had been typed once per line by hand.
 
 The footer belongs to the mode for as long as it lasts, because the keys do.
@@ -1201,10 +1209,10 @@ disk — in the shape above — before the keys come back. A name already in the
 library is refused rather than overwritten, in those words: overwriting is the
 destructive reading of an ambiguous gesture, and renaming is one keystroke.
 
-`ctrl+s` means "save the prompt" one screen up and "save this snippet" here. That
-is the same idea — commit what is in front of me — applied to what the screen is
-about; the form's own save is not reachable from the picker, so there is no
-press that gets the wrong one.
+`ctrl+s` means "save this snippet" here, and one screen up it now opens the ⚙
+session panel — the two screens are far enough apart, and the picker takes every
+key while it is open, that there is no press which gets the wrong one. The form's
+own save (`shift+enter`) is not reachable from the picker either.
 
 
 ## Images
@@ -1316,23 +1324,30 @@ display lines duplicates whole, because splitting it at a wrap would cut it at a
 boundary the text does not contain. There is deliberately no `ctrl+d` fallback —
 `ctrl+d` is the editor's delete-character-forward, and a duplicate bound over a
 delete is the one collision a text editor must not ship. Cmd only reaches a TUI
-from a terminal that reports it (cats does; see `ctrl+s`/`cmd+s` below), so on a
+from a terminal that reports it (cats does; see `cmd+s` below), so on a
 terminal that eats the chord this is simply unavailable rather than wrong.
 
-`alt+enter` is bound everywhere `shift+enter` is, and in the editor
-`shift+enter`, `alt+enter` and `ctrl+j` all insert a newline alongside plain
-`enter` — the chords the form taught first still work, and a hand that learned
-them is never told it is now wrong. Distinguishing shift+enter from a bare enter
-needs the kitty keyboard protocol — cats speaks it, but a terminal that does not
-will send the two identically, so the footers advertise `alt+enter` (which every
-terminal encodes as `ESC CR`) until the terminal answers the protocol handshake.
+In the list `alt+enter` is bound everywhere `shift+enter` is, and in the editor
+`alt+enter` and `ctrl+j` insert a newline alongside plain `enter` — the chords
+the form taught first still work, and a hand that learned them is never told it
+is now wrong. `shift+enter` is the exception, because in the editor it is the
+save: the form catches it before the textarea ever sees it.
+
+Distinguishing shift+enter from a bare enter needs the kitty keyboard protocol —
+cats speaks it, but a terminal that does not will send the two identically, so
+the list's footers advertise `alt+enter` (which every terminal encodes as
+`ESC CR`) until the terminal answers the handshake. In the editor there is
+nothing to fall back to: a terminal that cannot tell the two apart sends a plain
+enter, which inserts a newline as it should, and the save is then `cmd+s`, the
+✔ Save button, or `enter` from the Title field.
 
 `cmd+s` saves the editor too, wherever the terminal is willing to report the
 Command key — cats does, so under cats it is the mac chord for the mac hand.
 Elsewhere the same press may never leave the terminal: Terminal.app claims Cmd
-for its own menus, and iTerm2 needs the chord mapped by hand. That is why it is
-an alias and never the only way in — `ctrl+s` is the binding that always works,
-and it is the one the footer teaches.
+for its own menus, and iTerm2 needs the chord mapped by hand. It is the reason
+`ctrl+s` could be spent on the ⚙ panel: under cats the editor has two save
+chords that both arrive, and the letter is worth more to the one control that
+had no keyboard road of its own.
 
 ## Spell check
 
@@ -1380,9 +1395,11 @@ whole reason the gesture exists beside `ctrl+l` — so the row is dim, and says
 which of the two things is wrong, exactly when the old direct right-click would
 have refused.
 
-The **☑ Spell** chip on the toolbar is the toggle on its own: its box says
-whether the check is on, and clicking it flips it. Either way the choice
-persists across launches (in `~/.config/cats-todo/settings.json`).
+The check is turned off and on from the panel's own last row — there is no
+toolbar chip for it any more, since the underlines are answered by right-clicking
+the word they are under and the form's row of buttons is worth more as the five
+things an editing session ends with. Either way the choice persists across
+launches (in `~/.config/cats-todo/settings.json`).
 
 It is built to be quiet on a prompt about code. Skipped, not checked: anything
 in backticks or a fenced block; tokens that start with `@`, `-`, `#`, `~`, `$`,
@@ -1417,7 +1434,8 @@ property of the prompt instead. They are stored with it in `todos.json`, so they
 travel with the repo and a drop reproduces the whole setup — whether you pressed
 the key or a schedule fired it at 3am.
 
-In the editor, `ctrl+r` opens the ⚙ panel (or click the **Session** chip).
+In the editor, `ctrl+s` opens the ⚙ panel (or click the **Session** chip;
+`ctrl+r`, the chord it had before saving moved to `shift+enter`, still works).
 `↑`/`↓` walk the rows, `←`/`→` (or `space`) change the one under the cursor, and
 `esc` goes back to the prompt. The form shows what is set on its `⚙` line, the
 list marks a configured prompt with `⚙`, and nothing is written until you save

@@ -99,44 +99,6 @@ func (m *model) loadSpellDict() {
 	m.spellDict = d
 }
 
-// spellChipLabel is the toolbar's ☑ Spell button, which says what the check is
-// doing as well as offering to change it: ☑ while words are being marked, ☐
-// while they are not. The glyph carries the state rather than the tint alone
-// because the bar narrows down to icons (see formBarTier), and at that width
-// the glyph is the whole button.
-//
-// The chip toggles on the spot instead of opening the panel ctrl+l opens, which
-// makes it the one button on either bar that changes something rather than
-// showing something. It earns the exception by being a checkbox: a hand that
-// clicks a box it can see the state of is asking for the other state, and
-// routing that through a screen to press a row would be a menu in front of a
-// switch. The keyboard's path is the panel's last row, where a chord it would
-// otherwise need is not worth spending (see spellpanel.go).
-func (m model) spellChipLabel() string {
-	if m.spellOn {
-		return "☑ Spell"
-	}
-	return "☐ Spell"
-}
-
-// spellChipTint is the chip's hue, and it is grey on purpose while every other
-// chip on the bar carries one. The bar's colors mean consequence — cyan and
-// blue for what a prompt carries, green for the send that reaches out of the
-// program, red for the throw-away — and this button does none of those things
-// to the prompt: it changes how the editor draws. A tint of its own would put
-// it in that vocabulary and claim a weight it does not have.
-//
-// So the two states are two greys, the brighter of which is the palette's
-// secondary text and the dimmer the one btnOffStyle already spends on an inert
-// button. The step between them says on and off a beat before the glyph is
-// read.
-func (m model) spellChipTint() string {
-	if m.spellOn {
-		return colMuted
-	}
-	return colDim
-}
-
 // toggleSpell flips the check, persists the choice, and says what happened on
 // the note line — the change is otherwise visible only if the prompt happens to
 // hold a misspelling. It is the toolbar's ☑ Spell chip and the Spelling panel's

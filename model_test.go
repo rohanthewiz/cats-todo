@@ -987,8 +987,8 @@ func TestFormEnterInsertsNewlineAndCtrlSSaves(t *testing.T) {
 	}
 
 	saves := map[string]tea.KeyPressMsg{
-		"ctrl+s":      {Code: 's', Mod: tea.ModCtrl},
 		"shift+enter": enterKey(tea.ModShift),
+		"cmd+s":       {Code: 's', Mod: tea.ModSuper},
 	}
 	for name, key := range saves {
 		t.Run(name+" saves", func(t *testing.T) {

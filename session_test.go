@@ -710,14 +710,18 @@ func TestFormCaretKeysSurviveTheSessionChord(t *testing.T) {
 		t.Errorf("after ctrl+a the caret is at column %d, want the line start", got)
 	}
 
-	// The chord that does open the panel, and the footer that names it.
-	next, _ = m.updateForm(pressKey("ctrl+r"))
-	if next.(model).stage != stageSession {
-		t.Errorf("ctrl+r left stage = %v, want stageSession", next.(model).stage)
+	// The chord that does open the panel, and the footer that names it. ctrl+r —
+	// the spelling the panel had before saving moved off ctrl+s — still opens it
+	// too, so an older README's chord is not a chord that does nothing.
+	for _, chord := range []string{"ctrl+s", "ctrl+r"} {
+		next, _ = m.updateForm(pressKey(chord))
+		if next.(model).stage != stageSession {
+			t.Errorf("%s left stage = %v, want stageSession", chord, next.(model).stage)
+		}
 	}
 	// Narrow enough that the chips drop their hints, wide enough that the footer
 	// can still carry them — where the footer is the only teacher left.
-	if foot := withForm(t, "", "body", 88, 40).formFooter(); !strings.Contains(foot, "ctrl+r session") {
+	if foot := withForm(t, "", "body", 88, 40).formFooter(); !strings.Contains(foot, "ctrl+s session") {
 		t.Errorf("a pane too narrow for the chip hints does not name the chord: %q", foot)
 	}
 	if foot := withForm(t, "", "body", 120, 40).formFooter(); !strings.Contains(foot, "ctrl+a/e") {

@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // withForm returns a model sitting on the add form at a known pane size, with
@@ -200,19 +201,6 @@ func TestFormBarClick(t *testing.T) {
 		}
 	})
 
-	t.Run("Newline breaks the line at the caret", func(t *testing.T) {
-		m := build(t)
-		m.promptArea.SetCursorColumn(3)
-		chips := m.formChips()
-		got := clickForm(m, chips[formActionNewline].start+1, m.formBarRow())
-		if want := "the\n prompt"; got.promptArea.Value() != want {
-			t.Errorf("value = %q, want %q", got.promptArea.Value(), want)
-		}
-		if got.stage != stageForm {
-			t.Errorf("stage = %v, want to stay on the form", got.stage)
-		}
-	})
-
 	t.Run("Images opens the attachment editor", func(t *testing.T) {
 		m := build(t)
 		chips := m.formChips()
@@ -286,6 +274,57 @@ func TestFormBarClick(t *testing.T) {
 	})
 }
 
+// TestFormBarShape pins the toolbar's contents and order — the row a hand learns
+// the position of and then stops reading. It leads the form (row 0, where the
+// heading used to be), it is the five things a prompt's editing session ends
+// with, and it carries neither the ↵ Newline button (enter is a newline in every
+// editor; a button for it was a button teaching nothing) nor the ☑ Spell
+// checkbox (the editor's right-click ✓ Spelling row and ctrl+l are the way in
+// now).
+func TestFormBarShape(t *testing.T) {
+	m := withForm(t, "", "body", 120, 40)
+
+	want := []struct{ label, hint string }{
+		{"❐ Images", "ctrl+o"},
+		{"⚙ Session", "ctrl+s"},
+		{"✔ Save", "shift+enter"},
+		{"✉ Send", "shift+opt+enter"},
+		{"✖ Cancel", "esc"},
+	}
+	acts := m.formActions()
+	if len(acts) != len(want) {
+		t.Fatalf("the toolbar has %d buttons: %+v", len(acts), acts)
+	}
+	for i, w := range want {
+		if acts[i].label != w.label || acts[i].hint != w.hint {
+			t.Errorf("button %d is %q/%q, want %q/%q", i, acts[i].label, acts[i].hint, w.label, w.hint)
+		}
+	}
+
+	// Row 0, and nothing above it: the toolbar took the heading's line rather
+	// than being inserted at the top, so every row constant below it — and every
+	// hit-test counted from them — is unchanged.
+	if got := m.formBarRow(); got != 0 {
+		t.Errorf("formBarRow = %d, want the form's first line", got)
+	}
+	first, _, _ := strings.Cut(m.viewForm(), "\n")
+	for _, a := range acts {
+		if !strings.Contains(first, a.label) {
+			t.Errorf("the form's first line is %q, want the toolbar with %q on it", first, a.label)
+		}
+	}
+	// And the scope the heading used to name rides at the end of that line while
+	// ctrl+g can still change it, so the toggle has an answer on screen.
+	if !strings.Contains(ansi.Strip(first), "backlog") {
+		t.Errorf("the toolbar row %q does not name the scope an add can toggle", first)
+	}
+	edit := withForm(t, "a title", "body", 120, 40)
+	edit.formMode = formEdit
+	if line, _, _ := strings.Cut(edit.viewForm(), "\n"); strings.Contains(ansi.Strip(line), "backlog") {
+		t.Errorf("an edit names a scope that is not a choice: %q", line)
+	}
+}
+
 // TestFormBarIconsAreOneCell holds the toolbar to single-column glyphs, for the
 // reason the list's bar has the same test: a double-width emoji is drawn clipped
 // by the terminal, and it would also put every chip's hit-test span one cell off
@@ -299,38 +338,50 @@ func TestFormBarIconsAreOneCell(t *testing.T) {
 	}
 }
 
-// TestFormSendIsClickOnly holds ✉ Send to the pointer. Handing a prompt to a live
-// agent is the one thing the form does that leaves the program, so the button
-// carries no chord at all — and the two spellings of the list's own drop chord,
-// the keys most likely to be pressed out of habit while the form is open, must
-// edit the prompt rather than send it.
-func TestFormSendIsClickOnly(t *testing.T) {
-	m := withForm(t, "", "the prompt", 120, 40)
-	m.client = &catsClient{}
-
-	send := m.formActions()[formActionSend]
-	if send.hint != "" {
-		t.Errorf("Send advertises the chord %q — it is meant to have none", send.hint)
+// TestFormSendChord: ✉ Send has a chord of its own — shift+opt+enter — and the
+// keys most likely to be pressed by habit beside it must not fire it. Handing a
+// prompt to a live agent is the one thing the form does that leaves the program,
+// so the chord that does it is deliberately the save chord plus a second
+// modifier: shift+enter saves, plain enter and alt+enter (the two spellings of
+// the list's own drop chord) edit the prompt.
+func TestFormSendChord(t *testing.T) {
+	build := func() model {
+		m := withForm(t, "", "the prompt", 120, 40)
+		m.project = &store{scope: scopeProject, path: filepath.Join(t.TempDir(), "todos.json")}
+		m.client = &catsClient{}
+		return m
 	}
-	// A hintless chip is label-only even on a bar wide enough for hints: a
-	// trailing pad would hang a live column of button off the right of it.
-	if got, want := m.formChips()[formActionSend].text, send.label; got != want {
-		t.Errorf("Send chip renders %q, want the bare label %q", got, want)
+	m := build()
+
+	if got, want := m.formActions()[formActionSend].hint, "shift+opt+enter"; got != want {
+		t.Errorf("Send advertises %q, want %q", got, want)
 	}
 
+	// Each from a model of its own: shift+enter is a save, so a shared one would
+	// be counting the sends against a backlog the other keys had written to.
 	for _, key := range []tea.KeyPressMsg{
+		{Code: tea.KeyEnter},
 		{Code: tea.KeyEnter, Mod: tea.ModShift},
 		{Code: tea.KeyEnter, Mod: tea.ModAlt},
 	} {
-		next, _ := m.updateForm(key)
+		next, _ := build().updateForm(key)
 		if got := next.(model).stage; got == stageTarget {
 			t.Errorf("%v sent the prompt from the form — stage = %v", key, got)
 		}
 	}
+
+	next, _ := build().updateForm(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift | tea.ModAlt})
+	sent := next.(model)
+	if sent.stage != stageTarget {
+		t.Fatalf("shift+opt+enter gave stage %v, want the target picker", sent.stage)
+	}
+	if len(sent.project.todos) != 1 || sent.project.todos[0].Prompt != "the prompt" {
+		t.Errorf("project backlog = %+v, want the prompt saved before it was sent", sent.project.todos)
+	}
 }
 
-// TestFormBarTiers walks the toolbar down a narrowing pane. Seven buttons cannot
-// keep their chords much under 108 columns or their words much under 74, and a
+// TestFormBarTiers walks the toolbar down a narrowing pane. Five buttons cannot
+// keep their chords much under 98 columns or their words much under 52, and a
 // bar that kept them would wrap — which costs the pointer the chips on the second
 // line, since every click is hit-tested against the one row the bar is supposed
 // to occupy. So the chips give up their chords, then their labels, then the gaps
@@ -359,11 +410,11 @@ func TestFormBarTiers(t *testing.T) {
 		}
 	}
 
-	// Down to glyphs, the ✉ is the one chip no chord teaches, so the footer has
-	// to say how it works — and say it where a narrowing pane won't trim it.
+	// Down to glyphs the chips teach nothing, so the footer becomes the legend
+	// for the row — and the ✉ leads it, where a narrowing pane won't trim it.
 	icons := withForm(t, "", "body", 40, 40)
 	first, _, _ := strings.Cut(icons.formFooter(), "\n")
-	if !strings.Contains(first, "click sends") {
+	if !strings.Contains(first, "✉ shift+opt+enter") {
 		t.Errorf("icon-only footer %q never says how ✉ is pressed", first)
 	}
 
@@ -402,7 +453,7 @@ func TestFormFooterTeachesCaretKeys(t *testing.T) {
 	if !wide.formBarShowsHints() {
 		t.Fatal("a 120-cell pane should fit the chip hints")
 	}
-	for _, dup := range []string{"ctrl+s save", "esc cancel", "ctrl+o images"} {
+	for _, dup := range []string{"shift+enter save", "esc cancel", "ctrl+o images"} {
 		if strings.Contains(foot, dup) {
 			t.Errorf("footer repeats %q, which the toolbar chips already print: %q", dup, foot)
 		}
@@ -414,7 +465,7 @@ func TestFormFooterTeachesCaretKeys(t *testing.T) {
 	}
 	// With the chips gone quiet the footer is the only teacher left, so it opens
 	// with the chords — as many of them as the pane can hold.
-	if first, _, _ := strings.Cut(narrow.formFooter(), "\n"); !strings.Contains(first, "ctrl+s save") {
+	if first, _, _ := strings.Cut(narrow.formFooter(), "\n"); !strings.Contains(first, "shift+opt+enter") {
 		t.Errorf("first footer line is %q, want it to start naming the chords", first)
 	}
 	for line := range strings.SplitSeq(narrow.formFooter(), "\n") {
@@ -426,7 +477,7 @@ func TestFormFooterTeachesCaretKeys(t *testing.T) {
 
 // TestFormFitsThePane holds the form's line budget: the editor is sized against
 // formChromeHeight, and a view taller than the pane scrolls the top of the form
-// — heading, fields and all — off the screen.
+// — toolbar, fields and all — off the screen.
 func TestFormFitsThePane(t *testing.T) {
 	for _, height := range []int{24, 30, 40, 60} {
 		m := withForm(t, "a title", "one\ntwo\nthree", 100, height)

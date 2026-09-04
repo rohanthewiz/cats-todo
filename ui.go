@@ -994,9 +994,10 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // everywhere else a pointer is used: open the thing under it. It is also the
 // gesture's safest reading. Opening a form is undone by esc, and the one action
 // that reaches out of this program — handing a prompt to a live agent — stays
-// off a gesture the hand can make by accident, on the bar's ✉ Send chip and
-// shift+enter. Sending with the pointer is two clicks in two places, and that
-// deliberateness is the point.
+// off a gesture the hand can make by accident: on this screen it is the bar's
+// ✉ Send chip and shift+enter, and on the form it is the ✉ chip and
+// shift+opt+enter. Sending with the pointer is two clicks in two places, and
+// that deliberateness is the point.
 //
 // Selecting also hands the bar's focus back to the list, so the pointer and the
 // keyboard agree on what the next enter acts on. And it takes hold of the row
@@ -2298,10 +2299,10 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 
 // formChromeHeight is how many lines the form spends on everything that isn't
 // the prompt editor, so the editor gets the rest: the eight above it (see
-// formPromptRow), then the attachment note, the session note, the toolbar, an
-// error line, a blank, and the footer — fourteen — plus two of slack for a
-// footer that needs a second line in a narrow pane.
-const formChromeHeight = 16
+// formPromptRow — the toolbar is the first of those now), then the attachment
+// note, the session note, an error line, a blank, and the footer — thirteen —
+// plus two of slack for a footer that needs a second line in a narrow pane.
+const formChromeHeight = 15
 
 // newFormInputs builds the title field and prompt editor, sized to the screen
 // and pre-filled with the given values.
@@ -2317,13 +2318,13 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
 	// Plain enter is a newline here, because that is what enter means in every
-	// other editor a prompt gets typed into; save lives on ctrl+s (and the ✔
-	// Save chip) instead, with shift+enter as a second save chord — see
-	// updateForm, which catches it before the textarea ever sees it. The
-	// remaining modifier spellings stay bound to newline: alt+enter (the legacy
-	// ESC CR every terminal sends) and ctrl+j (the raw line feed that survives
-	// a terminal which eats Option). ctrl+m is enter's wire form on a legacy
-	// terminal, so it rides along for free.
+	// other editor a prompt gets typed into; save lives on shift+enter (and the
+	// ✔ Save chip, and cmd+s) instead — see updateForm, which catches that chord
+	// before the textarea ever sees it. The remaining modifier spellings stay
+	// bound to newline: alt+enter (the legacy ESC CR every terminal sends) and
+	// ctrl+j (the raw line feed that survives a terminal which eats Option).
+	// ctrl+m is enter's wire form on a legacy terminal, so it rides along for
+	// free.
 	ta.KeyMap.InsertNewline = key.NewBinding(
 		key.WithKeys("enter", "ctrl+m", "alt+enter", "ctrl+j"),
 		key.WithHelp("enter", "insert newline"),
@@ -2547,7 +2548,7 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the segment under the cursor, which is what enter does on anything
 		// shaped like a button. The title is one line and cannot hold a
 		// newline at all, so enter does what enter does in every single-line
-		// form — commits it. Save is ctrl+s from any stop, and the ✔ Save
+		// form — commits it. Save is shift+enter from any stop, and the ✔ Save
 		// chip from none.
 		if m.formFocus == formFieldPrompt {
 			break
@@ -2560,21 +2561,39 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.cycleFormFocus(1)
 	case "shift+tab":
 		return m.cycleFormFocus(-1)
-	case "ctrl+s", "super+s", "meta+s", "shift+enter":
-		// ctrl+s is the binding that always works; shift+enter is the chord
-		// chat-style editors put on "send", so a hand that reaches for it here
-		// gets a save rather than a newline (it needs the kitty protocol to be
-		// distinguishable from enter at all, and where it is not, plain enter
-		// arrives and inserts a newline as usual). super+s is the mac mnemonic
-		// that mostly cannot — same shape of answer as ctrl+o vs ctrl+i above.
-		// Cmd only reaches a TUI at all when the terminal encodes modifiers in
-		// the kitty keyboard protocol *and* has not claimed the chord for its
-		// own menu: Terminal.app eats Cmd+S outright, iTerm2 needs the key
-		// mapped to "Send Text with vim Special Chars"/CSI u reporting, while
-		// Ghostty, Kitty and WezTerm forward it once the chord is unbound on
-		// their side. meta+s rides along because a terminal that reports Cmd as
-		// the meta bit rather than the super bit spells the same press that way.
+	case "shift+enter", "super+s", "meta+s":
+		// shift+enter is the save chord the toolbar advertises: it is what
+		// chat-style editors put on "send", which is what saving is here — the
+		// key a hand reaches for when it has finished typing. It needs the kitty
+		// keyboard protocol to be distinguishable from a bare enter at all, and
+		// where it is not, plain enter arrives and inserts a newline as usual,
+		// which is why cmd+s stays bound beside it rather than being retired
+		// with ctrl+s (that letter is now the ⚙ panel, below).
+		//
+		// Cmd only reaches a TUI when the terminal encodes modifiers in the
+		// kitty keyboard protocol *and* has not claimed the chord for its own
+		// menu: Terminal.app eats Cmd+S outright, iTerm2 needs the key mapped to
+		// "Send Text with vim Special Chars"/CSI u reporting, while Ghostty,
+		// Kitty and WezTerm forward it once the chord is unbound on their side —
+		// cats itself forwards it. meta+s rides along because a terminal that
+		// reports Cmd as the meta bit rather than the super bit spells the same
+		// press that way.
 		return m.saveForm()
+	case "alt+shift+enter", "shift+alt+enter":
+		// ✉ Send — the same act the toolbar's chip performs (sendForm): save the
+		// prompt, then open the drop picker on it. It is no longer click-only,
+		// and the chord is the save chord with Option held: sending *is* saving
+		// plus one more thing, so it reads as the save key with something added
+		// rather than as an unrelated chord.
+		//
+		// Two spellings because the order modifiers are printed in is the key
+		// library's business, not ours (Keystroke writes ctrl, alt, shift), and a
+		// binding that depends on that order is a binding that breaks on an
+		// upgrade nobody would connect to it. Under a terminal without the kitty
+		// protocol neither spelling can arrive — Option+enter alone is the legacy
+		// alt+enter, which stays a newline — so the chip is still the way in
+		// there.
+		return m.sendForm()
 	case "super+d", "meta+d":
 		// Cmd+D duplicates the caret's line — the chord every editor on this
 		// machine puts a line copy on, and the reason it is Cmd-only is the
@@ -2617,18 +2636,23 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// refused in words the way the other caret tools refuse from here.
 		m.formNote = "inserting a saved prompt works in the prompt — tab to it first"
 		return m, nil
-	case "ctrl+r":
+	case "ctrl+s", "ctrl+r":
 		// The session panel — the one thing on the form that is about how the
-		// prompt will *run*, which is what ctrl+r already means one screen over
-		// (the picker's drop & run). Reusing the letter for the same idea in a
-		// different stage is the pattern ctrl+x follows too — delete in the
-		// list, remove in the attachment editor.
+		// prompt will *run*. ctrl+s is the chord the ⚙ chip advertises, and it is
+		// free to take that letter because saving moved to shift+enter: a form
+		// that is saved with the key that ends a message wants its always-works
+		// chord spent on the one control that has no other keyboard road in.
+		//
+		// ctrl+r stays bound as the spelling this panel had before, and as the
+		// one the picker's drop & run uses for the same idea a stage over — a
+		// chord taught by an older README (or by muscle memory) must not become
+		// a chord that does nothing.
 		//
 		// Every chord this switch takes is one the editor below never sees, so
 		// the choice is constrained to what a text editor does not already own:
 		// ctrl+a/e are the caret's line ends, ctrl+w and ctrl+u and ctrl+k
-		// delete, ctrl+f/b/n/p move, ctrl+s is save and ctrl+o is images. ctrl+r
-		// is free in both the textarea's keymap and the textinput's.
+		// delete, ctrl+f/b/n/p move, and ctrl+o is images. ctrl+s and ctrl+r are
+		// both free in the textarea's keymap and the textinput's.
 		return m.beginSession()
 	case "ctrl+l":
 		// The Spelling panel (spellpanel.go): the flagged word nearest the
@@ -2641,8 +2665,11 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// take first. It is spent on the panel rather than on the toggle it
 		// used to fire because spelling is not done often enough to earn three
 		// chords: one key opens a screen that names everything the feature can
-		// do, and the screen is where the choice is made. The toggle keeps a
-		// one-press path of its own on the toolbar's ☑ Spell chip.
+		// do, and the screen is where the choice is made — that panel and the
+		// editor's right-click ✓ Spelling row are now the whole of the feature's
+		// surface, the toolbar's ☑ Spell chip having been given up to keep the
+		// row down to the five buttons a prompt's editing session actually ends
+		// with (see formActions).
 		//
 		// It works from either field since it is about the form, not the caret.
 		return m.beginSpell()
@@ -2781,7 +2808,7 @@ func (m model) copyPromptSelection() (tea.Model, tea.Cmd) {
 // ctrl+c is the copy that always works, and a bracketed paste (tea.PasteMsg, in
 // Update) is the paste that always works. The Cmd spellings ride along wherever
 // the host is willing to hand the Command key over — the same bargain
-// ctrl+s/cmd+s and cmd+d already make; see the ctrl+s handler for which
+// cmd+s and cmd+d already make; see the save handler in updateForm for which
 // terminals forward Cmd at all.
 //
 // Under cats the two halves arrive by different roads, which is why paste needs
@@ -3512,7 +3539,7 @@ func (m model) imageCountNote() string {
 	return fmt.Sprintf("%d images", len(m.formImages))
 }
 
-// saveForm is ✔ Save (and enter, and ctrl+s): write the prompt and go back to
+// saveForm is ✔ Save (and enter, and shift+enter/cmd+s): write the prompt and go back to
 // the list. The write itself is persistForm's, so this path and ✉ Send's cannot
 // drift into saving different things.
 func (m model) saveForm() (tea.Model, tea.Cmd) {
@@ -5045,7 +5072,7 @@ func (m *model) sizeListWindow() {
 	m.list.setMaxRows(max(m.height-listRowsRow-listChromeBelow-m.list.separatorLines(), 1))
 }
 
-// The form's fixed rows, counting from the top of that view: the heading (0), a
+// The form's fixed rows, counting from the top of that view: the toolbar (0), a
 // blank (1), the Title label (2), the title field (3), a blank (4), the
 // annotation bar (5), the flag's note (6), the Prompt label (7), then the
 // prompt editor. Every one of those is exactly one line, so a click's Y is
@@ -5063,8 +5090,9 @@ func (m *model) sizeListWindow() {
 // TestFormRowsMatchWhatIsDrawn finds each of them in the rendered frame and
 // fails if the layout ever grows a line.
 //
-// Everything below the editor moves with its height, so those rows are computed
-// (see formBarRow) rather than named here.
+// Everything below the editor moves with its height, so those rows are not named
+// here — and nothing below it is clickable any more, now that the toolbar leads
+// the form instead of closing it.
 const (
 	formTitleLabelRow  = 2
 	formTitleRow       = 3
@@ -5074,10 +5102,17 @@ const (
 	formPromptRow      = 8
 )
 
-// formBarRow is the line the form's toolbar sits on: under the editor, with the
-// attachment note and the session note on the two lines between them.
+// formBarRow is the line the form's toolbar sits on — the first line of the
+// form, where the heading used to be (see viewForm).
+//
+// It stays a method rather than becoming another const in the block above
+// because it was one for as long as the bar sat under the editor, and every
+// caller — clickForm's hit-test and the tests that press a chip — asks the model
+// where the row is. The answer is now a constant one, which is the point: a bar
+// on row 0 cannot be moved by a taller editor, a wrapped session line or a failed
+// save, all of which used to shift it out from under the pointer.
 func (m model) formBarRow() int {
-	return formPromptRow + m.promptArea.Height() + 2
+	return 0
 }
 
 // targetRowsRow is the first line the drop picker's target rows are drawn on,
@@ -5088,11 +5123,26 @@ const targetRowsRow = 4
 
 func (m model) viewForm() string {
 	var b strings.Builder
-	heading := "New prompt — " + m.formScope.String() + " backlog"
-	if m.formMode == formEdit {
-		heading = "Edit prompt"
+	// The toolbar leads the form, on the line the heading used to have. See
+	// formActions for why the buttons are worth more there than a title was.
+	bar := m.formBar()
+	b.WriteString(bar)
+	// The scope rides at the end of that row in add mode, dimmed and past the
+	// last chip, because it is the one thing the old heading said that nothing
+	// else on this screen says — and ctrl+g changes it, so a toggle with no
+	// visible answer would be a toggle nobody trusts. Edit mode leaves it off:
+	// the scope of a prompt already in a backlog is not a choice, and the heading
+	// never named it there either.
+	//
+	// It is drawn only when it fits. This is row 0 of a layout every click below
+	// is counted from (see formPromptRow), so a line that wrapped here would move
+	// every hit-test on the form one row down from what the eye sees.
+	if m.formMode == formAdd {
+		tag := "  " + m.formScope.String() + " backlog"
+		if m.width <= 0 || lipgloss.Width(bar)+lipgloss.Width(tag) <= m.width {
+			b.WriteString(descStyle.Render(tag))
+		}
 	}
-	b.WriteString(titleStyle.Render(heading))
 	b.WriteString("\n\n")
 
 	b.WriteString(promptStyle.Render("Title"))
@@ -5153,12 +5203,6 @@ func (m model) viewForm() string {
 	b.WriteString(descStyle.Render(m.fitToPane("⚙ "+m.sessionNote(), 0)))
 	b.WriteString("\n")
 
-	// The toolbar sits directly under the editor and above the error line, so its
-	// row is a function of the editor's height alone (see formBarRow) — a failed
-	// save must not move the buttons out from under the pointer.
-	b.WriteString(m.formBar())
-	b.WriteString("\n")
-
 	// One line for both, with the error winning: the two never arise from the
 	// same keystroke, and a save that failed is the more urgent thing to read.
 	if m.formErr != "" {
@@ -5179,35 +5223,31 @@ func (m model) viewForm() string {
 // consequence — and needsSel simply has nothing to say here, since a form always
 // has something to act on.
 //
-// The order is the order a prompt's editing session ends: keep it, break the line
-// you are on, mind how it is spelled, attach to it, say how it should run, hand
-// it to an agent, throw it away.
+// The row leads the form rather than closing it (see viewForm): it sits on the
+// line the heading used to have, because a screen whose whole job is to end an
+// editing session is better opened by the buttons that end it than by a title
+// saying what the user can already see. It also puts the bar on a fixed line
+// (formBarRow) instead of one that moves with the editor's height.
 //
-// ☑ Spell sits third, among the things that are about the text rather than about
-// what the prompt carries, and is the row's one checkbox: it shows the state of
-// the check and flips it on the spot rather than opening a screen. See
-// spellChipLabel for why that exception is the right one, and spellpanel.go for
-// where the rest of the feature lives — the chip is the toggle's whole
-// affordance, since ctrl+l now opens the panel instead of firing it. Send takes the accent for the reason listActions spends green on the
-// list's Send — it is the one button on this screen that reaches out of the
-// program — so Save gives the accent up and takes plain white instead: it is the
-// row's default, and a default reads better as the one chip with no hue at all.
-// Cancel keeps red as the only warning on the row.
-//
-// Send sits between Session and Cancel rather than beside Save. The two writes
-// are not neighbours on purpose: Save is the button the hand goes to without
-// looking, and a send is not undoable once an agent has the text, so the two
-// worst mis-clicks to make adjacent are exactly those. Where it does sit reads
-// as a sentence — set how it runs, then run it — and Cancel stays last, where a
-// row of buttons is read from; nobody scans past the exit.
-//
-// Send is also the row's one chip with no chord (see sendForm): the hint column
-// is empty rather than holding a key, so nothing typed into the form can fire it.
-//
-// Images is the palette's cyan and Session its blue, a pair chosen together (see
+// The order runs from what the prompt carries to what becomes of it: attach to
+// it, say how it should run, keep it, hand it to an agent, throw it away. Images
+// is the palette's cyan and Session its blue, a pair chosen together (see
 // colCyan): the two chips are the same gesture — "something else this prompt
-// carries" — so they get neighbouring hues at one brightness rather than one
-// tint each from opposite ends of the bar's set.
+// carries" — so they get neighbouring hues at one brightness rather than one tint
+// each from opposite ends of the bar's set.
+//
+// Send takes the accent for the reason listActions spends green on the list's
+// Send — it is the one button on this screen that reaches out of the program —
+// so Save gives the accent up and takes plain white instead: it is the row's
+// default, and a default reads better as the one chip with no hue at all. Cancel
+// keeps red as the only warning on the row, and stays last, where a row of
+// buttons is read from; nobody scans past the exit.
+//
+// Save and Send are neighbours, which is only affordable because of what the two
+// now cost to press and to undo. They are held differently (shift+enter against
+// shift+opt+enter), and a mis-click on Send opens the drop picker on a prompt it
+// has just saved (sendForm) — one esc from where the hand meant to be — rather
+// than handing anything to an agent.
 //
 // Every icon is a one-cell text dingbat, for the reason listActions gives: the
 // emoji forms measure as two columns but get drawn clipped at a cell edge, and no
@@ -5217,23 +5257,19 @@ func (m model) viewForm() string {
 // same chip.
 func (m model) formActions() []listAction {
 	return []listAction{
-		{label: "✔ Save", hint: "ctrl+s", tint: colFgHi},
-		{label: "↵ Newline", hint: "enter", tint: colStraw},
-		{label: m.spellChipLabel(), tint: m.spellChipTint()},
 		{label: "❐ Images", hint: "ctrl+o", tint: colCyan},
-		{label: "⚙ Session", hint: "ctrl+r", tint: colInfo},
-		{label: "✉ Send", tint: colAccent},
+		{label: "⚙ Session", hint: "ctrl+s", tint: colInfo},
+		{label: "✔ Save", hint: "shift+enter", tint: colFgHi},
+		{label: "✉ Send", hint: "shift+opt+enter", tint: colAccent},
 		{label: "✖ Cancel", hint: "esc", tint: colErr},
 	}
 }
 
 // Indexes into formActions — used by clickFormBar to name what it is dispatching.
 const (
-	formActionSave = iota
-	formActionNewline
-	formActionSpell
-	formActionImages
+	formActionImages = iota
 	formActionSession
+	formActionSave
 	formActionSend
 	formActionCancel
 )
@@ -5265,10 +5301,11 @@ func (m model) formChips() []actionChip {
 // toolbar sits at column 0 — the form has no cursor gutter to clear — so it is
 // measured with no indent.
 //
-// It reaches tierIcons sooner than the list's bar does, having seven buttons to
-// the list's four: a seven-chip row needs about 108 columns to print its chords,
-// 74 for its labels alone and 28 for its glyphs, so between the last two widths
-// the toolbar is ✔ ↵ ☑ ❐ ⚙ ✉ ✖ and the footer is what names them.
+// It reaches tierIcons a little sooner than the list's bar does, having five
+// buttons to the list's four and longer chords on two of them: the row needs
+// about 98 columns to print its chords, 52 for its labels alone and 20 for its
+// glyphs, so between the last two widths the toolbar is ❐ ⚙ ✔ ✉ ✖ and the footer
+// is what names them.
 func (m model) formBarTier() chipTier {
 	return barTier(m.formActions(), m.width, 0)
 }
@@ -5309,25 +5346,12 @@ func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			continue
 		}
 		switch i {
-		case formActionSave:
-			return m.saveForm()
-		case formActionNewline:
-			// A newline is an edit to the prompt, so the keys follow it there —
-			// pressing this from the title field would otherwise put a line break
-			// somewhere the user cannot see.
-			cmd := m.focusForm(formFieldPrompt)
-			m.promptArea.InsertString("\n")
-			return m, cmd
-		case formActionSpell:
-			// The one chip on either bar that changes something rather than
-			// opening something — see spellChipLabel for why the toggle is the
-			// pointer's business and the panel the keyboard's.
-			m, _ = m.toggleSpell()
-			return m, nil
 		case formActionImages:
 			return m.beginImages()
 		case formActionSession:
 			return m.beginSession()
+		case formActionSave:
+			return m.saveForm()
 		case formActionSend:
 			return m.sendForm()
 		case formActionCancel:
@@ -5360,21 +5384,45 @@ func (m model) formFooter() string {
 	}
 	var lines []string
 	if tier := m.formBarTier(); tier != tierHints {
+		// The five chips in the toolbar's own order, so the line reads as the row
+		// above it does — every chip has a chord to name now, ✉ Send included, so
+		// none of them needs the special case the click-only Send used to get.
+		//
 		// ctrl+l (the Spelling panel, spellpanel.go) is on this line as well as
-		// the one below: a pane this narrow drops the tail of that line long
-		// before it reaches the panel, and this line is what a narrow pane
-		// reads.
+		// the one below, for the reason it always was: a pane this narrow drops
+		// the tail of that line long before it reaches the panel, and this line
+		// is what a narrow pane reads. It now goes *ahead* of "esc cancel", which
+		// is the segment order fitFooter turns into a priority: no chip stands
+		// for the spelling panel at all since the ☑ Spell toggle left the bar, so
+		// it is the one thing here that nothing else can teach — while esc is the
+		// most guessable key on the screen and the ✖ Cancel chip is still spelling
+		// out the word beside it.
+		//
+		// enter's newline comes last for the same reason it is last worth saying:
+		// the ↵ Newline button is gone from the bar (a newline is what enter does
+		// in every editor, which is not a thing worth spending a button on), so
+		// this is the only place that still says so, and also the least
+		// surprising fact on the line.
 		chords := []string{
-			"ctrl+s save", "enter newline", "ctrl+o images", "ctrl+r session", "esc cancel", "ctrl+l spelling",
+			"ctrl+o images", "ctrl+s session", "shift+enter save", "shift+opt+enter send",
+			"ctrl+l spelling", "esc cancel", "enter newline",
 		}
 		if tier == tierIcons {
-			// Down to glyphs, ✉ is the one chip no chord on this line stands for
-			// — Send is click-only — so it leads rather than rides at the end,
-			// which is the end fitFooter drops segments from. The pane that
+			// Down to bare glyphs the chips have stopped naming anything at all,
+			// so the line stops being a list of chords and becomes the legend for
+			// the row above it: each glyph beside the key that presses it, in the
+			// order a pane this narrow can afford to keep them.
+			//
+			// ✉ leads because it is the one act on this screen that leaves the
+			// program, and shift+opt+enter is the chord nothing else hints at;
+			// ✔ follows because save is what the form is for. The pane that
 			// squeezed the labels off the bar is exactly the pane that will drop
-			// the tail of this line, and the thing nothing else can teach must not
-			// be what goes first.
-			chords = append([]string{"✉ click sends"}, chords...)
+			// the tail of this line, so the two that cannot be guessed go where
+			// fitFooter never trims.
+			chords = []string{
+				"✉ shift+opt+enter", "✔ shift+enter", "❐ ctrl+o", "⚙ ctrl+s", "✖ esc",
+				"ctrl+l spelling",
+			}
 		}
 		lines = append(lines, m.fitFooter(chords))
 	}
@@ -5434,12 +5482,12 @@ func (m model) formFooter() string {
 		segs = append(segs, "ctrl+g scope")
 	}
 	// The Spelling panel (spellpanel.go) is on this line as well as the chords
-	// line, for the reason "@ file" is here at all: no chip on the toolbar
-	// stands for it — ☑ Spell is the toggle, not the panel — so a pane wide
-	// enough to silence the chords line would otherwise leave the key
-	// unadvertised. After scope, because it is the one segment that is about the
-	// editor rather than about this prompt, and so among the first that can be
-	// given up when the pane narrows.
+	// line, for the reason "@ file" is here at all: no chip on the toolbar stands
+	// for it at all now that the ☑ Spell toggle has left the bar, so a pane wide
+	// enough to silence the chords line would otherwise leave the whole feature
+	// unadvertised outside the editor's right-click menu. After scope, because it
+	// is the one segment that is about the editor rather than about this prompt,
+	// and so among the first that can be given up when the pane narrows.
 	//
 	// The two line operations ride along for the same reason — no chip stands
 	// for either — and in that order, because alt+↑/↓ (movePromptLines) always

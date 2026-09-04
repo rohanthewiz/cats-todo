@@ -249,8 +249,8 @@ func TestPromptMenuIsDrawnOverTheForm(t *testing.T) {
 	if !strings.Contains(over, "Split into prompts") {
 		t.Error("the menu is not in the rendered frame")
 	}
-	if !strings.Contains(over, "New prompt") {
-		t.Error("the form's heading is gone — the menu replaced its context instead of floating over it")
+	if !strings.Contains(over, "Cancel") {
+		t.Error("the form's toolbar is gone — the menu replaced its context instead of floating over it")
 	}
 	if got, want := strings.Count(over, "\n"), strings.Count(bare, "\n"); got != want {
 		t.Errorf("frame is %d lines with the menu up, %d without", got+1, want+1)

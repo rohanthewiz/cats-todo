@@ -152,13 +152,13 @@ func TestCaretsEndOnTheKeysThatMeanOneCaret(t *testing.T) {
 }
 
 // TestCaretsHandBackKeysTheyDoNotOwn: a chord the mode has no meaning for ends
-// it and then takes its ordinary path, so ctrl+s still saves from inside the
-// mode without being listed anywhere in it.
+// it and then takes its ordinary path, so shift+enter still saves from inside
+// the mode without being listed anywhere in it.
 func TestCaretsHandBackKeysTheyDoNotOwn(t *testing.T) {
 	m := caretsOver(t, "- one\n- two")
-	got := typeInForm(t, m, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	got := typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
 	if got.carets.on {
-		t.Error("ctrl+s left the mode on")
+		t.Error("shift+enter left the mode on")
 	}
 	if got.stage != stageList {
 		t.Errorf("stage = %v, want the save to have gone through", got.stage)

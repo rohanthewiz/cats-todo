@@ -77,35 +77,36 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 }
 
-// clickSpellChip presses the toolbar's ☑ Spell button, which is the toggle's
-// whole affordance now that ctrl+l opens the panel instead (see spellChipLabel).
-func clickSpellChip(t *testing.T, m model) model {
+// pressSpellToggle flips the check the way the form now offers to: the Spelling
+// panel's last row. The toolbar's ☑ Spell chip is gone (see formActions), so the
+// panel — and the editor's right-click ✓ Spelling row, which opens it — is the
+// whole of the switch's surface.
+func pressSpellToggle(t *testing.T, m model) model {
 	t.Helper()
-	c := m.formChips()[formActionSpell]
-	return clickForm(m, c.start, m.formBarRow())
+	opened, _ := m.beginSpell()
+	m = opened.(model)
+	if m.stage != stageSpell {
+		t.Fatalf("the Spelling panel did not open (stage %v)", m.stage)
+	}
+	m.spellList.selectRef(len(m.spellChoices) - 1) // the toggle is always last
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	closed, _ := m.closeSpell()
+	return closed.(model)
 }
 
-// TestSpellToggle: the ☑ Spell chip flips the check, says so on the note line,
-// changes its own glyph to match, and the choice survives into the next model
-// built against the same config directory.
+// TestSpellToggle: the toggle flips the check, says so on the form's note line,
+// and the choice survives into the next model built against the same config
+// directory. The panel's own row labels are pinned by TestSpellPanelTogglesInPlace;
+// what this test is here for is the trip through the settings file.
 func TestSpellToggle(t *testing.T) {
 	m := withSpellForm(t, "teh")
-	if got := m.spellChipLabel(); got != "☑ Spell" {
-		t.Errorf("chip reads %q with the check on, want the ticked box", got)
-	}
 
-	m = clickSpellChip(t, m)
+	m = pressSpellToggle(t, m)
 	if m.spellOn {
-		t.Fatal("the Spell chip left spell check on")
+		t.Fatal("the toggle left spell check on")
 	}
 	if m.formNote != "spell check off" {
 		t.Errorf("form note is %q, want %q", m.formNote, "spell check off")
-	}
-	if got := m.spellChipLabel(); got != "☐ Spell" {
-		t.Errorf("chip reads %q with the check off, want the empty box", got)
-	}
-	if m.spellChipTint() == (model{spellOn: true}).spellChipTint() {
-		t.Error("the chip is the same hue off as on — the state is only in the glyph")
 	}
 	if loadSettings().spellcheck {
 		t.Error("the toggle was not persisted")
@@ -115,7 +116,7 @@ func TestSpellToggle(t *testing.T) {
 		t.Error("a new model came up with spell check on after it was turned off")
 	}
 
-	m = clickSpellChip(t, m)
+	m = pressSpellToggle(t, m)
 	if !m.spellOn || m.formNote != "spell check on" {
 		t.Errorf("second press: on=%v note=%q, want on with the note saying so", m.spellOn, m.formNote)
 	}
