@@ -23,11 +23,29 @@ func hoverModel(todos ...Todo) model {
 	return m
 }
 
-// hoverOver is the pointer moving onto a row with nothing held — the message a
-// terminal sends only while the stage has asked for MouseModeAllMotion.
+// hoverOver is the pointer coming to rest on a row: the motion message a
+// terminal sends only while the stage has asked for MouseModeAllMotion, and
+// then the dwell it arms elapsing.
+//
+// The tick is delivered directly rather than by running the tea.Cmd, which
+// would sleep out hoverDelay for real — the same message, minus a wall-clock
+// wait in every test that hovers anything. A motion that arms nothing (a menu
+// is up, the pointer is on chrome) simply has no tick to deliver.
 func hoverOver(t *testing.T, m model, row int) model {
 	t.Helper()
-	next, _ := m.Update(tea.MouseMotionMsg{X: 6, Y: listRowsRow + row})
+	return hoverAt(t, m, 6, listRowsRow+row)
+}
+
+// hoverAt is hoverOver for a case that cares which cell of the row the pointer
+// is on — placement, mostly, since the card is put where the pointer rests.
+func hoverAt(t *testing.T, m model, x, y int) model {
+	t.Helper()
+	next, _ := m.Update(tea.MouseMotionMsg{X: x, Y: y})
+	m = next.(model)
+	if !m.hoverPend.armed {
+		return m
+	}
+	next, _ = m.Update(hoverTickMsg{gen: m.hoverPend.gen})
 	return next.(model)
 }
 
@@ -198,8 +216,7 @@ func TestHoverCardStaysInThePane(t *testing.T) {
 
 	// Bottom-right corner of the pane: the box has to flip above the pointer and
 	// be pulled left, and still sit entirely on screen.
-	next, _ := m.Update(tea.MouseMotionMsg{X: m.width - 1, Y: listRowsRow})
-	c := next.(model).hover
+	c := hoverAt(t, m, m.width-1, listRowsRow).hover
 	if !c.open {
 		t.Fatal("no card near the right edge")
 	}
@@ -214,5 +231,119 @@ func TestHoverCardStaysInThePane(t *testing.T) {
 	narrow.applySizes()
 	if hoverOver(t, narrow, 0).hover.open {
 		t.Error("a card floated in a pane with no room for one")
+	}
+}
+
+// TestHoverCardWaitsForTheDwell is the delay itself: arriving on a row asks for
+// a card, it does not get one. Without this the list flickered with boxes on
+// the way past it — every row crossed on the way to another one opened and
+// closed a card under the hand.
+func TestHoverCardWaitsForTheDwell(t *testing.T) {
+	m := hoverModel(Todo{ID: "t1", Title: "one", Prompt: "one\nbody text"})
+
+	next, cmd := m.Update(tea.MouseMotionMsg{X: 6, Y: listRowsRow})
+	m = next.(model)
+	if m.hover.open {
+		t.Error("the card opened on the first motion, with no rest at all")
+	}
+	if !m.hoverPend.armed {
+		t.Fatal("the motion armed no dwell, so no card can ever appear")
+	}
+	if cmd == nil {
+		t.Fatal("the dwell was armed with no timer to end it")
+	}
+
+	// Resting is what earns it.
+	next, _ = m.Update(hoverTickMsg{gen: m.hoverPend.gen})
+	if !next.(model).hover.open {
+		t.Error("no card after the dwell elapsed")
+	}
+}
+
+// TestHoverDwellIsAbandonedWhenThePointerMovesOn pins the reason the pending
+// card carries a generation: a tea.Cmd already in flight cannot be recalled, so
+// the tick from a row the pointer has left has to be recognised and dropped.
+// Otherwise the delay would introduce the very thing it exists to prevent — a
+// card opening for a row the hand walked past several hundred milliseconds ago.
+func TestHoverDwellIsAbandonedWhenThePointerMovesOn(t *testing.T) {
+	m := hoverModel(
+		Todo{ID: "t1", Title: "one", Prompt: "one\nfirst body"},
+		Todo{ID: "t2", Title: "two", Prompt: "two\nsecond body"},
+	)
+
+	next, _ := m.Update(tea.MouseMotionMsg{X: 6, Y: listRowsRow})
+	m = next.(model)
+	stale := m.hoverPend.gen
+
+	// On to the next row before the first one's wait is up.
+	next, _ = m.Update(tea.MouseMotionMsg{X: 6, Y: listRowsRow + 1})
+	m = next.(model)
+	if m.hoverPend.gen == stale {
+		t.Fatal("the second row reused the first row's generation")
+	}
+
+	next, _ = m.Update(hoverTickMsg{gen: stale})
+	m = next.(model)
+	if m.hover.open {
+		t.Error("the abandoned row's dwell still opened a card")
+	}
+	if !m.hoverPend.armed {
+		t.Error("the stale tick spent the row the pointer is actually on")
+	}
+
+	// And the row the pointer is on does get its card, saying its own body.
+	next, _ = m.Update(hoverTickMsg{gen: m.hoverPend.gen})
+	if got := cardText(next.(model)); !strings.Contains(got, "second body") {
+		t.Errorf("the card is not about the row under the pointer:\n%s", got)
+	}
+}
+
+// TestHoverDwellDroppedByTheHand: everything that takes a card down has to take
+// a pending one down too. A keystroke is the case that matters most — the eye
+// has left the pointer, and a box arriving after it is pure interruption.
+func TestHoverDwellDroppedByTheHand(t *testing.T) {
+	base := hoverModel(Todo{ID: "t1", Title: "one", Prompt: "one\nbody text"})
+
+	next, _ := base.Update(tea.MouseMotionMsg{X: 6, Y: listRowsRow})
+	m := next.(model)
+	gen := m.hoverPend.gen
+
+	next, _ = m.Update(pressKey("down"))
+	m = next.(model)
+	if m.hoverPend.armed {
+		t.Error("a keystroke left the dwell armed")
+	}
+	next, _ = m.Update(hoverTickMsg{gen: gen})
+	if next.(model).hover.open {
+		t.Error("the card arrived after the hand had gone back to the keyboard")
+	}
+}
+
+// TestHoverDwellSurvivesDriftWithinTheRow: the clock runs from arriving on the
+// row, not from the last cell crossed. A hand that drifts while it reads must
+// still earn a card — but the card lands where the pointer came to rest, not
+// where it first touched the row.
+func TestHoverDwellSurvivesDriftWithinTheRow(t *testing.T) {
+	m := hoverModel(Todo{ID: "t1", Title: "one", Prompt: "one\nbody text"})
+
+	next, _ := m.Update(tea.MouseMotionMsg{X: 6, Y: listRowsRow})
+	m = next.(model)
+	gen := m.hoverPend.gen
+
+	next, cmd := m.Update(tea.MouseMotionMsg{X: 20, Y: listRowsRow})
+	m = next.(model)
+	if m.hoverPend.gen != gen {
+		t.Error("drifting across the row restarted the wait")
+	}
+	if cmd != nil {
+		t.Error("drifting across the row armed a second timer")
+	}
+	if m.hoverPend.x != 20 {
+		t.Errorf("the pending card is still placed at x=%d, not where the pointer rested", m.hoverPend.x)
+	}
+
+	next, _ = m.Update(hoverTickMsg{gen: gen})
+	if !next.(model).hover.open {
+		t.Fatal("no card after resting through a drift")
 	}
 }

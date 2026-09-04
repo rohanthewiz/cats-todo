@@ -39,6 +39,7 @@ package main
 
 import (
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -57,6 +58,47 @@ const (
 	hoverCardMin   = 28
 	hoverBodyLines = 4
 )
+
+// hoverDelay is how long the pointer has to stay on a row before its card is
+// built. Without it the card opened on the first motion message the row saw,
+// which turned a pass down the list — reaching for a row further on, or for the
+// scrollbar — into a run of boxes opening and closing under the hand, each one
+// landing over the rows still to be crossed.
+//
+// The wait is the whole difference between "the pointer went over this row" and
+// "the pointer is asking about this row", and it is deliberately the same
+// number catway's card uses (TIP_DELAY_MS in 09-hovercard.js): the two are the
+// same feature on two front ends, and a hand that learns the timing in one
+// should not have to learn it again in the other.
+const hoverDelay = 400 * time.Millisecond
+
+// hoverPending is a card that has been asked for but not yet earned — the row
+// the pointer is resting on, where it was resting when it last moved, and the
+// generation that says whether the tick coming back is still about this rest.
+//
+// gen is what makes the timer safe to leave running. A tea.Cmd cannot be
+// cancelled once it is in flight, so every stale tick has to be recognisable
+// when it lands: each arming takes the next number, and a tick carrying any
+// other one is answered by doing nothing. That covers the pointer moving to
+// another row, the hand going back to the keyboard, and a menu opening in the
+// meantime, without a cancellation channel for any of them.
+type hoverPending struct {
+	armed bool
+	row   int // the filtered-list index the wait is for
+	x, y  int // where the card will be placed, in screen coordinates
+	gen   uint64
+}
+
+// hoverTickMsg is a dwell that has elapsed. It says nothing about which row —
+// only which arming it belongs to; the row is read back off the model, which is
+// the only copy that can still be current.
+type hoverTickMsg struct{ gen uint64 }
+
+// hoverTick arms one dwell. Unlike scheduleTick this loop does not re-arm
+// itself: it is one shot per rest, and the next rest arms the next one.
+func hoverTick(gen uint64) tea.Cmd {
+	return tea.Tick(hoverDelay, func(time.Time) tea.Msg { return hoverTickMsg{gen: gen} })
+}
 
 // hoverCard is the card as it currently stands: which row it was built for,
 // where its box sits, and its already-rendered rows.
@@ -87,6 +129,13 @@ type hoverCard struct {
 // (the same reason, and it is being typed into), a drag is in progress (the
 // gesture is about where the row is going, not what is in it), or the pointer
 // is on chrome rather than on a row.
+//
+// What motion no longer does is build the card. Arriving on a row only starts
+// the dwell (hoverDelay); the card itself is built when the tick comes back, in
+// hoverDwell. Reading the todo there rather than here is not just where the
+// wait forced it to go — it is the more correct place, since what the card says
+// is then read at the moment it appears rather than however long earlier the
+// pointer happened to land.
 func (m model) hoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.listMenu.open || m.flagPad.open || m.dragging {
 		m.clearHover()
@@ -100,9 +149,43 @@ func (m model) hoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.hover.open && m.hover.row == i {
 		return m, nil // still on the row the card is already about
 	}
-	idx, ok := m.list.refAt(i)
+	if m.hoverPend.armed && m.hoverPend.row == i {
+		// The wait for this row is already running, so it keeps running: only
+		// where the card will land is updated. Restarting the clock on every
+		// cell would mean a hand that drifts while it reads never rests long
+		// enough anywhere, and the card would only ever appear for a pointer
+		// held perfectly still.
+		m.hoverPend.x, m.hoverPend.y = msg.X, msg.Y
+		return m, nil
+	}
+	// A different row. Whatever is up or pending belongs to the one just left —
+	// a card naming the row above the pointer is worse than no card — so it goes
+	// now, and this row starts its own wait.
+	m.clearHover()
+	m.hoverGen++
+	m.hoverPend = hoverPending{armed: true, row: i, x: msg.X, y: msg.Y, gen: m.hoverGen}
+	return m, hoverTick(m.hoverGen)
+}
+
+// hoverDwell answers the tick: the pointer has rested long enough, so the row
+// under it gets read and its card built.
+//
+// Everything hoverMotion checked is checked again, because the wait is time in
+// which any of it can have stopped holding — a menu opened, the stage changed,
+// a peer deleted the todo, the list rebuilt under the pointer. The row index is
+// resolved fresh for the same reason: it names a line on the screen, and what
+// is on that line now is what the card has to be about.
+func (m model) hoverDwell(msg hoverTickMsg) (tea.Model, tea.Cmd) {
+	if !m.hoverPend.armed || m.hoverPend.gen != msg.gen {
+		return m, nil // a tick from a rest that is already over
+	}
+	p := m.hoverPend
+	m.hoverPend = hoverPending{} // spent, whether or not it produces a card
+	if m.stage != stageList || m.listMenu.open || m.flagPad.open || m.dragging {
+		return m, nil
+	}
+	idx, ok := m.list.refAt(p.row)
 	if !ok || idx < 0 || idx >= len(m.rows) {
-		m.clearHover()
 		return m, nil
 	}
 	td, ok := m.resolve(m.rows[idx])
@@ -110,24 +193,27 @@ func (m model) hoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		// On screen but no longer in the store — another pane deleted it since
 		// the last rebuild. Nothing to say about it, and the next rebuild takes
 		// the row away.
-		m.clearHover()
 		return m, nil
 	}
-	card, ok := m.buildHoverCard(td, i, msg.X, msg.Y)
+	card, ok := m.buildHoverCard(td, p.row, p.x, p.y)
 	if !ok {
-		m.clearHover()
 		return m, nil
 	}
 	m.hover = card
 	return m, nil
 }
 
-// clearHover takes the card down. Called from everywhere the card's premise
-// stops holding — a keystroke (the hand is on the keyboard, so the pointer is
-// not what the eye is following), a click, a resize, a rebuild — rather than
-// only when the pointer leaves the row, because most of those never produce
-// another motion message to notice.
-func (m *model) clearHover() { m.hover = hoverCard{} }
+// clearHover takes the card down, and takes back any card that was still being
+// waited for. Called from everywhere the card's premise stops holding — a
+// keystroke (the hand is on the keyboard, so the pointer is not what the eye is
+// following), a click, a resize, a rebuild — rather than only when the pointer
+// leaves the row, because most of those never produce another motion message to
+// notice.
+//
+// Disarming matters as much as hiding: a dwell that survived a keystroke would
+// open a card several hundred milliseconds after the hand had already moved on
+// to something else, which is the one thing a delay must not introduce.
+func (m *model) clearHover() { m.hover = hoverCard{}; m.hoverPend = hoverPending{} }
 
 // buildHoverCard renders the card for one todo and places it. false means there
 // is nothing worth floating — no room in the pane, or a prompt with nothing in

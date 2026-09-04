@@ -264,6 +264,12 @@ type model struct {
 	// is "not showing", and it lives and dies with the gesture: the pointer
 	// leaving the row takes it down, and so does anything the hand does next.
 	hover hoverCard
+	// The card the pointer has asked for but not yet rested long enough to get,
+	// and the counter that stamps each of those requests. Both zero when nothing
+	// is waiting; see hoverPending for why an uncancellable timer needs a
+	// generation to tell a live dwell from one the pointer has already left.
+	hoverPend hoverPending
+	hoverGen  uint64
 	// The list's flag-note pad (listflagnote.go) — the field the ⚑ Flag row
 	// opens so the "because" can be typed on the row the flag was just raised
 	// on. Zero value closed, like the two boxes above it; unlike them it takes
@@ -626,6 +632,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.stage == stageList {
 			return m.hoverMotion(msg)
 		}
+	case hoverTickMsg:
+		// The list's dwell timer, answered above the stage switch for the same
+		// reason it is armed at all: the tick is about a rest that has already
+		// happened, and hoverDwell is where every reason the rest may since have
+		// been invalidated — including having left the list entirely — is
+		// checked before a card is built.
+		return m.hoverDwell(msg)
 	case tea.MouseReleaseMsg:
 		if m.dragging {
 			return m.endDrag()
