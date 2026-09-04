@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rohanthewiz/cats-todo/internal/app"
 	"github.com/rohanthewiz/cats-todo/internal/ctlproto"
+	"github.com/rohanthewiz/cats/wire"
 )
 
 // catsClient talks to the running cats server (cmd/catway) over its control
@@ -74,9 +74,9 @@ func (c *catsClient) call(method string, params any, out any, timeout time.Durat
 // paneList returns every pane cats currently knows about (across all workspaces
 // and tabs), each carrying its runtime metadata — the Agent label is how we find
 // Claude Code sessions to drop a prompt into.
-func (c *catsClient) paneList() ([]app.PaneInfo, error) {
-	var out app.PaneListResult
-	if err := c.call(app.CmdPaneList, nil, &out, callTimeout); err != nil {
+func (c *catsClient) paneList() ([]wire.PaneInfo, error) {
+	var out wire.PaneListResult
+	if err := c.call(wire.CmdPaneList, nil, &out, callTimeout); err != nil {
 		return nil, err
 	}
 	return out.Panes, nil
@@ -88,9 +88,9 @@ func (c *catsClient) paneList() ([]app.PaneInfo, error) {
 // model has one (its identity cwd) but workspace.list does not put it on the
 // wire; pane.list's per-pane cwd is how a caller finds where a workspace is
 // working (see catsWorkspaceDirs in export.go).
-func (c *catsClient) workspaceList() ([]app.WorkspaceInfo, error) {
-	var out app.WorkspaceListResult
-	if err := c.call(app.CmdWorkspaceList, nil, &out, callTimeout); err != nil {
+func (c *catsClient) workspaceList() ([]wire.WorkspaceEntry, error) {
+	var out wire.WorkspaceListResult
+	if err := c.call(wire.CmdWorkspaceList, nil, &out, callTimeout); err != nil {
 		return nil, err
 	}
 	return out.Workspaces, nil
@@ -112,9 +112,9 @@ func (c *catsClient) workspaceLabels() (map[string]string, error) {
 }
 
 // sessionInfo returns the one-shot session snapshot (active workspace, counts).
-func (c *catsClient) sessionInfo() (app.SessionInfoResult, error) {
-	var out app.SessionInfoResult
-	err := c.call(app.CmdSessionGet, nil, &out, callTimeout)
+func (c *catsClient) sessionInfo() (wire.SessionInfoResult, error) {
+	var out wire.SessionInfoResult
+	err := c.call(wire.CmdSessionGet, nil, &out, callTimeout)
 	return out, err
 }
 
@@ -126,8 +126,8 @@ func (c *catsClient) sessionInfo() (app.SessionInfoResult, error) {
 // line editor would insert literally. submit with empty text sends just the
 // Enter, firing previously staged input.
 func (c *catsClient) sendInput(pane uint32, text string, submit bool) error {
-	return c.call(app.CmdPaneSendInput,
-		app.SendInputParams{Pane: pane, Text: text, Submit: submit}, nil, callTimeout)
+	return c.call(wire.CmdPaneSendInput,
+		wire.SendInputParams{Pane: pane, Text: text, Submit: submit}, nil, callTimeout)
 }
 
 // waitForOutput blocks until the pane's output matches pattern (a substring, or
@@ -137,14 +137,14 @@ func (c *catsClient) sendInput(pane uint32, text string, submit bool) error {
 // the wait's own timeout (catctl does the same) so the transport never gives up
 // before the server answers.
 func (c *catsClient) waitForOutput(pane uint32, pattern string, regex bool, timeout time.Duration) (bool, error) {
-	p := app.WaitForOutputParams{
+	p := wire.WaitForOutputParams{
 		Pane:      pane,
 		Pattern:   pattern,
 		Regex:     regex,
 		TimeoutMs: uint32(timeout / time.Millisecond),
 	}
-	var out app.WaitForOutputResult
-	if err := c.call(app.CmdWaitForOutput, p, &out, app.WaitTimeout(p.TimeoutMs)+10*time.Second); err != nil {
+	var out wire.WaitForOutputResult
+	if err := c.call(wire.CmdWaitForOutput, p, &out, wire.WaitTimeout(p.TimeoutMs)+10*time.Second); err != nil {
 		return false, err
 	}
 	return out.Matched, nil
@@ -169,10 +169,10 @@ func (c *catsClient) waitForOutput(pane uint32, pattern string, regex bool, time
 func (c *catsClient) tabCreate(cwd, title string, command []string) (num int, pane uint32, err error) {
 	var params any // nil, not an empty struct: keeps the no-params request shape
 	if cwd != "" || title != "" || len(command) > 0 {
-		params = app.TabCreateParams{Cwd: cwd, Title: title, Command: command}
+		params = wire.TabCreateParams{Cwd: cwd, Title: title, Command: command}
 	}
-	var out app.TabCreateResult
-	if err = c.call(app.CmdTabCreate, params, &out, callTimeout); err != nil {
+	var out wire.TabCreateResult
+	if err = c.call(wire.CmdTabCreate, params, &out, callTimeout); err != nil {
 		return 0, 0, err
 	}
 	return out.Num, out.Pane, nil
@@ -198,13 +198,13 @@ const worktreeCreateTimeout = 3 * time.Minute
 // means "the focused pane", the server's own default. Addressing our own pane
 // explicitly matters for a scheduled drop, which fires with nobody watching and
 // the focus wherever the user last left it.
-func (c *catsClient) worktreeCreate(anchor uint32, branch string) (app.WorktreeCreateResult, error) {
-	p := app.WorktreeCreateParams{Branch: branch}
+func (c *catsClient) worktreeCreate(anchor uint32, branch string) (wire.WorktreeCreateResult, error) {
+	p := wire.WorktreeCreateParams{Branch: branch}
 	if anchor != 0 {
 		p.Pane = &anchor
 	}
-	var out app.WorktreeCreateResult
-	err := c.call(app.CmdWorktreeCreate, p, &out, worktreeCreateTimeout)
+	var out wire.WorktreeCreateResult
+	err := c.call(wire.CmdWorktreeCreate, p, &out, worktreeCreateTimeout)
 	return out, err
 }
 
@@ -213,7 +213,7 @@ func (c *catsClient) worktreeCreate(anchor uint32, branch string) (app.WorktreeC
 // agent.focus (like the agents sidebar it serves) crosses both, while
 // pane.focus only moves focus within the pane's own tab.
 func (c *catsClient) focusPane(pane uint32) error {
-	return c.call(app.CmdAgentFocus, app.PaneParams{Pane: pane}, nil, callTimeout)
+	return c.call(wire.CmdAgentFocus, wire.PaneParams{Pane: pane}, nil, callTimeout)
 }
 
 // claudeReadyProbes are substrings that signal Claude Code's input UI has drawn

@@ -103,7 +103,7 @@ type exportTarget struct {
 
 // exportWorkspace is what the picker needs to know about one open cats
 // workspace: its display name and a directory it is working in. It is a
-// projection of app.WorkspaceInfo plus pane.list rather than those types
+// projection of wire.WorkspaceEntry plus pane.list rather than those types
 // themselves, so the picker's tests can feed workspaces in without a socket.
 type exportWorkspace struct {
 	name string

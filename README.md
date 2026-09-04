@@ -1603,10 +1603,15 @@ The manager talks to the cats server over the local control socket
 open workspace is working — the export picker's rows), `tab.create` to open a
 new session already named and running the agent (no shell in between),
 `pane.wait_for_output` to pace launches, and `pane.send_input` to deliver the
-prompt. `internal/app` and `internal/ctlproto` are client-side copies of the
-cats wire vocabulary and control-socket client; the wire values are the
-compatibility contract, so keep them in lockstep with cats when the protocol
-grows.
+prompt.
+
+The vocabulary itself is not copied: cats publishes it as the leaf package
+`github.com/rohanthewiz/cats/wire` (stdlib-only), and this repo imports it, so
+`go get github.com/rohanthewiz/cats@<rev>` is the whole of "keep up with the
+protocol" — the compiler then points at anything that moved. `go.mod`'s pin is
+the version of the contract this build speaks. Only `internal/ctlproto` (the
+socket envelope) and `internal/integration` (the env contract) are still
+client-side copies, because those live under cats' `internal/`.
 
 ### Knowing when a new agent is ready
 

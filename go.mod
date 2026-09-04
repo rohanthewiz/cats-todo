@@ -1,6 +1,6 @@
 module github.com/rohanthewiz/cats-todo
 
-go 1.26.0
+go 1.26.1
 
 require (
 	charm.land/bubbles/v2 v2.1.1
@@ -10,6 +10,16 @@ require (
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/rivo/uniseg v0.4.7
+	// cats is the §7 wire contract, and this line IS the pin. The vocabulary is
+	// imported, never copied: `wire` is a public stdlib-only leaf package, so
+	// this dependency adds no transitive ones. Bump it with
+	//
+	//	go get github.com/rohanthewiz/cats@<sha> && go mod tidy
+	//
+	// and let the compiler name whatever moved. (internal/ctlproto and
+	// internal/integration are still hand-copied — those live under cats'
+	// internal/ and cannot be imported.)
+	github.com/rohanthewiz/cats v0.2.3-0.20260904234655-5d1e4a6716fe
 	github.com/sahilm/fuzzy v0.1.3
 )
 

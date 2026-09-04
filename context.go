@@ -16,8 +16,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rohanthewiz/cats-todo/internal/app"
 	"github.com/rohanthewiz/cats-todo/internal/integration"
+	"github.com/rohanthewiz/cats/wire"
 )
 
 // RunContext describes where cats-todo is running: the pane's working directory
@@ -238,7 +238,7 @@ func resolveOwnPaneID(client *catsClient, ctx RunContext) uint32 {
 // isOwnPane reports whether p is the pane this manager runs in, matching both
 // CATS_PANE_ID forms: the public "w1:p3" handle, and the "p_<raw>" fallback
 // that embeds the internal pane id directly.
-func isOwnPane(ctx RunContext, p app.PaneInfo) bool {
+func isOwnPane(ctx RunContext, p wire.PaneInfo) bool {
 	if ctx.OwnPane == "" {
 		return false
 	}
@@ -255,7 +255,7 @@ func isOwnPane(ctx RunContext, p app.PaneInfo) bool {
 
 // paneWorkspaceID extracts the public workspace id from a pane's "w1:p3"
 // handle, or "" when the handle is absent/unparseable.
-func paneWorkspaceID(p app.PaneInfo) string {
+func paneWorkspaceID(p wire.PaneInfo) string {
 	if ws, _, ok := strings.Cut(p.Handle, ":"); ok {
 		return ws
 	}

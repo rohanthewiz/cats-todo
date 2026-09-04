@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rohanthewiz/cats-todo/internal/app"
+	"github.com/rohanthewiz/cats/wire"
 )
 
 // performDrop carries out the chosen drop. For an existing pane it types the
@@ -171,7 +171,7 @@ func performScheduledDrop(client *catsClient, sc Schedule, act pendingAction) er
 
 // paneExists reports whether pane.list still knows the pane id — split out
 // pure so the fire path's one judgment call is testable without a socket.
-func paneExists(panes []app.PaneInfo, id uint32) bool {
+func paneExists(panes []wire.PaneInfo, id uint32) bool {
 	for _, p := range panes {
 		if p.Pane == id {
 			return true

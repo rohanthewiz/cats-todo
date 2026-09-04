@@ -52,7 +52,7 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
 | `settings.go` | `~/.config/cats-todo/settings.json` (`spellcheck`, `orderByPriority`, `showFrozen`) |
 | `styles.go` | the palette (see lockstep below) and lipgloss styles |
 | `context.go` | where we're running from (`RunContext`, `CATS_PANE_ID`, cwd) |
-| `internal/app`, `internal/ctlproto`, `internal/integration` | client-side copies of cats' wire vocabulary / socket client / env contract |
+| `internal/ctlproto`, `internal/integration` | client-side copies of cats' socket envelope / env contract (the vocabulary is imported: `cats/wire`) |
 
 ## Contracts that must not drift
 
@@ -71,9 +71,14 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
    `cats-plugin.toml` must match (the title chip shows it). Release = bump both,
    commit `chore(release): vX.Y.Z`. Bump the minor for a feature, patch for a fix.
 3. **Lockstep with cats** (`~/projs/go/cats`):
-   - `internal/app/command_vocab.go`, `internal/ctlproto/{client,proto}.go`,
-     `internal/integration` mirror cats' — wire names/values are the contract; when the
-     protocol grows, copy the change over rather than inventing local names.
+   - The §7 vocabulary is **imported, not copied**: `github.com/rohanthewiz/cats/wire`
+     is a public stdlib-only leaf package, and `go.mod` pins the revision of the
+     contract this build speaks. Keeping up with a protocol change is
+     `go get github.com/rohanthewiz/cats@<rev> && go mod tidy`; the compiler then
+     names anything that moved. Never redeclare a wire type locally.
+   - `internal/ctlproto/{client,proto}.go` and `internal/integration` are still
+     mirrors, because they live under cats' `internal/` — when they change there,
+     copy the change over rather than inventing local names.
    - `styles.go` palette = cats' built-in green theme (now `internal/theme/builtin.go`
      in cats; the comments/README still say `internal/config defaultColors`). Only the
      grey ramp (`colMuted/Dim/Faint`) is ours. `colTodo` (#f0dfa0) is cats' `todo` hue;

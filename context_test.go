@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rohanthewiz/cats-todo/internal/app"
 	"github.com/rohanthewiz/cats-todo/internal/integration"
+	"github.com/rohanthewiz/cats/wire"
 )
 
 // TestGatherRunContextWithoutClient pins the degraded launch: with no control
@@ -268,7 +268,7 @@ func mkdir(t *testing.T, dir string) {
 // TestIsOwnPane covers both CATS_PANE_ID forms the manager must recognize to
 // keep its own pane out of the drop-target picker.
 func TestIsOwnPane(t *testing.T) {
-	pane := app.PaneInfo{Pane: 7, Handle: "w1:p3"}
+	pane := wire.PaneInfo{Pane: 7, Handle: "w1:p3"}
 
 	tests := []struct {
 		name    string
@@ -294,10 +294,10 @@ func TestIsOwnPane(t *testing.T) {
 // TestPaneWorkspaceID pins the handle-prefix extraction the picker uses to
 // group panes by workspace.
 func TestPaneWorkspaceID(t *testing.T) {
-	if got := paneWorkspaceID(app.PaneInfo{Handle: "w3:p9"}); got != "w3" {
+	if got := paneWorkspaceID(wire.PaneInfo{Handle: "w3:p9"}); got != "w3" {
 		t.Errorf("paneWorkspaceID(w3:p9) = %q, want w3", got)
 	}
-	if got := paneWorkspaceID(app.PaneInfo{Handle: ""}); got != "" {
+	if got := paneWorkspaceID(wire.PaneInfo{Handle: ""}); got != "" {
 		t.Errorf("paneWorkspaceID(no handle) = %q, want empty", got)
 	}
 }

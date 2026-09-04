@@ -17,8 +17,8 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/rohanthewiz/cats-todo/internal/app"
 	"github.com/rohanthewiz/cats-todo/internal/spell"
+	"github.com/rohanthewiz/cats/wire"
 )
 
 // uiStage is which screen the manager is currently showing.
@@ -3887,7 +3887,7 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 
 	// panes is nil when there is no socket (or the call fails), which is what
 	// degrades the picker to the new-session rows alone.
-	var agents []app.PaneInfo
+	var agents []wire.PaneInfo
 	if m.client != nil {
 		if panes, err := m.client.paneList(); err == nil {
 			for _, p := range panes {

@@ -1,9 +1,13 @@
 // Package ctlproto is the local control-API wire protocol for driving a running
 // cats server from a CLI or automation client. It is the second front-end onto
-// the protocol-neutral §7 command table in internal/app — the browser (WS9,
-// internal/browserproto) is the first. A client sends a newline-framed JSON
-// Request naming an app command; the server dispatches it through app.Dispatcher
-// and replies with a single JSON Response.
+// cats' protocol-neutral §7 command table — the browser (WS9) is the first. A
+// client sends a newline-framed JSON Request naming a §7 command; the server
+// dispatches it through its dispatcher and replies with a single JSON Response.
+//
+// The command names and their params/result shapes are cats' `wire` package,
+// which this repo imports directly (github.com/rohanthewiz/cats/wire). Only the
+// envelope below is a copy: it is the server's own internal/ctlproto file, kept
+// here because that package is under internal/ and cannot be imported.
 //
 // The default transport is a per-request round trip over a local (unix) socket:
 // one Request in, one Response out, then the connection closes. Two methods layer
@@ -29,13 +33,13 @@ const ProtocolVersion = 1
 
 // MethodPing is a liveness/handshake check answered directly by the control
 // server (no session mutation); its Response.Data is a Pong. Every other Method
-// is an app §7 command name (app.Cmd*) routed through the dispatcher.
+// is a §7 command name (wire.Cmd*) routed through the dispatcher.
 const MethodPing = "ping"
 
 // MethodEventsSubscribe is the one streaming method: instead of a single Response
 // the server sends an ack Response then a stream of Event frames (see stream.go).
 // The server routes it to its StreamDispatch rather than the unary dispatcher, so
-// it is not an app §7 command name and is absent from app.CommandNames().
+// it is not a §7 command name and is absent from wire.CommandNames().
 const MethodEventsSubscribe = "events.subscribe"
 
 // MethodPair mints a single-use device-pairing grant; its Response.Data is a
@@ -43,7 +47,7 @@ const MethodEventsSubscribe = "events.subscribe"
 // table is shared with the browser front end, and a browser that could mint
 // pairing grants would be an escalation path from a stolen session cookie to a
 // permanent second credential. Keeping it off that table is what confines it to
-// the owner-only control socket. The server answers it before app.Dispatcher
+// the owner-only control socket. The server answers it before its dispatcher
 // ever sees the method name.
 const MethodPair = "pair"
 
@@ -73,10 +77,10 @@ type PairInfo struct {
 	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
-// Request is one control command. Method is an app §7 command name (app.Cmd*) or
-// MethodPing. Params is the command's params object, decoded by the dispatcher
-// via app.JSONParamDecoder. ID is a client-chosen correlation string echoed back
-// in the Response ("" is allowed).
+// Request is one control command. Method is a §7 command name (wire.Cmd*) or
+// MethodPing. Params is the command's params object (a wire params struct),
+// decoded server-side by the dispatcher's JSON param decoder. ID is a
+// client-chosen correlation string echoed back in the Response ("" is allowed).
 type Request struct {
 	ID     string          `json:"id,omitempty"`
 	Method string          `json:"method"`
@@ -85,7 +89,7 @@ type Request struct {
 
 // Response is the reply to a Request. OK reports success; on failure Error carries
 // a human-readable message. Data is the command's result payload (e.g. an
-// app.ReadResult for "read", a Pong for "ping"), absent when the command yields
+// wire.ReadResult for "read", a Pong for "ping"), absent when the command yields
 // no data.
 type Response struct {
 	ID    string          `json:"id,omitempty"`
@@ -104,7 +108,8 @@ type Pong struct {
 // Event is one server-pushed frame on a streaming connection (events.subscribe).
 // After the subscribe ack Response, the server writes zero or more Events on the
 // same newline-framed transport until the client disconnects. Name is the event
-// type (app.EventPane*); Data is its payload (an app.PaneExitedEvent, etc.). A
+// type ("pane_exited", …; the names and payload structs live in cats' internal
+// app package, so a client here matches the string rather than a constant). A
 // streaming client reads the ack as a Response, then reads Events — the two frame
 // shapes never interleave, so each is unambiguous.
 type Event struct {

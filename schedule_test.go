@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rohanthewiz/cats-todo/internal/app"
+	"github.com/rohanthewiz/cats/wire"
 )
 
 // TestParseScheduleTime pins the schedule editor's input language against a
@@ -158,7 +158,7 @@ func TestScheduleTargetRoundTrip(t *testing.T) {
 
 // TestPaneExists pins the fire path's one judgment call.
 func TestPaneExists(t *testing.T) {
-	panes := []app.PaneInfo{{Pane: 3}, {Pane: 7}}
+	panes := []wire.PaneInfo{{Pane: 3}, {Pane: 7}}
 	if !paneExists(panes, 7) {
 		t.Error("pane 7 is right there")
 	}
