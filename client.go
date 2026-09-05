@@ -23,7 +23,11 @@ import (
 // Request in, one Response out (ctlproto.Call owns the transport). The socket
 // resolves like catctl's: CATS_CONTROL_SOCKET when set, else the default
 // /tmp/cats-control.sock — so cats-todo works from any pane of a default-config
-// catway with no wiring.
+// catway with no wiring. The one non-path value is ctlproto.SocketNone ("-"),
+// which cats exports into panes on a remote cathost it does not relay the
+// control API to; there ResolveSocket yields "" and the ping below fails with a
+// message naming the reason, rather than silently dialing whatever unrelated
+// session happens to own /tmp/cats-control.sock on that machine.
 type catsClient struct {
 	socket string
 }

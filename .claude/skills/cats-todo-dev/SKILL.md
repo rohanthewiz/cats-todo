@@ -78,7 +78,13 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
      names anything that moved. Never redeclare a wire type locally.
    - `internal/ctlproto/{client,proto}.go` and `internal/integration` are still
      mirrors, because they live under cats' `internal/` — when they change there,
-     copy the change over rather than inventing local names.
+     copy the change over rather than inventing local names. The re-sync is a
+     literal `cp` of cats' two files, then re-apply the comment retargeting the
+     package doc describes (`app.Cmd*`/`app.ReadResult`/`app.CommandNames` →
+     `wire.…`; `app.Dispatcher` → "the server's dispatcher", since that one is
+     not in `wire`). Code identical, prose local. cats' `server.go` and
+     `stream.go` do **not** come over — they need cats' `internal/app`. Last
+     synced 2026-09-04 against cats `3da85b2`.
    - `styles.go` palette = cats' built-in green theme (now `internal/theme/builtin.go`
      in cats; the comments/README still say `internal/config defaultColors`). Only the
      grey ramp (`colMuted/Dim/Faint`) is ours. `colTodo` (#f0dfa0) is cats' `todo` hue;
