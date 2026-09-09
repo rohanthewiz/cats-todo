@@ -347,3 +347,110 @@ func TestHoverDwellSurvivesDriftWithinTheRow(t *testing.T) {
 		t.Fatal("no card after resting through a drift")
 	}
 }
+
+// TestHoverWarmWindowOpensTheNextCardAtOnce is the warm window itself: the
+// first row pays the dwell, and the row after it — reached while the window is
+// still open — answers on the motion message that arrives on it.
+func TestHoverWarmWindowOpensTheNextCardAtOnce(t *testing.T) {
+	m := hoverModel(
+		Todo{ID: "t1", Title: "one", Prompt: "one\nfirst body"},
+		Todo{ID: "t2", Title: "two", Prompt: "two\nsecond body"},
+	)
+	m = hoverOver(t, m, 0) // pays the dwell
+	if !m.hover.open {
+		t.Fatal("no card on the first row, so there is no warm window to test")
+	}
+
+	next, cmd := m.Update(tea.MouseMotionMsg{X: 6, Y: listRowsRow + 1})
+	m = next.(model)
+	if !m.hover.open {
+		t.Fatal("the next row's card did not open while the window was warm")
+	}
+	if m.hoverPend.armed || cmd != nil {
+		t.Error("a warm arrival armed a dwell it was not supposed to wait out")
+	}
+	if got := cardText(m); !strings.Contains(got, "second body") {
+		t.Errorf("the warm card is about the wrong row:\n%s", got)
+	}
+}
+
+// TestHoverWarmWindowSurvivesChrome: crossing a heading or the gap between the
+// rows and the bar is the pointer travelling across the list, not leaving it, so
+// the row on the far side is still free.
+func TestHoverWarmWindowSurvivesChrome(t *testing.T) {
+	m := hoverModel(
+		Todo{ID: "t1", Title: "one", Prompt: "one\nfirst body"},
+		Todo{ID: "t2", Title: "two", Prompt: "two\nsecond body"},
+	)
+	m = hoverOver(t, m, 0)
+
+	next, _ := m.Update(tea.MouseMotionMsg{X: 6, Y: 0}) // the chrome above the rows
+	m = next.(model)
+	if m.hover.open {
+		t.Fatal("the card survived the pointer leaving the rows")
+	}
+
+	next, cmd := m.Update(tea.MouseMotionMsg{X: 6, Y: listRowsRow + 1})
+	m = next.(model)
+	if !m.hover.open || m.hoverPend.armed || cmd != nil {
+		t.Error("the row past the chrome was made to pay the dwell again")
+	}
+}
+
+// TestHoverWarmWindowClosesWhenTheHandLeaves: the window belongs to the pointer.
+// A keystroke means the hand is on the keyboard, and the next row it comes back
+// to pays the dwell like any first arrival — otherwise the delay could be
+// skipped simply by having read something a moment ago.
+func TestHoverWarmWindowClosesWhenTheHandLeaves(t *testing.T) {
+	m := hoverModel(
+		Todo{ID: "t1", Title: "one", Prompt: "one\nfirst body"},
+		Todo{ID: "t2", Title: "two", Prompt: "two\nsecond body"},
+	)
+	m = hoverOver(t, m, 0)
+
+	next, _ := m.Update(pressKey("down"))
+	m = next.(model)
+	if !m.hoverWarmUntil.IsZero() {
+		t.Error("a keystroke left the warm window standing")
+	}
+
+	next, cmd := m.Update(tea.MouseMotionMsg{X: 6, Y: listRowsRow + 1})
+	m = next.(model)
+	if m.hover.open {
+		t.Error("a card opened on contact after the hand had been on the keyboard")
+	}
+	if !m.hoverPend.armed || cmd == nil {
+		t.Error("the cold arrival armed no dwell, so no card can ever appear")
+	}
+}
+
+// TestHoverCardGoesWhenTheTerminalLosesFocus is the stickiness this pairs with:
+// losing focus is the one departure the pointer never reports, so without the
+// blur the card would be drawn into every frame of a pane nobody is looking at.
+func TestHoverCardGoesWhenTheTerminalLosesFocus(t *testing.T) {
+	m := hoverModel(
+		Todo{ID: "t1", Title: "one", Prompt: "one\nfirst body"},
+		Todo{ID: "t2", Title: "two", Prompt: "two\nsecond body"},
+	)
+	m = hoverOver(t, m, 0)
+	if !m.hover.open {
+		t.Fatal("no card to lose focus with")
+	}
+
+	next, _ := m.Update(tea.BlurMsg{})
+	m = next.(model)
+	if m.hover.open {
+		t.Error("the card outlived the terminal's focus")
+	}
+	if !m.hoverWarmUntil.IsZero() {
+		t.Error("the warm window outlived the terminal's focus, so the card would come back on contact")
+	}
+}
+
+// The blur can only arrive if the program asked the terminal to report it.
+func TestListAsksForFocusReports(t *testing.T) {
+	m := hoverModel(Todo{ID: "t1", Title: "one", Prompt: "one\nbody"})
+	if !m.View().ReportFocus {
+		t.Error("focus reporting is off, so no BlurMsg ever arrives to take the card down")
+	}
+}

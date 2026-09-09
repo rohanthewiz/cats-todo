@@ -72,6 +72,29 @@ const (
 // should not have to learn it again in the other.
 const hoverDelay = 400 * time.Millisecond
 
+// hoverWarm is how long after a card comes down the next row's card opens with
+// no wait at all.
+//
+// One dwell per row is the right price for a pointer arriving from elsewhere
+// and the wrong one for a pointer already reading the list: walking down the
+// rows comparing two prompts, or looking for which one carries the flag note,
+// would mean holding still over every row in turn. So the dwell is the cost of
+// the first card and the rows after it are free, for as long as the hand keeps
+// moving between them — which is the rule every native tooltip already teaches,
+// and the reason a run of them reads as one surface being moved rather than a
+// series of separate waits.
+//
+// Only the pointer keeps the window open: clearHover, which is what a
+// keystroke, a click, a resize, a rebuild and a lost terminal focus all go
+// through, closes it along with the card. A card that appeared on contact when
+// the hand came back from the keyboard would be the eagerness the dwell exists
+// to fix, arriving by another door.
+//
+// Same number as catway's TIP_WARM_MS (09-hovercard.js), for the reason
+// hoverDelay matches TIP_DELAY_MS: one feature, two front ends, one timing to
+// learn.
+const hoverWarm = 800 * time.Millisecond
+
 // hoverPending is a card that has been asked for but not yet earned — the row
 // the pointer is resting on, where it was resting when it last moved, and the
 // generation that says whether the tick coming back is still about this rest.
@@ -87,6 +110,38 @@ type hoverPending struct {
 	row   int // the filtered-list index the wait is for
 	x, y  int // where the card will be placed, in screen coordinates
 	gen   uint64
+}
+
+// hoverIsWarm reports whether the next row's card is owed no wait: either one
+// is on screen this instant, or one came down recently enough that the window
+// is still open.
+//
+// The open card counts because on this front end there is no separate "left the
+// row" event to have already taken it down. catway gets a mouseleave before the
+// next row's mouseenter, so by the time it asks, the card it is stepping off is
+// already gone and only the window remains; here one motion message is both the
+// leaving and the arriving, and the card is still standing when the question is
+// put. Same condition either way (TIP_WARM_MS in 09-hovercard.js), reached from
+// two different places in the sequence.
+//
+// Read *before* the teardown on any path about to open a card, since taking a
+// card down is itself what opens the window.
+func (m model) hoverIsWarm() bool { return m.hover.open || time.Now().Before(m.hoverWarmUntil) }
+
+// hoverMovedOn is the pointer's own teardown: the card goes and, if there was
+// one to go, the warm window opens behind it. It is the counterpart to
+// clearHover, which is the teardown for everything that is not the pointer.
+//
+// A row the pointer crosses that had no card of its own — a heading, a spacer,
+// a title-only todo — leaves the window as it found it rather than refreshing
+// it, so the warmth is measured from the last card actually read and not
+// extended by every empty row on the way past.
+func (m *model) hoverMovedOn() {
+	if m.hover.open {
+		m.hoverWarmUntil = time.Now().Add(hoverWarm)
+	}
+	m.hover = hoverCard{}
+	m.hoverPend = hoverPending{}
 }
 
 // hoverTickMsg is a dwell that has elapsed. It says nothing about which row —
@@ -130,20 +185,30 @@ type hoverCard struct {
 // gesture is about where the row is going, not what is in it), or the pointer
 // is on chrome rather than on a row.
 //
-// What motion no longer does is build the card. Arriving on a row only starts
-// the dwell (hoverDelay); the card itself is built when the tick comes back, in
-// hoverDwell. Reading the todo there rather than here is not just where the
-// wait forced it to go — it is the more correct place, since what the card says
-// is then read at the moment it appears rather than however long earlier the
-// pointer happened to land.
+// What arriving on a row does is one of two things. Cold — the pointer has come
+// from outside the list, or the hand from the keyboard — it starts the dwell
+// (hoverDelay) and nothing more; the card is built when the tick comes back, in
+// hoverDwell. Warm — a card was up moments ago, so the hand is already reading
+// the list (hoverWarm) — it builds the card here and now, off this very
+// message.
+//
+// Either way the todo is read at the moment the card appears rather than
+// whenever the pointer happened to land, which is why both paths go through
+// hoverCardFor rather than carrying a todo along from here.
 func (m model) hoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.listMenu.open || m.flagPad.open || m.dragging {
+		// Not the pointer travelling: a surface has taken over the screen the
+		// card floats on, so the warm window closes with it.
 		m.clearHover()
 		return m, nil
 	}
 	i, ok := m.list.rowAtLine(msg.Y - listRowsRow)
 	if !ok {
-		m.clearHover() // a heading, a spacer, or the chrome above and below
+		// A heading, a spacer, or the chrome above and below. Still the pointer
+		// crossing the list, so the window stays open — a group heading between
+		// two rows is something to pass over, not a reason to start waiting
+		// again on the far side of it.
+		m.hoverMovedOn()
 		return m, nil
 	}
 	if m.hover.open && m.hover.row == i {
@@ -160,8 +225,20 @@ func (m model) hoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	}
 	// A different row. Whatever is up or pending belongs to the one just left —
 	// a card naming the row above the pointer is worse than no card — so it goes
-	// now, and this row starts its own wait.
-	m.clearHover()
+	// now. Whether this row then waits or answers at once is the warm window's
+	// call, and it has to be asked before the teardown, which is what opens it.
+	warm := m.hoverIsWarm()
+	m.hoverMovedOn()
+	if warm {
+		// Straight to the card, on the same message the pointer arrived with.
+		// A row with nothing to say still spends the arrival: it produces no
+		// card, and the window keeps counting down from the last one that did,
+		// so the row after it is still free.
+		if card, ok := m.hoverCardFor(i, msg.X, msg.Y); ok {
+			m.hover = card
+		}
+		return m, nil
+	}
 	m.hoverGen++
 	m.hoverPend = hoverPending{armed: true, row: i, x: msg.X, y: msg.Y, gen: m.hoverGen}
 	return m, hoverTick(m.hoverGen)
@@ -184,18 +261,7 @@ func (m model) hoverDwell(msg hoverTickMsg) (tea.Model, tea.Cmd) {
 	if m.stage != stageList || m.listMenu.open || m.flagPad.open || m.dragging {
 		return m, nil
 	}
-	idx, ok := m.list.refAt(p.row)
-	if !ok || idx < 0 || idx >= len(m.rows) {
-		return m, nil
-	}
-	td, ok := m.resolve(m.rows[idx])
-	if !ok {
-		// On screen but no longer in the store — another pane deleted it since
-		// the last rebuild. Nothing to say about it, and the next rebuild takes
-		// the row away.
-		return m, nil
-	}
-	card, ok := m.buildHoverCard(td, p.row, p.x, p.y)
+	card, ok := m.hoverCardFor(p.row, p.x, p.y)
 	if !ok {
 		return m, nil
 	}
@@ -203,17 +269,46 @@ func (m model) hoverDwell(msg hoverTickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// clearHover takes the card down, and takes back any card that was still being
-// waited for. Called from everywhere the card's premise stops holding — a
-// keystroke (the hand is on the keyboard, so the pointer is not what the eye is
-// following), a click, a resize, a rebuild — rather than only when the pointer
-// leaves the row, because most of those never produce another motion message to
-// notice.
+// hoverCardFor reads the todo drawn on a filtered-list row and builds its card,
+// placed against (x, y). It is the step between "the pointer has earned a card
+// for this row" and the card itself, shared by the two ways of earning one: the
+// dwell elapsing, and the warm window letting an arrival through.
 //
-// Disarming matters as much as hiding: a dwell that survived a keystroke would
-// open a card several hundred milliseconds after the hand had already moved on
-// to something else, which is the one thing a delay must not introduce.
-func (m *model) clearHover() { m.hover = hoverCard{}; m.hoverPend = hoverPending{} }
+// The row index names a *line on the screen*, so what is on that line is
+// resolved here rather than carried from wherever the pointer last was — the
+// list can have been rebuilt in between, by this pane or by a peer.
+func (m model) hoverCardFor(row, x, y int) (hoverCard, bool) {
+	idx, ok := m.list.refAt(row)
+	if !ok || idx < 0 || idx >= len(m.rows) {
+		return hoverCard{}, false
+	}
+	td, ok := m.resolve(m.rows[idx])
+	if !ok {
+		// On screen but no longer in the store — another pane deleted it since
+		// the last rebuild. Nothing to say about it, and the next rebuild takes
+		// the row away.
+		return hoverCard{}, false
+	}
+	return m.buildHoverCard(td, row, x, y)
+}
+
+// clearHover is the teardown for everything that is not the pointer moving on:
+// a keystroke (the hand is on the keyboard, so the pointer is not what the eye
+// is following), a click, a resize, a rebuild, a menu, and the terminal losing
+// focus altogether. Those are the premises the card stands on, and most of them
+// never produce another motion message to notice their going.
+//
+// It takes down three things. The card, obviously. Any dwell still being waited
+// for, because a dwell that survived a keystroke would open a card several
+// hundred milliseconds after the hand had already moved on, which is the one
+// thing a delay must not introduce. And the warm window, because every caller
+// here means the hand has left the list rather than travelled across it — a
+// card appearing on contact when it comes back would undo the dwell entirely.
+func (m *model) clearHover() {
+	m.hover = hoverCard{}
+	m.hoverPend = hoverPending{}
+	m.hoverWarmUntil = time.Time{}
+}
 
 // buildHoverCard renders the card for one todo and places it. false means there
 // is nothing worth floating — no room in the pane, or a prompt with nothing in

@@ -270,6 +270,9 @@ type model struct {
 	// generation to tell a live dwell from one the pointer has already left.
 	hoverPend hoverPending
 	hoverGen  uint64
+	// Until when the next row's card opens with no dwell at all; see hoverWarm.
+	// The zero time is "cold", which is what clearHover restores.
+	hoverWarmUntil time.Time
 	// The list's flag-note pad (listflagnote.go) — the field the ⚑ Flag row
 	// opens so the "because" can be typed on the row the flag was just raised
 	// on. Zero value closed, like the two boxes above it; unlike them it takes
@@ -639,6 +642,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// been invalidated — including having left the list entirely — is
 		// checked before a card is built.
 		return m.hoverDwell(msg)
+	case tea.BlurMsg:
+		// The terminal lost focus — the window went to the background, or, under
+		// catway, the browser window did and the pane was told so (DEC 1004; see
+		// syncAppFocus in cmd/catway/catway.go). Either way nobody is looking at
+		// this pane, and no further mouse motion is coming to take the card
+		// down, so a card left standing would be drawn into every frame of a
+		// background pane — describing a todo whose row may since have moved,
+		// been edited by a peer, or been deleted outright.
+		//
+		// This is the TUI's half of the same fix catway's card got: every way
+		// the card came down was the pointer, and losing focus is the way of
+		// leaving that the pointer never reports.
+		m.clearHover()
+		return m, nil
 	case tea.MouseReleaseMsg:
 		if m.dragging {
 			return m.endDrag()
@@ -4528,6 +4545,14 @@ func (m model) View() tea.View {
 	// one thing the list cannot otherwise say — what is inside a prompt without
 	// leaving the list to find out — on the only screen where the rows are too
 	// narrow to say it themselves.
+	// Focus reporting (DEC 1004) is asked for on every stage, not just the one
+	// with the card: it is one mode set once, and the model that has to hear
+	// about a lost focus is not only the list's — a background pane should not
+	// be blinking a caret at nobody either. What it buys the card is the one
+	// departure the pointer cannot report, since a terminal that has stopped
+	// being looked at also stops sending motion (see the tea.BlurMsg case in
+	// Update).
+	v.ReportFocus = true
 	switch {
 	case m.stage == stageList:
 		v.MouseMode = tea.MouseModeAllMotion
