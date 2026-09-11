@@ -2,7 +2,7 @@
 //
 // The list can do eight things to a prompt and the action bar has room for
 // five, so three of them — view, done, freeze — have only ever been chords, and
-// a chord is not something a pointer can find. The prompt's two annotations were
+// a chord is not something a pointer can find. The prompt's own annotations were
 // worse off still: setting a priority or marking a quick win meant opening the
 // edit form and finding the annotation bar, for a fact about a row that is read
 // off that row. Right-click a row and the whole set is named in one place, on
@@ -16,6 +16,7 @@
 //	│ ✓ Mark done              ctrl+t │
 //	│ ❄ Freeze                 ctrl+f │
 //	│ ☐ 🍏 Quick win                  │
+//	│ ☐ 💎 High value                 │
 //	│ (•) Priority: none              │
 //	│ ( ) Priority: △ high            │
 //	│ ( ) Priority: ▲ critical        │
@@ -27,12 +28,12 @@
 //
 // Every row that has a chord keeps it, so the menu doubles as the keyboard's own
 // reference — the action bar's five chips already work this way, and the actions
-// that never had a chip are exactly the ones nothing was teaching. The five
+// that never had a chip are exactly the ones nothing was teaching. The six
 // annotation rows carry no chord because there is none to carry: this menu is
 // the list's only road to them.
 //
-// The flag is a checkbox here like the fruit, but it is the one mark that is
-// only half a thought: "there is something about this one" wants "…because"
+// The flag is a checkbox here like the fruit and the gem, but it is the one
+// mark that is only half a thought: "there is something about this one" wants "…because"
 // straight after it. So raising it from the menu opens the note pad on the same
 // cell (listflagnote.go) — the mark is saved by the press, and the pad is an
 // invitation the next keystroke can either fill in or escape. ✎ Flag note…
@@ -85,13 +86,15 @@ const (
 	listMenuDone
 	listMenuFreeze
 	// The annotations sit directly after the two state rows, and in the
-	// annotation bar's own order — the fruit, then the three priority levels as
-	// they escalate, then the flag. All five are per-row marks and are learned together, which
+	// annotation bar's own order — the fruit and the gem that qualifies it
+	// the other way, then the three priority levels as they escalate, then the
+	// flag. All six are per-row marks and are learned together, which
 	// is the same reason the list footer keeps done, freeze and priority
 	// adjacent; putting them between the state rows and the two that move or
 	// destroy the prompt also means the destructive end of the menu stays the
 	// destructive end.
 	listMenuFruit
+	listMenuValue
 	listMenuPrioNone
 	listMenuPrioHigh
 	listMenuPrioCritical
@@ -105,7 +108,7 @@ const (
 	listMenuFlagNote
 	// Select sits just above Export because it is the thing you do *to* several
 	// rows before pressing Export once — and because a tick is a per-row mark
-	// like the five above it, just one the list rather than the prompt
+	// like the six above it, just one the list rather than the prompt
 	// remembers.
 	listMenuSelect
 	listMenuExport
@@ -207,6 +210,10 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 	if td.Fruit {
 		box = "☑"
 	}
+	valueBox := "☐"
+	if td.HighValue {
+		valueBox = "☑"
+	}
 	// The flag's row wears its note, trimmed to something a menu can hold — the
 	// menu sizes itself to its widest row (menuBox.size), and a long note would
 	// stretch the whole box across the pane for one line of it.
@@ -263,6 +270,7 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		// sitting in a list of rows that can, and the eye landing halfway down a
 		// menu should not have to look up to find out what "△ high" is high of.
 		{act: listMenuFruit, label: box + " " + fruitGlyph + " Quick win"},
+		{act: listMenuValue, label: valueBox + " " + valueGlyph + " High value"},
 		{act: listMenuPrioNone, label: radio(priorityNone) + " Priority: none"},
 		{act: listMenuPrioHigh, label: radio(priorityHigh) + " Priority: " + prioHighGlyph + " high"},
 		{act: listMenuPrioCritical, label: radio(priorityCritical) + " Priority: " + prioCriticalGlyph + " critical"},
@@ -361,7 +369,7 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 		return m.toggleSelected()
 	case listMenuFreeze:
 		return m.freezeSelected()
-	case listMenuFruit, listMenuFlag, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical:
+	case listMenuFruit, listMenuValue, listMenuFlag, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical:
 		return m.setMenuAnnots(ref, it.act, atX, atY)
 	case listMenuFlagNote:
 		// Deliberate rather than raised: the mark was already up when the menu
@@ -410,6 +418,8 @@ func (m model) setMenuAnnots(ref todoRef, act, atX, atY int) (tea.Model, tea.Cmd
 	switch act {
 	case listMenuFruit:
 		a.Fruit = !a.Fruit
+	case listMenuValue:
+		a.HighValue = !a.HighValue
 	case listMenuFlag:
 		// The mark, and only the mark. Raising it saves a bare flag before the
 		// note pad opens, so the press stands on its own whatever happens next;
@@ -431,6 +441,10 @@ func (m model) setMenuAnnots(ref todoRef, act, atX, atY int) (tea.Model, tea.Cmd
 		m.setStatus("marked a quick win", false)
 	case act == listMenuFruit:
 		m.setStatus("no longer a quick win", false)
+	case act == listMenuValue && a.HighValue:
+		m.setStatus("marked high value", false)
+	case act == listMenuValue:
+		m.setStatus("no longer high value", false)
 	case act == listMenuFlag && a.Flag:
 		// The mark is on disk; now the words are asked for, on the cell the
 		// press landed on. The pad is an invitation, never a gate — escaping it

@@ -40,7 +40,8 @@ import (
 // dropped while a query filters — so a fact that must survive filtering has to
 // ride the row itself.
 // annots are the annotation marks between the badge and the name — the todo
-// list's priority mark and its low-hanging-fruit apple (see annotations.go).
+// list's priority mark, its low-hanging-fruit apple and its high-value gem (see
+// annotations.go).
 // They are separate from badge because the badge holds one mutually-exclusive
 // state and an annotation is not one of them: a row can be critical and cheap
 // and scheduled all at once, and three facts need three glyphs to be true

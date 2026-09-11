@@ -1,19 +1,20 @@
 // annotations.go — the marks a todo wears beside its state.
 //
-// A row in the list answers three different questions, and they were being asked
-// of one column. What state is this prompt in (open, scheduled, frozen, done) is
-// exclusive: a todo is in exactly one, and the badge that says so has always been
-// one glyph. How much does it matter and how cheap is it are not exclusive, not
-// exclusive of each other, and not exclusive of the state either — a critical
-// one-liner is critical *and* a quick win *and* still open. Those are
-// annotations: independent facts a todo carries, each with its own glyph, drawn
-// together in front of the name so a marked prompt is spotted at the left edge.
+// A row in the list answers several different questions, and they were being
+// asked of one column. What state is this prompt in (open, scheduled, frozen,
+// done) is exclusive: a todo is in exactly one, and the badge that says so has
+// always been one glyph. How much does it matter, how cheap is it and how much
+// does it pay are not exclusive, not exclusive of each other, and not exclusive
+// of the state either — a critical one-liner is critical *and* a quick win
+// *and* worth a lot *and* still open. Those are annotations: independent facts
+// a todo carries, each with its own glyph, drawn together in front of the name
+// so a marked prompt is spotted at the left edge.
 //
 // The row therefore reads outward from the cursor as
 //
-//	❯ ✓ ▲ 🍏 fix the thing              the prompt's first line
-//	  │ └─┴── annotations: what is true about this prompt
-//	  └────── the state badge: which of the three groups it lives in
+//	❯ ✓ ▲ 🍏 💎 fix the thing            the prompt's first line
+//	  │ └──┴──┴── annotations: what is true about this prompt
+//	  └────────── the state badge: which of the three groups it lives in
 //
 // The badge leads because it is the fact the list is grouped by — the eye
 // arriving at a row wants "is this still work" before "how much work". The
@@ -48,9 +49,10 @@ import (
 // Adding a mark is: a field on Todo, a field here, a line in each of the three
 // methods below, and an entry in annotSlots. Nothing else has to know.
 type annots struct {
-	Priority string // priorityNone | priorityHigh | priorityCritical
-	Fruit    bool   // low-hanging fruit — a quick win
-	Flag     bool   // singled out — see Todo.Flag
+	Priority  string // priorityNone | priorityHigh | priorityCritical
+	Fruit     bool   // low-hanging fruit — a quick win
+	HighValue bool   // the gem — a large payoff, see Todo.HighValue
+	Flag      bool   // singled out — see Todo.Flag
 	// FlagNote is the flag's optional words. It rides in the set rather than
 	// beside it because it is not a mark of its own: it is what this mark says,
 	// and every screen that edits the flag edits the two together.
@@ -59,7 +61,7 @@ type annots struct {
 
 // annotsOf reads a todo's annotations off it.
 func annotsOf(t Todo) annots {
-	return annots{Priority: t.Priority, Fruit: t.Fruit, Flag: t.Flag, FlagNote: t.FlagNote}
+	return annots{Priority: t.Priority, Fruit: t.Fruit, HighValue: t.HighValue, Flag: t.Flag, FlagNote: t.FlagNote}
 }
 
 // applyTo writes the set back onto a todo, leaving everything else alone.
@@ -69,6 +71,7 @@ func annotsOf(t Todo) annots {
 func (a annots) applyTo(t *Todo) {
 	t.Priority = a.Priority
 	t.Fruit = a.Fruit
+	t.HighValue = a.HighValue
 	t.Flag = a.Flag
 	t.FlagNote = ""
 	if a.Flag {
@@ -80,7 +83,7 @@ func (a annots) applyTo(t *Todo) {
 // stay silent about a prompt nobody has annotated — the CLI's echo — rather
 // than announce the defaults on every one.
 func (a annots) any() bool {
-	return a.Priority != priorityNone || a.Fruit || a.Flag
+	return a.Priority != priorityNone || a.Fruit || a.HighValue || a.Flag
 }
 
 // summary is the annotations in words, for the screens with no room to draw
@@ -128,16 +131,23 @@ type annotSlot struct {
 
 // annotSlots is the layout: the annotations, left to right, in the order they
 // are drawn — the order is fixed even though the positions are not, so a row
-// wearing both marks always reads the same way round. Priority leads because it
-// is the one that decides what happens next; the fruit qualifies it ("…and it's
-// cheap").
+// wearing several marks always reads the same way round. Priority leads because
+// it is the one that decides what happens next; the fruit qualifies it ("…and
+// it's cheap") and the gem qualifies it again ("…and it pays").
+//
+// The two qualifiers are adjacent because together they are one reading — cheap
+// *and* valuable is the prompt to pick up next, and a row that separated them
+// with the flag would have made the reader assemble that from two ends of the
+// group. The form's annotation bar puts the same pair side by side for the same
+// reason (annotbar.go).
 var annotSlots = []annotSlot{
 	{name: "priority", mark: priorityMark, label: priorityAnnotLabel},
 	{name: "low-hanging fruit", mark: fruitMark, label: fruitAnnotLabel},
-	// The flag trails both. It is the mark whose meaning is written on the
+	{name: "high value", mark: valueMark, label: valueAnnotLabel},
+	// The flag trails all three. It is the mark whose meaning is written on the
 	// prompt rather than carried by the glyph, so it is the one a reader has to
-	// stop for — and a stop belongs at the end of the group, after the two
-	// facts that can be taken in at a glance.
+	// stop for — and a stop belongs at the end of the group, after the facts
+	// that can be taken in at a glance.
 	{name: "flag", mark: flagMark, label: flagAnnotLabel},
 }
 
@@ -169,6 +179,17 @@ func fruitAnnotLabel(t Todo) string {
 		return ""
 	}
 	return "low-hanging fruit"
+}
+
+// valueAnnotLabel is the gem in words. "high value" rather than "valuable" so
+// that it reads as one of a pair with "low-hanging fruit" on the screens that
+// spell both out — the two are the cost and the payoff of the same estimate,
+// and the words should say so.
+func valueAnnotLabel(t Todo) string {
+	if !t.HighValue {
+		return ""
+	}
+	return "high value"
 }
 
 // priorityMark is the priority annotation. Only a raised level draws — see the
@@ -222,6 +243,28 @@ func fruitMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 		return "", prioClosedStyle, prioClosedSelStyle
 	}
 	return fruitGlyph, fruitStyle, fruitStyle
+}
+
+// valueMark is the high-value annotation, and it goes quiet on a closed row
+// exactly as the fruit does — same mechanical reason (an emoji ignores a
+// foreground, so there is no grey to recede into), same reading of what the
+// mark is for. "This one pays" is an argument for picking a prompt up, and
+// there is nothing to pick up in the done and frozen tiers; a gem still drawn
+// there would be the brightest thing in the part of the list that exists to
+// stop shouting.
+//
+// As with the apple, nothing is lost: the fact stays on the todo, the form's
+// annotation bar still shows it ticked, and the prompt view still spells it out
+// — which is why the closed styles come back with the empty glyph rather than a
+// bare style, since that screen prints the label in them.
+func valueMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
+	if !t.HighValue {
+		return "", lipgloss.NewStyle(), lipgloss.NewStyle()
+	}
+	if t.closed() {
+		return "", prioClosedStyle, prioClosedSelStyle
+	}
+	return valueGlyph, valueStyle, valueStyle
 }
 
 // flagMark is the flag annotation.

@@ -245,10 +245,11 @@ So the row reads outward from the cursor as state, then annotations, then the
 prompt:
 
 ```
-❯ ○ ▲ 🍏 fix the drop path        the daemon cannot resolve a bare agent name
+❯ ○ ▲ 🍏 💎 fix the drop path     the daemon cannot resolve a bare agent name
   ○ △ context menu grammar        right click across the manager screens
   ○ ⚑ port the export picker      blocked until the api rename lands
   ○ 🍏 bump the version           two files, one number
+  ○ 💎 split the store            pays every time anyone touches it
   ○ ordinary work                 nothing said about it
   ❄ shelved idea                  not doing this
   ✓ ▲ shipped it                  done and dusted
@@ -269,18 +270,19 @@ they are found by reading the left edge rather than by their column — the grou
 that varies in width is the cheaper trade, and it is why the names below are
 allowed to be ragged.
 
-Three annotations exist today:
+Four annotations exist today:
 
 | Mark | Means | Set by |
 |---|---|---|
 | `▲` `△` | **priority** — critical, high | the editor's **Priority** radios, `--priority` |
 | `🍏` | **low-hanging fruit** — a quick win | the editor's **Quick win** checkbox, `--fruit` |
+| `💎` | **high value** — a large payoff for whoever picks it up | the editor's **High value** checkbox, `--high-value` |
 | `⚑` | **flagged** — singled out, with an optional note saying why | the editor's **Flag** checkbox and its note field, `--flag` |
 
 Freezing is *not* an annotation. It is a state, mutually exclusive with done, and
 it stays in the badge (`❄`) where the three groups are read from.
 
-All three are stored as nothing at all when nothing has been said — so a backlog
+All four are stored as nothing at all when nothing has been said — so a backlog
 nobody has annotated is byte-for-byte the file it was before the feature existed,
 and a teammate on an older build reads it unchanged.
 
@@ -342,11 +344,52 @@ spells it out in words, and unticking **Done** brings the apple straight back.
 The row gives the cells back with it: a finished quick win reads like any other
 finished row.
 
+#### High value
+
+`💎` is the other half of the estimate the apple starts. The fruit says how
+*cheap* a prompt is; the gem says how much it *pays*. They are separate
+marks because they are separate facts, and either one alone is half an answer: a
+five-minute typo fix is cheap and worth almost nothing, a month-long migration is
+worth a great deal and will not be picked up between two meetings. A row wearing
+**both** is the one to reach for — cheap *and* valuable — and that is the reading
+the two marks exist to make possible at a glance.
+
+It is not a fourth priority level, for the same reason the fruit is not a third.
+Priority answers **how much does this matter right now**, and value answers **how
+much is it worth at all**; the two come apart in both directions. A refactor that
+pays forever but can wait until the release is out is high value and not
+critical. A build break that has to clear this morning is critical and worth
+nothing once it has cleared. A level could only ever have told you one of them.
+
+A gem rather than a medal, which was the other candidate and says the wrong
+thing. A medal is *awarded* — it reads as "this earned something", a judgement
+about work already done. A gem is simply worth something, which is the fact being
+recorded about a prompt nobody has started yet. (A gold *bar* would have been the
+better metaphor still, and is not an emoji.)
+
+It brings its own colour, and that is what makes it affordable. This palette has
+three hues that mean something on a list row and all three are taken: cats' soft
+yellow is the `△` of high priority, the amber is the fuzzy filter's match
+highlight, and the one cool blue is the flag's. A fourth text glyph would have had
+to borrow one of them and mean something new by it; an emoji paints itself and
+takes no hue out of the palette. That the gem comes out blue a slot away from the
+blue `⚑` is worth a sentence rather than a redesign — a filled faceted solid
+against an outlined pennant is a shape difference before it is a colour one, and
+the gem's saturated cyan is the font's rather than the palette's muted blue.
+
+On a completed or frozen row it **goes away** rather than fading, exactly as the
+apple does and for exactly the same two reasons — the font paints an emoji and a
+grey foreground never reaches it, and "this one pays" is an argument for picking
+work up, which there is none of in the tier of the list that exists to stop
+shouting. The fact itself is untouched: the editor still shows it ticked, `ctrl+v`
+still spells out `high value`, and reopening the prompt brings the gem straight
+back.
+
 #### Flag
 
-`⚑` is the open question, where the other two are closed ones. Priority asks how
-much a prompt matters and the fruit asks how cheap it is; both have an answer the
-program can read. The flag says only **there is something about this one** — it
+`⚑` is the open question, where the other three are closed ones. Priority asks
+how much a prompt matters, the fruit asks how cheap it is and the gem asks what
+it is worth; all three have an answer the program can read. The flag says only **there is something about this one** — it
 is blocked, it is waiting on an answer, it needs a word before anyone starts —
 and what that something *is* goes in the flag's **note**.
 
@@ -375,10 +418,11 @@ prompt whose row draws nothing.
 
 #### Where they are set
 
-All three are set in two places, on the same controls. On the editor itself, on a
-segmented bar between the title and the prompt body — two checkboxes and a radio
-group, because that is what the three facts are: the fruit is independent, the
-priority is exactly one of three levels, and the flag is independent again. And
+All four are set in two places, on the same controls. On the editor itself, on a
+segmented bar between the title and the prompt body — three checkboxes and a
+radio group, because that is what the four facts are: the fruit and the gem are
+each independent, the priority is exactly one of three levels, and the flag is
+independent again. And
 on the list, without opening anything, from
 [the row's context menu](#marking-priority-and-quick-wins-from-the-list) — the
 same checkboxes and the same three radios, laid out down instead of across.
@@ -387,7 +431,7 @@ same checkboxes and the same three radios, laid out down instead of across.
 Title
 fix the drop path
 
-☐ 🍏 Quick win   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☑ ⚑ Flag
+☐ 🍏 Quick win   ☑ 💎 High value   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☑ ⚑ Flag
 ⚑ note  blocked until the api rename lands
 
 Prompt
@@ -410,8 +454,16 @@ checkbox was ticked would slide the rows out from under the pointer. (The button
 are safe from that in any case now: they sit on the form's first line, above
 everything that can grow.)
 
-A narrow pane drops the bar's words and keeps its glyphs (`☐ 🍏  ( ) –  ( ) △
-( ) ▲  ☐ ⚑`); it never wraps, for the same reason — it sits on a hit-tested row.
+**☐ 💎 High value** sits immediately beside **☐ 🍏 Quick win** because the two
+are one estimate read from both ends, and a hand that has just answered "cheap"
+is one `→` away from answering "and worth it".
+
+A narrow pane drops the bar's words and keeps its glyphs (`☐ 🍏  ☐ 💎  ( ) –
+( ) △  ( ) ▲  ☐ ⚑`), and a narrower one still closes the space inside each
+segment (`☐🍏  ☐💎  ( )–  ( )△  ( )▲  ☐⚑`, which fits a 30-cell pane). It never
+drops a segment and it never wraps, for the same reason — it sits on a
+hit-tested row, and a bar that wrapped would put the prompt editor one line below
+where every click on it is aimed.
 
 They used to be the first two rows of the ⚙ session panel, above a seam —
 accurate, but a screen away: the marks describe **the prompt**, the panel
@@ -434,12 +486,12 @@ keystrokes into a row that is not a text field.
 Nothing is written until the form is saved, so an abandoned edit leaves the
 marks as they were — the one difference from the context menu, which has no form
 to abandon and therefore writes on the press. `ctrl+v` on a list row spells the marks out in words as
-well — `▲ critical · 🍏 low-hanging fruit · ⚑ flagged: blocked on the api` on the
+well — `▲ critical · 🍏 low-hanging fruit · 💎 high value · ⚑ flagged: blocked on the api` on the
 prompt view's meta line —
 which is where to look when a glyph on a row is not yet familiar. That line is
 built from the words rather than from the glyphs, so it still reads
-`▲ critical · low-hanging fruit` on a finished prompt whose row has dropped the
-apple: the row says what is worth doing, this screen says what was said.
+`▲ critical · low-hanging fruit · high value` on a finished prompt whose row has
+dropped the apple and the gem: the row says what is worth doing, this screen says what was said.
 
 #### Priority order
 
@@ -746,6 +798,7 @@ on the prompt you pointed at.
 │ ✓ Mark done              ctrl+t │
 │ ❄ Freeze                 ctrl+f │
 │ ☐ 🍏 Quick win                  │
+│ ☐ 💎 High value                 │
 │ (•) Priority: none              │
 │ ( ) Priority: △ high            │
 │ ( ) Priority: ▲ critical        │
@@ -783,14 +836,16 @@ say "Export" and quietly mean four.
 
 ### Marking priority and quick wins from the list
 
-The five middle rows are the reason this menu exists. A prompt's annotations —
-its [priority](#priority), its [low-hanging fruit](#low-hanging-fruit) mark and
-its [flag](#flag) — are facts you read straight off a list row, but until now the only way to *set*
+The six middle rows are the reason this menu exists. A prompt's annotations —
+its [priority](#priority), its [low-hanging fruit](#low-hanging-fruit) and
+[high value](#high-value) marks and its [flag](#flag) — are facts you read
+straight off a list row, but until now the only way to *set*
 one was to open the editor and find the annotation bar: a full round trip
 through a form, to change a fact about a row you were already looking at.
 
 They are the editor's controls, in the editor's glyphs, laid out down instead of
-across. **☐ 🍏 Quick win** and **☐ ⚑ Flag** are checkboxes and toggle. The three
+across. **☐ 🍏 Quick win**, **☐ 💎 High value** and **☐ ⚑ Flag** are checkboxes
+and toggle. The three
 **Priority** rows are radios and set exactly their level, so pressing `▲ critical` on a prompt that
 is already critical leaves it there rather than switching it off — and `none` is
 a row of its own, which makes clearing a level the same gesture as setting one.
@@ -860,6 +915,7 @@ cats-todo add -g clean up the dotfiles      # → the global one
 cats-todo add -t "flaky test" fix the …     # → an explicit title
 cats-todo add --priority critical fix the … # → marked critical
 cats-todo add --fruit bump the version …    # → marked 🍏 low-hanging fruit
+cats-todo add --high-value split the store …  # → marked 💎 high value
 cats-todo add --flag="waiting on the api" …  # → flagged, with a note
 git log -p | cats-todo add -t "review this diff"   # → the prompt from piped stdin
 ```
@@ -874,10 +930,10 @@ type — so `add` is safe to bind to a key or drop in a script.
 setting when the prompt starts mid-thought, or when it arrives on stdin and its
 first line is a diff header.
 
-`--priority`, `--fruit` and `--flag` set the prompt's [annotations](#annotations)
-(`critical`, `high`, `none`; the `🍏` quick-win mark; and the `⚑` flag), so a prompt captured
-mid-firefight arrives already marked rather than needing to be opened afterwards
-to say so:
+`--priority`, `--fruit`, `--high-value` and `--flag` set the prompt's
+[annotations](#annotations) (`critical`, `high`, `none`; the `🍏` quick-win mark;
+the `💎` high-value gem; and the `⚑` flag), so a prompt captured mid-firefight
+arrives already marked rather than needing to be opened afterwards to say so:
 
 ```sh
 cats-todo add --priority critical --fruit -t "fix the drop path" "the daemon cannot resolve a bare agent name"
@@ -893,7 +949,10 @@ the flags have no effect on a backlog until someone actually marks something.
 `--priority` is long-only on purpose — a bare `-p` beside `--perm` reads as an
 abbreviation of it, and a flag that looks like it means permissions while meaning
 priority is the kind of thing that gets found out at the wrong moment — and
-`--fruit` and `--flag` follow it for the same reason.
+`--fruit`, `--high-value` and `--flag` follow it for the same reason. The mark
+is spelled `--high-value` rather than `--value` because a bare boolean called
+"value" reads on a command line as a flag that wants one: `--value "fix the
+thing"` looks like it is swallowing the prompt behind it.
 
 `--flag` carries its note in the same breath as the mark: bare, it raises a flag
 with nothing to say; `--flag="blocked on the api rename"` raises one with the
@@ -1442,7 +1501,7 @@ list marks a configured prompt with `⚙`, and nothing is written until you save
 the prompt itself.
 
 Every row of the panel describes the session that will read the prompt. The
-prompt's own marks — priority, quick win — are not here: they are set on the
+prompt's own marks — priority, quick win, high value — are not here: they are set on the
 editor's [annotation bar](#annotations), in sight of the title they qualify.
 
 | Row | What it does |

@@ -87,6 +87,7 @@ var addCompletions = []completion{
 	{"--image", "attach an image file (repeatable); copied into the backlog"},
 	{"--priority", "how much it matters: critical|high|none"},
 	{"--fruit", "mark as low-hanging fruit — cheap for what it pays"},
+	{"--high-value", "mark high value — a large payoff for whoever picks it up"},
 	{"--flag", "single it out, optionally with a note (--flag=\"why\")"},
 	// The session options (see session.go). They are offered here rather than
 	// left to the manual for the reason the flags exist at all: the whole point
@@ -112,9 +113,9 @@ var addCompletions = []completion{
 // that: --priority is an annotation and not a session option (it is a fact about
 // the prompt, not about the agent that will read it) but it is the same kind of
 // flag, and a second map holding one entry would be worse than a name that
-// overstates by one. --fruit is another annotation and takes no value, so it has
-// nothing to offer here; --flag's value is free text, which is the other kind of
-// flag a completion menu has nothing to say about.
+// overstates by one. --fruit and --high-value are annotations that take no
+// value, so they have nothing to offer here; --flag's value is free text, which
+// is the other kind of flag a completion menu has nothing to say about.
 var sessionValueCompletions = map[string][]completion{
 	"--priority": {
 		{"critical", "do this first"},

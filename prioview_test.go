@@ -472,13 +472,15 @@ func TestPriorityRadioSetsAndSaves(t *testing.T) {
 	if m.formFocus != formFieldAnnots {
 		t.Fatalf("tab from the prompt left focus %d, want the annotation bar (%d)", m.formFocus, formFieldAnnots)
 	}
-	// → three times from the checkbox, across none and high, onto critical.
-	for range 3 {
+	// → from the Quick win checkbox across High value, none and high, onto
+	// critical. Counted off the constants rather than written as a literal, so
+	// a segment added between them moves the walk instead of breaking it.
+	for range annotSegPrioCritical - annotSegFruit {
 		mm, _ = m.updateForm(pressKey("right"))
 		m = mm.(model)
 	}
 	if m.annotCursor != annotSegPrioCritical {
-		t.Fatalf("three presses landed on segment %d, want critical (%d)", m.annotCursor, annotSegPrioCritical)
+		t.Fatalf("the walk landed on segment %d, want critical (%d)", m.annotCursor, annotSegPrioCritical)
 	}
 	mm, _ = m.updateForm(pressKey("space"))
 	m = mm.(model)
@@ -601,8 +603,12 @@ func TestCancellingTheFormLeavesPriorityAlone(t *testing.T) {
 	m = mm.(model)
 	mm, _ = m.updateForm(pressKey("space")) // set the fruit…
 	m = mm.(model)
-	mm, _ = m.updateForm(pressKey("right")) // …and walk onto none to clear the level
-	m = mm.(model)
+	// …and walk onto none to clear the level, past whatever checkboxes sit
+	// between the two (High value today).
+	for range annotSegPrioNone - annotSegFruit {
+		mm, _ = m.updateForm(pressKey("right"))
+		m = mm.(model)
+	}
 	mm, _ = m.updateForm(pressKey("space"))
 	m = mm.(model)
 	if m.formAnnots.Priority != priorityNone || !m.formAnnots.Fruit {

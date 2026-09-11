@@ -74,6 +74,22 @@ type Todo struct {
 	// false, so a backlog nobody has marked reads exactly as it did before the
 	// field existed, and an older binary ignores the key rather than choking.
 	Fruit bool `json:"fruit,omitempty"`
+	// HighValue marks a prompt worth a lot to whoever picks it up — the gem.
+	// It is the other half of the question Fruit asks: fruit says how
+	// cheap this is, HighValue says how much it pays, and priority says how
+	// much it matters *now*. Three independent axes, which is why this is a
+	// third annotation rather than a fourth priority level — a refactor that
+	// pays forever but can wait is high value and not critical, and a blocker
+	// that must clear today is critical without being worth much once it has.
+	//
+	// A row wearing 🍏 and 💎 together is the pair worth reading as one fact:
+	// cheap *and* valuable is the prompt to pick up next, and neither mark on
+	// its own says that.
+	//
+	// Same compat contract as the fields above — omitted from the JSON when
+	// false, so a backlog nobody has marked reads exactly as it did before the
+	// field existed, and an older binary ignores the key rather than choking.
+	HighValue bool `json:"highValue,omitempty"`
 	// Flag marks a prompt someone wanted to single out for a reason the other
 	// two marks cannot express — blocked on something, waiting on an answer,
 	// "ask me before doing this". Priority and fruit are closed questions with
@@ -439,9 +455,9 @@ func (s *store) setSession(id string, o *SessionOpts) error {
 }
 
 // setAnnots replaces the annotations of the todo with id — its priority, its
-// low-hanging-fruit mark and its flag — and persists. Zero values clear them, which is what
+// low-hanging-fruit and high-value marks and its flag — and persists. Zero values clear them, which is what
 // writes the keys back out of the file rather than storing "none"/false (see the
-// Priority and Fruit fields).
+// Priority, Fruit and HighValue fields).
 //
 // One method for the whole set rather than one per mark: they are saved together
 // by every caller that saves them at all (the form's ⚙ panel edits both), and two

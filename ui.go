@@ -403,7 +403,8 @@ type model struct {
 	// a pointer so that cancelling the form cannot have touched the stored one.
 	formSession SessionOpts
 	// formAnnots is the prompt's annotations while the form holds them — its
-	// priority and its low-hanging-fruit mark (see annotations.go). A field of
+	// priority, its low-hanging-fruit and high-value marks, and its flag (see
+	// annotations.go). A field of
 	// its own rather than a member of formSession, because they are not session
 	// options: they say what is true about the prompt, not how the agent that
 	// reads it will be set up, and they are stored on the Todo rather than in its
@@ -3269,7 +3270,7 @@ func (m model) droppedRels() []string {
 // what it does, how it ends. The cursor is an index into this set, so the
 // numbering is the layout and nothing else; it is not stored anywhere.
 const (
-	// The prompt's own annotations (priority, quick win) are not here: they
+	// The prompt's own annotations (priority, quick win, high value) are not here: they
 	// describe the prompt rather than the session that will read it, and they
 	// are set on the form's annotation bar (annotbar.go), in sight of the
 	// title they qualify. Every row of this panel is about the session.
@@ -3662,8 +3663,8 @@ func (m model) persistForm() (model, todoRef, bool) {
 		}
 		// Applied as a set rather than field by field, so a mark added later
 		// cannot be forgotten on this path (see annots). Every zero value means
-		// "nothing said", so an unannotated prompt still writes no "priority"
-		// or "fruit" key at all.
+		// "nothing said", so an unannotated prompt still writes no "priority",
+		// "fruit" or "highValue" key at all.
 		m.formAnnots.applyTo(&td)
 		if err := st.add(td); err != nil {
 			// The copies are on disk but no todo will ever reference them.

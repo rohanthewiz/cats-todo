@@ -707,6 +707,9 @@ func bundleTodoNote(t Todo) string {
 	if t.Fruit {
 		parts = append(parts, "low-hanging fruit")
 	}
+	if t.HighValue {
+		parts = append(parts, "high value")
+	}
 	if t.Session != nil {
 		if s := t.Session.summary(); s != "" {
 			parts = append(parts, s)
