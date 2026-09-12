@@ -792,7 +792,7 @@ on the prompt you pointed at.
 ```
 ╭─────────────────────────────────╮
 │ ✎ Edit…                   enter │
-│ ◉ View                   ctrl+v │
+│ ⚙ Session…                      │
 │ ✉ Send…             shift+enter │
 │ ◷ Schedule…              ctrl+s │
 │ ✓ Mark done              ctrl+t │
@@ -828,6 +828,14 @@ the box — `↑`/`↓` and `enter`, a click off it to dismiss, any other key ta
 down, floating over the list rather than replacing it — works exactly as [the
 prompt editor's context menu](#the-prompt-editors-context-menu) does, because it
 is the same box.
+
+**⚙ Session…** opens the prompt's [session options](#session-options) panel
+directly, without the editor around it — the launch setup is the thing most
+often adjusted just before a send, so it sits right above **✉ Send…**. With no
+form behind it to save later, leaving the panel (`enter` or `esc`) *is* the
+save: the options are written to that prompt and you are back on the list with
+it still highlighted. It is never dim, since the options are local to the
+backlog. (The row used to be **◉ View**; the prompt view is still `ctrl+v`.)
 
 Two rows read the *selection* rather than the prompt: **✓ Select** reads
 **Unselect** on a row that is already ticked, and **➦ Export…** becomes
@@ -1498,7 +1506,8 @@ In the editor, `ctrl+s` opens the ⚙ panel (or click the **Session** chip;
 `↑`/`↓` walk the rows, `←`/`→` (or `space`) change the one under the cursor, and
 `esc` goes back to the prompt. The form shows what is set on its `⚙` line, the
 list marks a configured prompt with `⚙`, and nothing is written until you save
-the prompt itself.
+the prompt itself. From the list, right-click a row and pick **⚙ Session…** to
+open the same panel without the editor; there, leaving the panel saves.
 
 Every row of the panel describes the session that will read the prompt. The
 prompt's own marks — priority, quick win, high value — are not here: they are set on the

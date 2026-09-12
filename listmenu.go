@@ -10,7 +10,7 @@
 //
 //	╭─────────────────────────────────╮
 //	│ ✎ Edit…                   enter │
-//	│ ◉ View                   ctrl+v │
+//	│ ⚙ Session…                      │
 //	│ ✉ Send…             shift+enter │
 //	│ ◷ Schedule…              ctrl+s │
 //	│ ✓ Mark done              ctrl+t │
@@ -74,13 +74,18 @@ import (
 const listMenuNoteWidth = 32
 
 // The menu's actions, which are also its row order. Reading order is roughly
-// least to most committing: the two that only look at the prompt, then the two
-// that hand it to an agent, then the two that change its state, then the two
+// least to most committing: the two that open the prompt for editing, then the
+// two that hand it to an agent, then the two that change its state, then the two
 // that move or destroy it. Delete is last for the reason it is last on the
 // action bar — the row a slipped hand is least likely to land on.
 const (
 	listMenuEdit = iota
-	listMenuView
+	// Session took the slot View used to hold. View was a read-only look that
+	// ctrl+v (and a hover card) already gives; the ⚙ panel, on the other hand,
+	// was only reachable by opening the whole editor, and the launch setup is
+	// exactly the thing that gets adjusted just before a send — so it sits next
+	// to Edit, directly above ✉ Send… (see beginListSession, ui.go).
+	listMenuSession
 	listMenuSend
 	listMenuSchedule
 	listMenuDone
@@ -260,7 +265,11 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 	mu.atX, mu.atY = msg.X, msg.Y
 	mu.items = []menuItem{
 		{act: listMenuEdit, label: "✎ Edit…", hint: "enter"},
-		{act: listMenuView, label: "◉ View", hint: "ctrl+v"},
+		// No chord to print: the panel's own chord belongs to the form, and on
+		// the list this menu is the road to it. Never dim — the options are
+		// local to the backlog, so a frozen, done or socketless prompt can still
+		// have its launch setup changed for later.
+		{act: listMenuSession, label: "⚙ Session…"},
 		{act: listMenuSend, label: "✉ Send…", hint: m.modEnter(), why: sendWhy},
 		{act: listMenuSchedule, label: "◷ Schedule…", hint: "ctrl+s", why: schedWhy},
 		{act: listMenuDone, label: doneLabel, hint: "ctrl+t"},
@@ -359,8 +368,8 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 	switch it.act {
 	case listMenuEdit:
 		return m.beginEditRef(ref)
-	case listMenuView:
-		return m.beginView()
+	case listMenuSession:
+		return m.beginListSession(ref)
 	case listMenuSend:
 		return m.startDrop(ref)
 	case listMenuSchedule:

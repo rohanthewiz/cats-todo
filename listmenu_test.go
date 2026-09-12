@@ -165,7 +165,7 @@ func TestListMenuDimsWhatCannotAct(t *testing.T) {
 			}
 		}
 		for _, row := range []int{
-			listMenuEdit, listMenuView, listMenuDone, listMenuFreeze,
+			listMenuEdit, listMenuSession, listMenuDone, listMenuFreeze,
 			listMenuFruit, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical,
 			listMenuFlag, listMenuSelect, listMenuExport, listMenuDelete,
 		} {
@@ -322,8 +322,8 @@ func TestListMenuOwnsTheKeys(t *testing.T) {
 	m = rightClickRow(t, m, 0)
 
 	m = pressList(t, m, "down")
-	if m.listMenu.cursor != listMenuView {
-		t.Fatalf("cursor on row %d after ↓, want the view", m.listMenu.cursor)
+	if m.listMenu.cursor != listMenuSession {
+		t.Fatalf("cursor on row %d after ↓, want the session row", m.listMenu.cursor)
 	}
 	m = pressList(t, m, "up")
 	if m.listMenu.cursor != listMenuEdit {
@@ -369,10 +369,10 @@ func TestListMenuClickDismissesWithoutActing(t *testing.T) {
 	}
 
 	// A press on a row runs it.
-	row := m.listMenu.y + 1 + listMenuView
+	row := m.listMenu.y + 1 + listMenuSession
 	next, _ = m.Update(tea.MouseClickMsg{X: m.listMenu.x + 2, Y: row, Button: tea.MouseLeft})
-	if got := next.(model); got.stage != stageView {
-		t.Fatalf("stage = %v after clicking the view row, want the prompt view", got.stage)
+	if got := next.(model); got.stage != stageSession {
+		t.Fatalf("stage = %v after clicking the session row, want the session panel", got.stage)
 	}
 
 	// A press well off the box only closes it — the row it landed on is not also
@@ -646,4 +646,65 @@ func TestListMenuFlagRow(t *testing.T) {
 			t.Fatalf("todo = %+v, want all three marks standing", td)
 		}
 	})
+}
+
+// TestListMenuSessionSavesOnLeaving: ⚙ Session… opens the panel with no form
+// behind it, so leaving the panel has to be the save. Before this path existed
+// the panel only ever deferred to the form's ✔ Save; reused as-is from the list,
+// every edit made there would have been silently thrown away on esc.
+func TestListMenuSessionSavesOnLeaving(t *testing.T) {
+	m := withTodos(t, "first", "second")
+	m = rightClickRow(t, m, 1)
+	next, _ := m.pressListMenu(listMenuSession)
+	m = next.(model)
+	if m.stage != stageSession || !m.sessFromList || m.sessListRef.id != "b" {
+		t.Fatalf("stage = %v, fromList = %v, ref = %+v, want the panel on prompt b",
+			m.stage, m.sessFromList, m.sessListRef)
+	}
+	if !strings.Contains(m.viewSession(), "save and back to the list") {
+		t.Error("the panel's footer still promises a form save that will never come")
+	}
+
+	// The model row is the first; one step right from the default is "opus".
+	next, _ = m.updateSession(pressKey("right"))
+	next, _ = next.(model).updateSession(pressKey("esc"))
+	got := next.(model)
+
+	if got.stage != stageList || got.sessFromList {
+		t.Fatalf("stage = %v, fromList = %v after esc, want back on the list and the flag cleared",
+			got.stage, got.sessFromList)
+	}
+	td, ok := got.resolve(todoRef{scope: scopeProject, id: "b"})
+	if !ok || td.Session == nil || td.Session.Model != "opus" {
+		t.Fatalf("stored session = %+v, want model opus written to prompt b", td.Session)
+	}
+	if other, _ := got.resolve(todoRef{scope: scopeProject, id: "a"}); other.Session != nil {
+		t.Errorf("prompt a picked up %+v — the options went to the wrong prompt", other.Session)
+	}
+	if ref, _ := got.selectedRef(); ref.id != "b" {
+		t.Errorf("highlight = %q, want it on the prompt just configured", ref.id)
+	}
+
+	// Resetting the row back to the default takes the key back out of the file
+	// rather than storing an empty record (contract 1: untouched stays identical).
+	m = rightClickRow(t, got, 1)
+	next, _ = m.pressListMenu(listMenuSession)
+	next, _ = next.(model).updateSession(pressKey("left"))
+	next, _ = next.(model).updateSession(pressKey("enter"))
+	if td, _ := next.(model).resolve(todoRef{scope: scopeProject, id: "b"}); td.Session != nil {
+		t.Errorf("stored session = %+v after resetting to defaults, want nil", td.Session)
+	}
+
+	// The form's own panel is untouched: esc there still returns to the form
+	// and writes nothing.
+	next, _ = next.(model).beginEditRef(todoRef{scope: scopeProject, id: "a"})
+	next, _ = next.(model).beginSession()
+	next, _ = next.(model).updateSession(pressKey("right"))
+	next, _ = next.(model).updateSession(pressKey("esc"))
+	if got := next.(model); got.stage != stageForm {
+		t.Fatalf("stage = %v after esc on the form's panel, want the form", got.stage)
+	}
+	if td, _ := next.(model).resolve(todoRef{scope: scopeProject, id: "a"}); td.Session != nil {
+		t.Errorf("the form's panel wrote %+v before the form was saved", td.Session)
+	}
 }

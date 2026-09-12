@@ -430,6 +430,14 @@ type model struct {
 	sessSkills    bool
 	sessStatus    string
 	sessStatusErr bool
+	// sessFromList marks a panel opened from the list's context menu rather than
+	// over the form, and sessListRef is the prompt it was opened on. That panel
+	// has no form behind it to hold the edit until a later save, so leaving it is
+	// the save (see closeSession). The ref is carried, not re-read from the
+	// highlight, for the reason listMenu carries its own: the options shown were
+	// read from this todo, and must be written back to the same one.
+	sessFromList bool
+	sessListRef  todoRef
 
 	// Confirm stage.
 	confirmKind       confirmKind
@@ -1777,6 +1785,10 @@ func (m *model) backToList() {
 	// held in memory; an esc out of the confirm has decided not to write it, so
 	// it goes rather than sitting there until the next import replaces it.
 	m.pendingImport = pendingImport{}
+	// A list-opened session panel ends here too. Left set, it would make the
+	// next panel opened over the form write straight to disk on esc, into
+	// whichever prompt this one was about.
+	m.sessFromList, m.sessListRef = false, todoRef{}
 	_ = m.setActionFocus(false)
 }
 
@@ -3343,14 +3355,67 @@ func (m *model) setSessStatus(s string, isErr bool) {
 	m.sessStatusErr = isErr
 }
 
+// beginListSession opens the session panel straight from the list's context
+// menu, on the prompt the menu was opened for — the quick road to a prompt's
+// launch setup that does not go through the editor.
+//
+// The panel itself is unchanged: it edits m.formSession, so this seeds that
+// field exactly the way beginEditRef does (a clone, never the stored pointer)
+// and hands over to beginSession. What differs is only the way out, which
+// closeSession decides from sessFromList.
+func (m model) beginListSession(ref todoRef) (tea.Model, tea.Cmd) {
+	td, ok := m.resolve(ref)
+	if !ok {
+		m.setStatus("could not find that prompt", true)
+		return m, nil
+	}
+	m.formSession = SessionOpts{}
+	if td.Session != nil {
+		m.formSession = td.Session.clone()
+	}
+	m.sessFromList, m.sessListRef = true, ref
+	return m.beginSession()
+}
+
 // closeSession returns to the form, restoring focus to the field that had it —
 // the same contract closeImages keeps, and for the same reason: a sub-stage that
 // gives the keys back somewhere else makes the form feel like it moved.
+//
+// A panel opened from the list goes back to the list instead, and writes the
+// options on the way. The form's panel can defer the write to ✔ Save because
+// the form is still there to be saved; from the list there is no second step,
+// so deferring would mean every edit made here was thrown away.
 func (m model) closeSession() (tea.Model, tea.Cmd) {
 	m.commitSessInput()
 	m.setSessStatus("", false)
+	if m.sessFromList {
+		return m.saveListSession()
+	}
 	m.stage = stageForm
 	return m, m.restoreFormFocus()
+}
+
+// saveListSession writes a list-opened panel's options to its prompt and goes
+// back to the list.
+//
+// setSession replaces the session record alone, so a title or a mark changed
+// in another pane while the panel was up survives this write. sessionPtr turns
+// an all-defaults record into nil, so resetting every row takes the "session"
+// key back out of todos.json rather than storing an empty object.
+//
+// A failed write keeps the panel up with the error on its own status line:
+// going back to the list would lose the edit the user just made.
+func (m model) saveListSession() (tea.Model, tea.Cmd) {
+	ref := m.sessListRef
+	if err := m.storeFor(ref.scope).setSession(ref.id, sessionPtr(m.formSession)); err != nil {
+		m.setSessStatus("save failed: "+err.Error(), true)
+		return m, nil
+	}
+	m.backToList() // clears sessFromList
+	m.rebuildList()
+	m.selectRow(ref)
+	m.setStatus("session options saved: "+firstNonEmpty(m.formSession.summary(), "default session"), false)
+	return m, nil
 }
 
 // sessRowIsText reports whether row i is one of the two free-text rows. They are
@@ -5837,12 +5902,19 @@ func (m model) viewSession() string {
 	b.WriteString("\n")
 	// Through fitFooter for the reason the form's footer is: a pane too narrow
 	// for the whole line concedes a segment rather than wrapping one.
+	// The footer says where leaving goes and when the write happens, and both
+	// depend on how the panel was reached: over the form the save is the form's,
+	// from the list's menu leaving is the save.
+	back, saved := "enter/esc back to the form", "nothing is saved until you save the form"
+	if m.sessFromList {
+		back, saved = "enter/esc save and back to the list", "saved to the prompt as you leave"
+	}
 	b.WriteString(footerStyle.Render(m.fitFooter([]string{
-		"↑/↓ row", "←/→ or space change", "enter/esc back to the form",
+		"↑/↓ row", "←/→ or space change", back,
 	})))
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render(m.fitFooter([]string{
-		"nothing is saved until you save the form", "the launch flags ride on new claude sessions only",
+		saved, "the launch flags ride on new claude sessions only",
 	})))
 	return b.String()
 }
