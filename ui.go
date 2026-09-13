@@ -2016,6 +2016,13 @@ func (m *model) rebuildList() {
 				}
 				marks = append(marks, descMark{text: "⏰ " + when, style: descStyle})
 			}
+			// A done row takes the slot the fire time would have held (a done
+			// todo holds no schedule) for when it was finished — the compact
+			// form the ⏰ uses, since the prompt view spells out the full stamp.
+			// No stamp, no mark: todos completed before DoneAt existed have none.
+			if t.Done && !t.DoneAt.IsZero() {
+				marks = append(marks, descMark{text: "done " + formatDoneTime(t.DoneAt, time.Now()), style: descStyle})
+			}
 			// Session options get a bare ⚙ rather than their summary: the row
 			// has one line, the summary can be six segments long, and what the
 			// row has to answer is "does this prompt carry a setup" — the
@@ -6069,7 +6076,13 @@ func (m model) viewPrompt() string {
 		meta += " · added " + td.Created.Format("2006-01-02")
 	}
 	if td.Done {
-		meta += " · " + checkStyle.Render("done")
+		done := "done"
+		if !td.DoneAt.IsZero() {
+			// The full stamp, zone included: this is the screen someone opens to
+			// find out when, and "14:05" alone is ambiguous across days and zones.
+			done += " " + td.DoneAt.Local().Format("2006-01-02 15:04 MST")
+		}
+		meta += " · " + checkStyle.Render(done)
 	}
 	if td.Frozen {
 		meta += " · " + frozenBadgeStyle.Render("frozen — will not do")

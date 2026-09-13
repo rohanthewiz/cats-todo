@@ -204,6 +204,16 @@ at the top of the done pile, so the row moves a long way, and a cursor left
 behind would put your correction on whatever slid up into the gap. The status
 line names the way back at the moment it is needed.
 
+Completing a prompt also stamps it with the moment it was finished, in your
+local time zone. The row carries it compactly — `done 14:05` today, `done Mon
+14:05` this week, `done Sep 3 14:05` earlier in the year, with the year added
+once it isn't this one — and the prompt view (`ctrl+v`) spells it out in full,
+`done 2026-09-13 14:05 CDT`. The stamp is a record of the completion and nothing
+more: reopening or freezing a prompt removes it, completing it again stamps it
+afresh, and prompts finished before the stamp existed simply show none. It is
+saved as `doneAt` in `todos.json` and only on done prompts, so a backlog with
+nothing finished since is byte-for-byte what it was.
+
 Completed prompts collect below the open ones, newest first, so what you just
 finished is at the top of the pile rather than the bottom. `ctrl+d` folds them
 away and `ctrl+w` clears them out. With that fold on a completed prompt leaves

@@ -26,6 +26,23 @@ type Todo struct {
 	Images  []string  `json:"images,omitempty"`
 	Done    bool      `json:"done"`
 	Created time.Time `json:"created"`
+	// DoneAt is when the todo was last completed, zero while it is not done. It
+	// is stamped with time.Now(), which carries the local zone, so the JSON holds
+	// the wall-clock time and the offset it was read in ("…T14:05:00-05:00") —
+	// readers still convert with .Local() before drawing, since the machine
+	// reading a backlog need not be in the zone that wrote it.
+	//
+	// A value rather than a *time.Time because omitzero (Go 1.24+) already keeps
+	// the zero out of the file, and every reader gets to ask IsZero() instead of
+	// minding a nil. Same compat contract as the fields below: an untouched
+	// backlog stays byte-identical, a todo completed before the field existed
+	// simply has no stamp, and an older binary ignores the key (and drops it if
+	// it saves — the accepted limitation Images and Schedule carry too).
+	//
+	// It is a record, not an order: completion order still lives in the array
+	// (see fileAsLatestDone), so reordering done todos by hand is never undone by
+	// a sort on this field.
+	DoneAt time.Time `json:"doneAt,omitzero"`
 	// Frozen marks a prompt the user has decided not to do — kept on the record
 	// rather than deleted, and deliberately not the same flag as Done: done
 	// claims the work happened, and a backlog that says so about work nobody
@@ -515,9 +532,14 @@ func (s *store) toggle(id string) error {
 		if s.todos[i].ID == id {
 			s.todos[i].Done = !s.todos[i].Done
 			if s.todos[i].Done {
+				s.todos[i].DoneAt = time.Now()
 				s.todos[i].Schedule = nil
 				s.todos[i].Frozen = false
 				s.fileAsLatestDone(i)
+			} else {
+				// A reopened todo is open work again; a stamp left behind would
+				// claim a completion the backlog no longer asserts.
+				s.todos[i].DoneAt = time.Time{}
 			}
 			return s.save()
 		}
@@ -583,6 +605,7 @@ func (s *store) freeze(i int, frozen bool) {
 	s.todos[i].Frozen = frozen
 	if frozen {
 		s.todos[i].Done = false
+		s.todos[i].DoneAt = time.Time{} // the stamp goes with the claim it records
 		s.todos[i].Schedule = nil
 	}
 }
@@ -632,11 +655,15 @@ func (s *store) setDone(id string, done bool) error {
 			}
 			s.todos[i].Done = done
 			if done {
-				// Same invariants as toggle: a completed todo holds no schedule,
-				// and is not also frozen.
+				// Same invariants as toggle: a completed todo is stamped, holds no
+				// schedule, and is not also frozen. The idempotent early return
+				// above keeps a repeat call from moving the stamp forward.
+				s.todos[i].DoneAt = time.Now()
 				s.todos[i].Schedule = nil
 				s.todos[i].Frozen = false
 				s.fileAsLatestDone(i)
+			} else {
+				s.todos[i].DoneAt = time.Time{}
 			}
 			return s.save()
 		}

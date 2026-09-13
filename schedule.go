@@ -121,6 +121,18 @@ func formatScheduleTime(at, now time.Time) string {
 	}
 }
 
+// formatDoneTime renders a completion stamp for a list row, in the viewer's
+// local zone. It is formatScheduleTime's ladder with one more rung: a schedule
+// is at most days away, but a completion can be from last year, and "Jan 2
+// 15:04" without a year would then read as this year's.
+func formatDoneTime(at, now time.Time) string {
+	at, now = at.Local(), now.Local()
+	if at.Year() != now.Year() {
+		return at.Format("2006-01-02 15:04")
+	}
+	return formatScheduleTime(at, now)
+}
+
 // scheduleFromTarget records a picker choice as a Schedule: the pane's
 // identity for an existing session, the launch command and directory for a
 // new one. cwd is captured now because the fire happens with no picker on
