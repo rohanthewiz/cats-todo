@@ -6,27 +6,12 @@
 // tab and shift+tab now do what they do in a code editor. The title and the
 // annotation bar keep tab for the ring, and a click is how the prompt is left.
 //
-//	nothing swept   tab        spaces to the next tab stop, mid-line included
+//	nothing swept   tab        four spaces at the caret, mid-line included
 //	                shift+tab  up to four leading spaces off the caret's line
 //	lines swept     tab        four spaces in front of every line touched
 //	                shift+tab  up to four leading spaces off each of them
-//	column mode     tab        spaces to the next tab stop at every caret
+//	column mode     tab        four spaces at every caret   (promptcarets.go)
 //	                shift+tab  outdent every line a caret is on
-//
-// TAB STOPS FOR WHAT A CARET TYPES, A FIXED UNIT FOR WHAT SHIFTS A LINE. Tab
-// at a caret fills to the next multiple of four cells, so "a:" and "abc:"
-// followed by a tab both put the next character in column 4. That is how text
-// after labels gets lined up, and a fixed four would leave it ragged. At a line
-// start the fill is always four, so an indent typed at column 0 is unchanged.
-//
-// Moving whole lines keeps the fixed unit on purpose. A block whose lines sit
-// at 2 and 6 keeps that 4-cell step when it moves, where rounding each line to
-// its own next stop would flatten it to 4 and 8. A fixed unit also makes
-// shift+tab the exact inverse of tab on a sweep, which rounding would not be.
-//
-//	"ab|cd"  tab → "ab  |cd"      (2 cells to column 4)
-//	"abcd|"  tab → "abcd    |"    (already on a stop, so a full 4)
-//	sweep "  x" / "      y"  tab → "      x" / "          y"   (both +4)
 //
 // SPACES, NOT TAB CHARACTERS. That is not a preference; three things force it:
 //
@@ -42,9 +27,7 @@
 //     into that input means something else there.
 //
 // Four, then, because it is what the library already turns a pasted tab into,
-// so a typed tab at a line start and a pasted one leave identical text. (A
-// pasted tab mid-line is still a flat four, since the library rewrites it
-// without knowing the column.)
+// so a typed tab and a pasted one leave identical text.
 //
 // A sweep resolves to whole logical rows the same way every other line tool
 // does (promptlines.go). Unlike alt+↑/↓, the text of those rows changes, so the
@@ -57,29 +40,11 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
-// promptIndentUnit is one level of indentation, and its width is the tab-stop
-// interval. See the file comment for why it is spaces and why four.
+// promptIndentUnit is one level of indentation. See the file comment for why
+// it is spaces and why four.
 const promptIndentUnit = "    "
-
-// promptTabStopFill is the run of spaces a tab typed after before, the text
-// between the start of its logical row and the caret, takes to reach the next
-// tab stop. It is always 1 to len(promptIndentUnit) spaces, never zero: a caret
-// already on a stop moves to the next one, as in every editor, or tab there
-// would appear to do nothing.
-//
-// before is measured in cells (lipgloss.Width), not runes, because a stop is a
-// screen column. A double-width glyph ahead of the caret takes two cells, and
-// counting it as one would misalign exactly the text that tab stops are meant
-// to line up. That is the same measure the caret paints and the selection
-// overlay use. The row is the logical row, not the wrapped display line, so a
-// soft wrap does not move the stops.
-func promptTabStopFill(before string) int {
-	unit := len(promptIndentUnit)
-	return unit - lipgloss.Width(before)%unit
-}
 
 // promptIndentDir answers whether msg is tab (+1), shift+tab (-1), or neither (0).
 //
@@ -110,17 +75,9 @@ func (m model) indentPromptLines(dir int) (tea.Model, tea.Cmd) {
 		// character. Mid-line counts too, which is how text after a label gets
 		// lined up. Indenting the whole line instead would make tab do nothing
 		// visible from the middle of a word.
-		//
-		// The fill reaches the next tab stop of the caret's logical row. The
-		// row's start comes from the same row arithmetic the line tools use,
-		// with a caret-width span so promptRowRange names the one row it sits
-		// on.
 		m.clearPromptSel()
 		caret := promptCaretOffset(m.promptArea)
-		row, _ := promptRowRange(rows, caret, caret)
-		start, _ := promptRowSpan(rows, row, row)
-		before := []rune(rows[row])[:min(max(caret-start, 0), len([]rune(rows[row])))]
-		m.replacePromptRunes(caret, caret, strings.Repeat(" ", promptTabStopFill(string(before))))
+		m.replacePromptRunes(caret, caret, promptIndentUnit)
 		m.formNote = ""
 		return m, nil
 	}

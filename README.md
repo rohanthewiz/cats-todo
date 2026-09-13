@@ -1134,9 +1134,8 @@ sweep three plain lines      carets go down            type "- "
 
 which is then exactly the shape ✂ Split into prompts wants. While the mode is on,
 **what you type goes in on every line at once**: `backspace` deletes on every
-line, `enter` breaks the line at every caret, `tab` fills every caret to its
-next tab stop (so `ctrl+e` then `tab` lines up the ends of uneven lines) and
-`shift+tab` outdents every caret's line, `←`/`→` move the carets together, `ctrl+a` takes them to the line starts and
+line, `enter` breaks the line at every caret, `tab` types four spaces at every
+caret and `shift+tab` outdents every caret's line, `←`/`→` move the carets together, `ctrl+a` takes them to the line starts and
 `ctrl+e` to the line ends — prefixing, unprefixing and appending to a block, which
 is what a column mode gets used for in every editor that has one. A paste goes to
 every caret too. When a paste has several lines, it follows the rule other
@@ -1412,23 +1411,14 @@ from a terminal that reports it (cats does; see `cmd+s` below), so on a
 terminal that eats the chord this is simply unavailable rather than wrong.
 
 **Indenting.** In the prompt, `tab` indents and `shift+tab` outdents, as in a
-code editor. With nothing swept, `tab` types spaces where the caret stands up to
-the **next tab stop**, a multiple of four columns (mid-line too). So `a:` and
-`abc:` each followed by a tab put the next word in the same column, and a tab at
-a line start is always a full four. `shift+tab` takes up to four leading spaces
-off the caret's line. With lines swept, `tab` puts four spaces in front
+code editor. With nothing swept, `tab` types four spaces where the caret stands
+(mid-line too, for lining things up), and `shift+tab` takes up to four leading
+spaces off the caret's line. With lines swept, `tab` puts four spaces in front
 of every line the sweep touches (blank lines are skipped, so no invisible
 trailing spaces), `shift+tab` takes up to four off each, and the sweep stays so
 a second press moves the block another level. A sweep that began at a line start
 still begins there afterwards, with the new indent inside the highlight. When
 there is nothing to outdent, the status line says so.
-
-Only what a caret types goes to tab stops. Moving whole lines is always exactly
-four. A block whose lines are indented two and six stays four apart when it
-moves, instead of being rounded to four and eight, and `shift+tab` puts back
-exactly what `tab` added. Stops are counted in screen columns, so a
-double-width character before the caret counts as two, and a soft-wrapped line
-keeps the stops of the line it continues.
 
 The indent is **spaces, not a tab character**. The editor turns a tab character
 into four spaces on every edit, the screen and the click targets are measured in

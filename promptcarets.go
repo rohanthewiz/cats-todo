@@ -335,18 +335,6 @@ func (m *model) syncPromptCaret() {
 //	  i=0 (col  5): row → "alpha! bravo!", goal 5 → 6, and caret 1 shifts +1 → 13
 //	                                                    ^ one insert now precedes it
 func (m *model) editAtCarets(fn func(row []rune, col int) ([]rune, int)) {
-	m.editAtCaretsIndexed(func(_ int, row []rune, col int) ([]rune, int) {
-		return fn(row, col)
-	})
-}
-
-// editAtCaretsIndexed is editAtCarets with the caret's index handed to fn as
-// well. An edit that differs from caret to caret (tabStopAtCarets fills each
-// caret to its own tab stop) works out its per-caret amounts first and looks
-// them up by index here. It cannot work them out inside fn: fn sees the row
-// before the carets to its left have edited it (the walk is descending), so the
-// column it could measure is not the one the caret ends up in.
-func (m *model) editAtCaretsIndexed(fn func(i int, row []rune, col int) ([]rune, int)) {
 	rows := strings.Split(m.promptArea.Value(), "\n")
 	for i := len(m.carets.rows) - 1; i >= 0; i-- {
 		r := m.carets.rows[i]
@@ -354,7 +342,7 @@ func (m *model) editAtCaretsIndexed(fn func(i int, row []rune, col int) ([]rune,
 			continue // the value shrank under us; the row is simply not there
 		}
 		runes := []rune(rows[r])
-		out, goalDelta := fn(i, runes, m.carets.caretAt(i, runes))
+		out, goalDelta := fn(runes, m.carets.caretAt(i, runes))
 		rows[r] = string(out)
 		m.carets.cols[i] += goalDelta
 		// Carry the carets further along this row over the change. Sorted by
@@ -451,11 +439,9 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 		m.newlineAtCarets()
 
 	case promptIndentDir(msg) > 0:
-		// Spaces to the next tab stop at every caret: the fill the ordinary
-		// editor types at its one caret (promptindent.go), typed at all of them.
-		// Each caret gets its own fill, so ctrl+e then tab lines up the ends
-		// of rows of different lengths.
-		m.tabStopAtCarets()
+		// Four spaces at every caret: the indent the ordinary editor types at
+		// its one caret (promptindent.go), typed at all of them.
+		m.insertAtCarets(promptIndentUnit)
 
 	case promptIndentDir(msg) < 0:
 		if !m.outdentAtCarets() {
@@ -591,52 +577,6 @@ func (m *model) insertAtCarets(text string) {
 		out := append([]rune{}, row[:col]...)
 		out = append(out, []rune(text)...)
 		return append(out, row[col:]...), step
-	})
-	m.syncPromptCaret()
-}
-
-// tabStopAtCarets is tab in the column mode: every caret is filled with spaces
-// to its own next tab stop (promptTabStopFill), so carets at different columns
-// all land on stops.
-//
-// The fills are worked out first, left to right, because a caret's stop depends
-// on what the carets before it on the same row have inserted. On a row carrying
-// carets at columns 1 and 3, the first fills 3 cells to reach column 4, which
-// puts the second at column 6, and so it fills 2 to reach 8. Measuring the second
-// against the unedited row would give 1 cell and leave it at column 7. shift is
-// that running total of inserts to the left on the current row, and it resets
-// when the row changes. Carets are sorted by (row, column), so a row's carets are
-// one consecutive run.
-//
-//	"abcdef", carets at 1 and 3
-//	  caret 0: "a"   width 1          → fill 3, lands at 4
-//	  caret 1: "abc" width 3, shift 3 → fill 2, lands at 8
-//	  result "a   bc  def"
-//
-// The edit itself is editAtCaretsIndexed, which already carries later carets on a
-// row across an earlier caret's insert. It only needs to be told each caret's fill.
-func (m *model) tabStopAtCarets() {
-	rows := strings.Split(m.promptArea.Value(), "\n")
-	fills := make([]int, len(m.carets.rows))
-	shift, prevRow := 0, -1
-	for i, r := range m.carets.rows {
-		if r < 0 || r >= len(rows) {
-			continue // editAtCaretsIndexed skips it too
-		}
-		if r != prevRow {
-			shift, prevRow = 0, r
-		}
-		runes := []rune(rows[r])
-		before := string(runes[:m.carets.caretAt(i, runes)])
-		// shift counts spaces, which are one cell each, so it adds straight onto
-		// the prefix's width.
-		fills[i] = promptTabStopFill(strings.Repeat(" ", shift) + before)
-		shift += fills[i]
-	}
-	m.editAtCaretsIndexed(func(i int, row []rune, col int) ([]rune, int) {
-		out := append([]rune{}, row[:col]...)
-		out = append(out, []rune(strings.Repeat(" ", fills[i]))...)
-		return append(out, row[col:]...), fills[i]
 	})
 	m.syncPromptCaret()
 }
