@@ -13,24 +13,58 @@ var (
 	shiftTabKey = tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 )
 
-// TestPromptTabTypesAnIndentAtTheCaret: with nothing swept, tab types four
-// spaces where the caret stands, mid-line included, and the keys stay in the
-// prompt. Tab used to walk the focus to the annotation bar, which left no way to
-// type indentation.
+// TestPromptTabTypesAnIndentAtTheCaret: with nothing swept, tab types spaces
+// where the caret stands, mid-line included, and the keys stay in the prompt.
+// Tab used to walk the focus to the annotation bar, which left no way to type
+// indentation.
 func TestPromptTabTypesAnIndentAtTheCaret(t *testing.T) {
 	m := withForm(t, "", "alpha beta", 100, 40)
 	m.focusForm(formFieldPrompt)
 	setPromptCaretOffset(&m.promptArea, 5)
 
+	// Column 5 is past the stop at 4, so the fill is 3 cells, to column 8.
 	m = typeInForm(t, m, tabKey)
-	if want := "alpha     beta"; m.promptArea.Value() != want {
+	if want := "alpha    beta"; m.promptArea.Value() != want {
 		t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
 	}
-	if got := promptCaretOffset(m.promptArea); got != 9 {
-		t.Errorf("caret at %d, want 9 — past the indent it typed", got)
+	if got := promptCaretOffset(m.promptArea); got != 8 {
+		t.Errorf("caret at %d, want 8 — on the tab stop past the fill it typed", got)
 	}
 	if m.formFocus != formFieldPrompt {
 		t.Errorf("tab moved the focus to %d; in the prompt it indents", m.formFocus)
+	}
+}
+
+// TestPromptTabFillsToTheNextStop: a tab typed at a caret fills to the next
+// multiple of four cells on its logical row. Before this it was a flat four
+// spaces, so text after labels of different lengths never lined up.
+func TestPromptTabFillsToTheNextStop(t *testing.T) {
+	cases := []struct {
+		name, value string
+		caret       int
+		want        string
+		wantCaret   int
+	}{
+		{"line start is a full unit", "", 0, "    ", 4},
+		{"short of a stop", "ab", 2, "ab  ", 4},
+		{"on a stop goes to the next", "abcd", 4, "abcd    ", 8},
+		{"measured from its own row", "x\nabc", 5, "x\nabc ", 6},
+		// 日 is two cells wide, so the caret after it is at cell 2, not 1.
+		{"wide glyphs count their cells", "日本", 1, "日  本", 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := withForm(t, "", tc.value, 100, 40)
+			m.focusForm(formFieldPrompt)
+			setPromptCaretOffset(&m.promptArea, tc.caret)
+			m = typeInForm(t, m, tabKey)
+			if m.promptArea.Value() != tc.want {
+				t.Errorf("value = %q, want %q", m.promptArea.Value(), tc.want)
+			}
+			if got := promptCaretOffset(m.promptArea); got != tc.wantCaret {
+				t.Errorf("caret at %d, want %d", got, tc.wantCaret)
+			}
+		})
 	}
 }
 
@@ -60,6 +94,23 @@ func TestPromptShiftTabOutdentsTheCaretsLine(t *testing.T) {
 	}
 	if m.formFocus != formFieldPrompt {
 		t.Errorf("shift+tab moved the focus to %d; in the prompt it outdents", m.formFocus)
+	}
+}
+
+// TestPromptTabSweepShiftsByAFixedUnit: a sweep moves every line by exactly
+// four, whatever column its indent ends at. Tab stops govern what a caret
+// types, not whole-line shifts, so a block's inner steps survive the move and
+// shift+tab undoes it exactly.
+func TestPromptTabSweepShiftsByAFixedUnit(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "  x\n      y")
+	m = selectWholePrompt(t, m)
+	m = typeInForm(t, m, tabKey)
+	if want := "      x\n          y"; m.promptArea.Value() != want {
+		t.Fatalf("value = %q, want %q — both lines +4, not rounded to stops", m.promptArea.Value(), want)
+	}
+	m = typeInForm(t, m, shiftTabKey)
+	if want := "  x\n      y"; m.promptArea.Value() != want {
+		t.Errorf("after shift+tab value = %q, want the original %q", m.promptArea.Value(), want)
 	}
 }
 
@@ -208,6 +259,45 @@ func TestCaretsTabIndentsEveryCaret(t *testing.T) {
 		t.Errorf("value = %q, want %q — one unit off a shared row", m.promptArea.Value(), want)
 	}
 	if got, want := m.carets.cols, []int{4, 6}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want %v", got, want)
+	}
+}
+
+// TestCaretsTabFillsEachCaretToItsStop: in the column mode each caret fills to
+// its own next stop. Carets at the ends of rows of different lengths line up,
+// and a second caret on a row is measured after the first caret's fill.
+func TestCaretsTabFillsEachCaretToItsStop(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "ab\nabc")
+	m.focusForm(formFieldPrompt)
+	m.carets = promptCarets{on: true}
+	m.carets.add(0, 2)
+	m.carets.add(1, 3)
+	m.syncPromptCaret()
+	m = typeInForm(t, m, tabKey)
+	if want := "ab  \nabc "; m.promptArea.Value() != want {
+		t.Fatalf("value = %q, want %q — both carets on column 4", m.promptArea.Value(), want)
+	}
+	if got, want := m.carets.cols, []int{4, 4}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want %v", got, want)
+	}
+	if !m.carets.on {
+		t.Error("tab ended the mode")
+	}
+
+	// Two carets on one row: the first fills 3 to column 4, which moves the
+	// second from 3 to 6, and it then fills 2 to column 8. Measured on the
+	// unedited row it would have filled 1 and stopped at 7.
+	m, _, _ = splitFormInTemp(t, "abcdef\nx")
+	m.focusForm(formFieldPrompt)
+	m.carets = promptCarets{on: true}
+	m.carets.add(0, 1)
+	m.carets.add(0, 3)
+	m.syncPromptCaret()
+	m = typeInForm(t, m, tabKey)
+	if want := "a   bc  def\nx"; m.promptArea.Value() != want {
+		t.Fatalf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := m.carets.cols, []int{4, 8}; !slices.Equal(got, want) {
 		t.Errorf("carets at columns %v, want %v", got, want)
 	}
 }

@@ -128,8 +128,9 @@ and the rest stay local.
   both backlogs available) · `tab` walks title → prompt → annotation bar (the
   segmented Quick-win/Priority menu between title and prompt, `annotbar.go`;
   on it `←/→` move, `space`/`enter` press) — **but in the prompt `tab`/`shift+tab`
-  indent/outdent** (`promptindent.go`: four spaces at the caret, or every swept
-  line; a click leaves the prompt, `shift+tab` from the title wraps to the bar) ·
+  indent/outdent** (`promptindent.go`: spaces to the next 4-column tab stop at the
+  caret — each caret in the column mode — or a fixed four on every swept line;
+  a click leaves the prompt, `shift+tab` from the title wraps to the bar) ·
   `@` file picker ·
   `ctrl+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
   the swept block) · `shift+alt+↑/↓` extend the selection by a line ·
