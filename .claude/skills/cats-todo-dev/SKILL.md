@@ -71,8 +71,12 @@ and the rest stay local.
    marks a row wears, in slot order, one space apart, so an unmarked row spends
    nothing. No reserved widths, so every slot's glyph must be distinct.
 2. **Two-place version bump.** `const version` in `main.go` **and** `version =` in
-   `cats-plugin.toml` must match (the title chip shows it). Release = bump both,
-   commit `chore(release): vX.Y.Z`. Bump the **minor** when the release brings a new
+   `cats-plugin.toml` must match (the title chip shows it). **A release is all four
+   steps:** bump both, commit `chore(release): vX.Y.Z`, create an annotated tag
+   `vX.Y.Z` on that commit (subject `vX.Y.Z — <one-line summary>`, as v0.29.0 has), and
+   push the code **and** the tag (`git push origin main vX.Y.Z`). A bump commit
+   without its tag and push is not a release; some older ones (e.g. v0.30.2) skipped
+   the tag, and that is not the rule. Bump the **minor** when the release brings a new
    capability (a mark, a panel, a mode, a drop target). Bump the **patch** for a fix,
    or for a small refinement of something already shipped — even when the commit is
    typed `feat`: a changed or added chord, a menu row swapped, an existing mode
