@@ -122,24 +122,26 @@ func TestFlagNoteRowKeepsTheFormsGeometry(t *testing.T) {
 // nothing (twice, on the way round) is worse than one stop fewer.
 func TestTabSkipsTheNoteFieldWhileTheFlagIsDown(t *testing.T) {
 	m := withForm(t, "t", "p", 100, 40)
-	seen := map[int]bool{}
-	for range formFieldCount * 2 {
-		next, _ := m.updateForm(pressKey("tab"))
-		m = next.(model)
-		seen[m.formFocus] = true
+	// The note's slot sits on the ring's wrap, between the bar and the title, so
+	// both directions across the wrap must step over it: shift+tab from the
+	// title and tab from the bar. The walk starts from those stops rather than
+	// going round from the prompt, because in the prompt tab indents
+	// (promptindent.go).
+	m.focusForm(formFieldTitle)
+	next, _ := m.updateForm(pressKey("shift+tab"))
+	m = next.(model)
+	if m.formFocus != formFieldAnnots {
+		t.Errorf("shift+tab from the title went to %d, want the bar — the note stepped over", m.formFocus)
 	}
-	if seen[formFieldFlagNote] {
-		t.Error("tab landed on the note field while the flag was down")
-	}
-	for _, want := range []int{formFieldTitle, formFieldPrompt, formFieldAnnots} {
-		if !seen[want] {
-			t.Errorf("tab never reached stop %d", want)
-		}
+	next, _ = m.updateForm(pressKey("tab"))
+	m = next.(model)
+	if m.formFocus != formFieldTitle {
+		t.Errorf("tab from the bar went to %d, want the title — the note stepped over", m.formFocus)
 	}
 
 	// With the flag up the stop joins the ring, in both directions.
 	up := pressFlagSeg(t, m)
-	next, _ := up.updateForm(pressKey("tab"))
+	next, _ = up.updateForm(pressKey("tab"))
 	if got := next.(model).formFocus; got != formFieldTitle {
 		t.Errorf("tab off the note field went to %d, want the ring's next stop", got)
 	}

@@ -475,8 +475,10 @@ hole of its own rather than the absence of one, which makes clearing a level
 the same gesture as setting it.
 
 A click presses a segment without taking the keys from whichever field you are
-typing in; from the keyboard, `tab` walks the form's ring (prompt → bar →
-title), and on the bar `←`/`→` move between segments — the one under the
+typing in; from the keyboard, `tab` walks the form's ring (title → prompt, and
+`shift+tab` from the title wraps round to the bar). Inside the prompt `tab`
+indents instead (see *Indenting* below), so a click is the way out of it. On
+the bar `←`/`→` move between segments — the one under the
 cursor is underlined — while `space` or `enter` presses. The bar joins the
 ring *after* the prompt rather than in its visual place between the fields, on
 purpose: the gesture this form lives on is "type a title, tab, type the
@@ -1132,7 +1134,8 @@ sweep three plain lines      carets go down            type "- "
 
 which is then exactly the shape ✂ Split into prompts wants. While the mode is on,
 **what you type goes in on every line at once**: `backspace` deletes on every
-line, `enter` breaks the line at every caret, `←`/`→` move the carets together, `ctrl+a` takes them to the line starts and
+line, `enter` breaks the line at every caret, `tab` types four spaces at every
+caret and `shift+tab` outdents every caret's line, `←`/`→` move the carets together, `ctrl+a` takes them to the line starts and
 `ctrl+e` to the line ends — prefixing, unprefixing and appending to a block, which
 is what a column mode gets used for in every editor that has one. A paste goes to
 every caret too. When a paste has several lines, it follows the rule other
@@ -1406,6 +1409,26 @@ boundary the text does not contain. There is deliberately no `ctrl+d` fallback �
 delete is the one collision a text editor must not ship. Cmd only reaches a TUI
 from a terminal that reports it (cats does; see `cmd+s` below), so on a
 terminal that eats the chord this is simply unavailable rather than wrong.
+
+**Indenting.** In the prompt, `tab` indents and `shift+tab` outdents, as in a
+code editor. With nothing swept, `tab` types four spaces where the caret stands
+(mid-line too, for lining things up), and `shift+tab` takes up to four leading
+spaces off the caret's line. With lines swept, `tab` puts four spaces in front
+of every line the sweep touches (blank lines are skipped, so no invisible
+trailing spaces), `shift+tab` takes up to four off each, and the sweep stays so
+a second press moves the block another level. A sweep that began at a line start
+still begins there afterwards, with the new indent inside the highlight. When
+there is nothing to outdent, the status line says so.
+
+The indent is **spaces, not a tab character**. The editor turns a tab character
+into four spaces on every edit, the screen and the click targets are measured in
+cells a tab character would misplace, and a prompt is typed into Claude Code,
+where a tab keystroke means something else. Four spaces is also what a pasted
+tab already becomes, so typed and pasted text agree.
+
+That takes `tab` off the form's focus ring *while you are in the prompt*: a click
+leaves it. The title and the annotation bar keep `tab`/`shift+tab` for walking
+the ring, and `shift+tab` from the title reaches the bar.
 
 In the list `alt+enter` is bound everywhere `shift+enter` is, and in the editor
 `alt+enter` and `ctrl+j` insert a newline alongside plain `enter` — the chords

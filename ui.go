@@ -2524,6 +2524,14 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if dir, ok := promptLineMoveKey(msg); ok {
 			return m.movePromptLines(dir)
 		}
+		// tab / shift+tab indent and outdent (promptindent.go). This is above
+		// clearPromptSel for the same reason as the line move: a sweep names the
+		// lines to act on. In the prompt this takes the place of the focus walk
+		// the switch below still gives tab on the other stops, so a click is how
+		// the prompt is left.
+		if dir := promptIndentDir(msg); dir != 0 {
+			return m.indentPromptLines(dir)
+		}
 		// ctrl+p (cmd+P) opens the prompt library (promptpick.go). It is up here
 		// with the other selection readers because the picker OFFERS TO SAVE
 		// what is swept: by the time the switch below is reached the highlight
@@ -5503,11 +5511,17 @@ func (m model) formFooter() string {
 	// chord — the keys mean something different for as long as it lasts — and a
 	// footer still teaching the ordinary editor would be teaching the wrong
 	// program. Everything it names is a key the mode itself owns
-	// (updatePromptCarets); the exit comes last, where a mode's exit belongs.
+	// (updatePromptCarets).
+	//
+	// The exit is second, not last. fitFooter trims from the right, so the tail
+	// is the first thing a narrow pane loses. Once enter and tab joined the
+	// mode, this line outgrew a 120-cell pane, and "esc ends" was what got cut.
+	// Knowing how to leave a mode is worth more than any single thing it does,
+	// so the exit sits just behind the one fact that says what the mode is.
 	if m.carets.on {
 		return footerStyle.Render(m.fitFooter([]string{
-			"typing goes on every line", "backspace deletes", "enter breaks each", "←/→ moves them",
-			"ctrl+a/e line ends", "esc ends",
+			"typing goes on every line", "esc ends", "backspace deletes", "enter breaks each",
+			"tab indents", "←/→ moves them", "ctrl+a/e line ends",
 		}))
 	}
 	var lines []string
@@ -5577,9 +5591,18 @@ func (m model) formFooter() string {
 	// tightened to make room for it in a 120-cell pane — "line ends" for "line
 	// start/end", "places caret" for "places the caret" — so the field switch
 	// at the end of the line still fits there.
+	// The tab segment depends on where the keys are. In the prompt, tab indents
+	// (promptindent.go) and a click is the way out, so "switch field" would teach
+	// a key that does something else there. On the title it still walks the
+	// ring. "tab indents" is shorter than the segment it replaces, so the
+	// 120-cell budget described below still holds.
+	tabSeg := "tab switch field"
+	if m.formFocus == formFieldPrompt {
+		tabSeg = "tab indents"
+	}
 	segs := []string{
 		"click places caret", "shift+←/→ selects", "ctrl+c copies", "@ file",
-		"ctrl+a/e line ends", "alt+←/→ word", "tab switch field",
+		"ctrl+a/e line ends", "alt+←/→ word", tabSeg,
 	}
 	// The context menu (promptmenu.go) is taught only while something is swept,
 	// on the same principle the scope toggle below is advertised only where it

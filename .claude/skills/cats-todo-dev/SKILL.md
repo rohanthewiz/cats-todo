@@ -118,7 +118,10 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
   the caret's end-of-line) · `ctrl+l` Spelling · `ctrl+g` toggle project/global scope (add mode,
   both backlogs available) · `tab` walks title → prompt → annotation bar (the
   segmented Quick-win/Priority menu between title and prompt, `annotbar.go`;
-  on it `←/→` move, `space`/`enter` press) · `@` file picker ·
+  on it `←/→` move, `space`/`enter` press) — **but in the prompt `tab`/`shift+tab`
+  indent/outdent** (`promptindent.go`: four spaces at the caret, or every swept
+  line; a click leaves the prompt, `shift+tab` from the title wraps to the bar) ·
+  `@` file picker ·
   `ctrl+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
   the swept block) · `shift+alt+↑/↓` extend the selection by a line ·
   **right-click** the context menu (`promptmenu.go`: ✂ Split · ⇅ Sort · ⌶ Caret
@@ -126,11 +129,12 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
   **Send** is click-only by design.
 - Two modal states live on the form stage rather than on a stage of their own,
   and both are answered at the very top of `updateForm`: the context menu (owns
-  every key while up) and the column mode (owns typing, the deletes and the
-  horizontal motions; hands back everything else, which ends it). Both are
+  every key while up) and the column mode (owns typing, enter, tab/shift+tab,
+  paste, the deletes and the horizontal motions; hands back everything else,
+  which ends it). Both are
   cleared by `backToList`, and the menu by a resize.
 - Anything that reads the selection must be handled **above** `updateForm`'s
-  `clearPromptSel()` — `ctrl+c`, `ctrl+x`, `alt+↑/↓`. Each keeps a case in the
+  `clearPromptSel()` — `ctrl+c`, `ctrl+x`, `alt+↑/↓`, `tab`/`shift+tab`. Each keeps a case in the
   switch below too, which is reached only when there is nothing to read and is
   where it explains itself.
 - `shift+enter` needs the kitty keyboard protocol; `alt+enter` is the universal alias
@@ -140,7 +144,8 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
   since there alt is the line move while horizontally it is the word motion
   `shift+alt+←/→` depends on.
 - The form's caret footer is **full**: seven standing segments come to exactly 118
-  cells, which is what keeps `tab switch field` in a 120-cell pane (and
+  cells, which is what keeps the tab segment (`tab switch field` off the prompt,
+  the shorter `tab indents` on it) in a 120-cell pane (and
   `ctrl+l spelling` at 160 — both are pinned by tests). A new segment has to be
   contextual, or go at the tail past `ctrl+l spelling`.
 

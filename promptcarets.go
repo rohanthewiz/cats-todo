@@ -438,6 +438,17 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 		// each one, and nothing broke. esc is how the mode ends.
 		m.newlineAtCarets()
 
+	case promptIndentDir(msg) > 0:
+		// Four spaces at every caret: the indent the ordinary editor types at
+		// its one caret (promptindent.go), typed at all of them.
+		m.insertAtCarets(promptIndentUnit)
+
+	case promptIndentDir(msg) < 0:
+		if !m.outdentAtCarets() {
+			m.formNote = "nothing to outdent — no caret's line starts with a space"
+			return m, nil, true
+		}
+
 	case promptPasteChord(msg.String()):
 		// Cmd+V from a host that sends the chord rather than pasting for us.
 		// Without this case the chord would fall to default, end the mode, and
@@ -481,6 +492,43 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 		m.formNote = m.caretNote()
 	}
 	return m, nil, true
+}
+
+// outdentAtCarets is shift+tab in the column mode: up to one indent unit of
+// leading spaces comes off every line a caret is on. It reports whether any
+// line changed.
+//
+// It works per ROW, not per caret. That is why it does not go through
+// editAtCarets, which calls its edit once per caret: two carets on one row
+// would outdent that row twice. The carets sharing a row are the next run in
+// the sorted list, so the walk takes each run together, trims the row once,
+// and moves every caret in the run left by what was removed. A caret inside the
+// removed spaces lands at the line start, and the dedupe in updatePromptCarets
+// then merges any that meet there.
+func (m *model) outdentAtCarets() bool {
+	rows := strings.Split(m.promptArea.Value(), "\n")
+	changed := false
+	for i := 0; i < len(m.carets.rows); {
+		r := m.carets.rows[i]
+		j := i + 1
+		for j < len(m.carets.rows) && m.carets.rows[j] == r {
+			j++
+		}
+		if r >= 0 && r < len(rows) {
+			if k := promptOutdentWidth(rows[r]); k > 0 {
+				rows[r] = rows[r][k:]
+				for x := i; x < j; x++ {
+					m.carets.cols[x] = max(m.carets.cols[x]-k, 0)
+				}
+				changed = true
+			}
+		}
+		i = j
+	}
+	if changed {
+		m.promptArea.SetValue(strings.Join(rows, "\n"))
+	}
+	return changed
 }
 
 // pasteFormClipboardInMode adapts pasteFormClipboard to updatePromptCarets'

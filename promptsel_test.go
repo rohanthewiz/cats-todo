@@ -314,7 +314,8 @@ func TestPromptSelectionEndsOnTheNextKey(t *testing.T) {
 	}{
 		{"a plain arrow", tea.KeyPressMsg{Code: tea.KeyLeft}},
 		{"a typed character", tea.KeyPressMsg{Code: 'x', Text: "x"}},
-		{"tab to the other field", tea.KeyPressMsg{Code: tea.KeyTab}},
+		// tab used to be a case here, leaving the field. In the prompt it now
+		// indents the swept lines and keeps the sweep (promptindent_test.go).
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := withForm(t, "", "alpha beta", 100, 40)
@@ -480,10 +481,9 @@ func TestPromptSelectionSurvivesAResize(t *testing.T) {
 // through to the field, and ctrl+c still quits.
 func TestPromptSelectionOnlyInTheEditor(t *testing.T) {
 	m := withForm(t, "a title", "alpha beta", 100, 40)
-	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}) // back a stop, onto the title
-	if m.formFocus != formFieldTitle {
-		t.Fatal("shift+tab did not move the focus to the title")
-	}
+	// Focus goes straight to the title. shift+tab in the prompt now outdents
+	// rather than stepping back a stop (promptindent.go).
+	m.focusForm(formFieldTitle)
 	m = typeInForm(t, m, shiftKey(tea.KeyLeft))
 	if m.promptSel.active {
 		t.Error("shift+← in the title field anchored a selection in the editor")
@@ -629,7 +629,8 @@ func TestPromptSelectionSurvivesKeysThatAreNotEdits(t *testing.T) {
 		key  tea.KeyPressMsg
 	}{
 		{"a plain arrow", tea.KeyPressMsg{Code: tea.KeyLeft}},
-		{"tab to the annotation bar", tea.KeyPressMsg{Code: tea.KeyTab}},
+		// tab is no longer a case: in the prompt it is an edit (an indent of
+		// the swept line), covered in promptindent_test.go.
 		{"ctrl+c, which copies it", tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

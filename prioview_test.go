@@ -465,13 +465,10 @@ func TestPriorityRadioSetsAndSaves(t *testing.T) {
 	if m.formAnnots.Priority != priorityNone {
 		t.Fatalf("the form opened on %q, want none", m.formAnnots.Priority)
 	}
-	// The ring runs title → prompt → annotation bar, and the form opens in the
-	// prompt — so one tab lands on the bar.
-	mm, _ = m.updateForm(pressKey("tab"))
-	m = mm.(model)
-	if m.formFocus != formFieldAnnots {
-		t.Fatalf("tab from the prompt left focus %d, want the annotation bar (%d)", m.formFocus, formFieldAnnots)
-	}
+	// Straight onto the annotation bar. The form opens in the prompt, where tab
+	// now indents (promptindent.go) rather than walking to the bar; the ring
+	// itself is pinned in TestAnnotBarTabRing.
+	m.focusForm(formFieldAnnots)
 	// → from the Quick win checkbox across High value, none and high, onto
 	// critical. Counted off the constants rather than written as a literal, so
 	// a segment added between them moves the walk instead of breaking it.
@@ -523,8 +520,7 @@ func TestQuickWinTogglesAndSaves(t *testing.T) {
 	if m.formAnnots.Fruit {
 		t.Fatal("the form opened with the fruit already set")
 	}
-	mm, _ = m.updateForm(pressKey("tab"))
-	m = mm.(model)
+	m.focusForm(formFieldAnnots) // tab in the prompt indents now (promptindent.go)
 	if m.annotCursor != annotSegFruit {
 		t.Fatalf("the bar opened on segment %d, want the checkbox (%d) first", m.annotCursor, annotSegFruit)
 	}
@@ -599,8 +595,7 @@ func TestCancellingTheFormLeavesPriorityAlone(t *testing.T) {
 
 	mm, _ := m.beginEdit()
 	m = mm.(model)
-	mm, _ = m.updateForm(pressKey("tab")) // prompt → the annotation bar
-	m = mm.(model)
+	m.focusForm(formFieldAnnots)            // onto the annotation bar; tab in the prompt indents now
 	mm, _ = m.updateForm(pressKey("space")) // set the fruit…
 	m = mm.(model)
 	// …and walk onto none to clear the level, past whatever checkboxes sit

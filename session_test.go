@@ -520,13 +520,10 @@ func TestSessionPanelEscRestoresFocus(t *testing.T) {
 			m.promptArea.Focused(), m.titleInput.Focused())
 	}
 
-	// And from the title field, back to the title field.
-	next, _ := m.updateForm(pressKey("shift+tab"))
-	m = next.(model)
-	if m.formFocus != formFieldTitle {
-		t.Fatal("shift+tab did not move the focus to the title")
-	}
-	next, _ = m.updateForm(pressKey("ctrl+r"))
+	// And from the title field, back to the title field. Focus is set directly:
+	// shift+tab in the prompt outdents now (promptindent.go).
+	m.focusForm(formFieldTitle)
+	next, _ := m.updateForm(pressKey("ctrl+r"))
 	m = stepSession(t, next.(model), "esc")
 	if !m.titleInput.Focused() || m.promptArea.Focused() {
 		t.Errorf("after esc from the title: title focused=%v prompt focused=%v",

@@ -82,10 +82,10 @@ func TestAnnotBarClickLeavesTheKeysAlone(t *testing.T) {
 // press, not a character, and a stray word must not land in the prompt.
 func TestAnnotBarKeysStayOnTheBar(t *testing.T) {
 	m := withForm(t, "t", "body", 100, 40)
-	next, _ := m.updateForm(pressKey("tab")) // prompt → the bar
-	m = next.(model)
+	// Straight onto the bar: tab in the prompt indents now (promptindent.go).
+	m.focusForm(formFieldAnnots)
 	for _, key := range []string{"x", " ", "up", "down"} {
-		next, _ = m.updateForm(pressKey(key))
+		next, _ := m.updateForm(pressKey(key))
 		m = next.(model)
 	}
 	if got := m.promptArea.Value(); got != "body" {
@@ -96,7 +96,7 @@ func TestAnnotBarKeysStayOnTheBar(t *testing.T) {
 	}
 	// The walk clamps at the ends rather than wrapping: ← from the first
 	// segment stays put, like the session panel's cursor at its edges.
-	next, _ = m.updateForm(pressKey("left"))
+	next, _ := m.updateForm(pressKey("left"))
 	m = next.(model)
 	if m.annotCursor != annotSegFruit {
 		t.Errorf("annotCursor = %d, want ← clamped at the checkbox", m.annotCursor)
@@ -143,14 +143,13 @@ func TestAnnotBarUnderlinesTheFocusedSegment(t *testing.T) {
 			t.Errorf("segment %d is underlined while the prompt holds the keys", i)
 		}
 	}
-	next, _ := m.updateForm(pressKey("tab"))
-	m = next.(model)
+	m.focusForm(formFieldAnnots) // tab in the prompt indents now (promptindent.go)
 	for i := range annotSegCount {
 		if got := m.annotSegStyle(i).GetUnderline(); got != (i == m.annotCursor) {
 			t.Errorf("segment %d underline = %v with the cursor on %d", i, got, m.annotCursor)
 		}
 	}
-	next, _ = m.updateForm(pressKey("right"))
+	next, _ := m.updateForm(pressKey("right"))
 	m = next.(model)
 	segsAfter, _ := m.annotBarLayout()
 	for i := range segsBefore {
@@ -160,25 +159,31 @@ func TestAnnotBarUnderlinesTheFocusedSegment(t *testing.T) {
 	}
 }
 
-// TestAnnotBarTabRing pins the ring's order and the reason for it: the form
-// opens in the prompt with tab meaning "the other field", so the bar joins
-// the ring after the prompt rather than in its visual place — a stop between
-// the two fields would catch the prompt's first keystrokes (spaces included,
-// which the bar treats as a press) in a row that is not a text field.
+// TestAnnotBarTabRing pins the ring's order and the reason for it: the bar
+// joins the ring after the prompt rather than in its visual place, because a
+// stop between the two fields would catch the prompt's first keystrokes (spaces
+// included, which the bar treats as a press) in a row that is not a text field.
+//
+// The ring is still title → prompt → bar. What changed is that in the prompt
+// tab and shift+tab indent and outdent (promptindent.go), so the walk is pinned
+// from the two stops that still own tab, in both directions.
 func TestAnnotBarTabRing(t *testing.T) {
 	m := withForm(t, "t", "p", 100, 40)
-	want := []int{formFieldAnnots, formFieldTitle, formFieldPrompt}
-	for _, stop := range want {
-		next, _ := m.updateForm(pressKey("tab"))
-		m = next.(model)
-		if m.formFocus != stop {
-			t.Fatalf("tab landed on %d, want %d", m.formFocus, stop)
+	for _, tc := range []struct {
+		from int
+		key  string
+		want int
+	}{
+		{formFieldTitle, "tab", formFieldPrompt},
+		{formFieldTitle, "shift+tab", formFieldAnnots},
+		{formFieldAnnots, "tab", formFieldTitle},
+		{formFieldAnnots, "shift+tab", formFieldPrompt},
+	} {
+		m.focusForm(tc.from)
+		next, _ := m.updateForm(pressKey(tc.key))
+		if got := next.(model).formFocus; got != tc.want {
+			t.Errorf("%s from stop %d landed on %d, want %d", tc.key, tc.from, got, tc.want)
 		}
-	}
-	next, _ := m.updateForm(pressKey("shift+tab"))
-	m = next.(model)
-	if m.formFocus != formFieldTitle {
-		t.Fatalf("shift+tab from the prompt landed on %d, want the title", m.formFocus)
 	}
 }
 
@@ -187,9 +192,8 @@ func TestAnnotBarTabRing(t *testing.T) {
 // keeps, extended to the stop that has no cursor to blink.
 func TestAnnotBarSurvivesSubPanels(t *testing.T) {
 	m := withForm(t, "t", "p", 100, 40)
-	next, _ := m.updateForm(pressKey("tab"))
-	m = next.(model)
-	next, _ = m.updateForm(pressKey("ctrl+r"))
+	m.focusForm(formFieldAnnots) // tab in the prompt indents now (promptindent.go)
+	next, _ := m.updateForm(pressKey("ctrl+r"))
 	m = next.(model)
 	if m.stage != stageSession {
 		t.Fatalf("ctrl+r from the bar left stage %v", m.stage)

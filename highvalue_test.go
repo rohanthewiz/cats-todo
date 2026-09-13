@@ -102,8 +102,7 @@ func TestHighValueTogglesOnTheBarAndSaves(t *testing.T) {
 	if m.formAnnots.HighValue {
 		t.Fatal("the form opened with the gem already set")
 	}
-	mm, _ = m.updateForm(pressKey("tab")) // prompt → the bar, parked on Quick win
-	m = mm.(model)
+	m.focusForm(formFieldAnnots) // onto the bar, parked on Quick win; tab in the prompt indents now
 	mm, _ = m.updateForm(pressKey("right"))
 	m = mm.(model)
 	if m.annotCursor != annotSegValue {
