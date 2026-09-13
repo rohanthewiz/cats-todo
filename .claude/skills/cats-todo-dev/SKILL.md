@@ -17,8 +17,11 @@ catctl plugin link .                                 # dev mode: cats launches t
 ```
 
 Drops need a live cats server (`CATS_CONTROL_SOCKET`); outside cats the manager still
-edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` and
-`.claude/` here are **gitignored** (dogfood scratch), `bin/` too.
+edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` is
+**gitignored** (dogfood scratch), `bin/` too. `.claude/` is ignored as `.claude/*`
+**except `.claude/skills/`**, which is tracked so this skill travels with a clone —
+edits to it show up in `git status` and belong in a commit; `settings.local.json`
+and the rest stay local.
 
 ## File map
 
@@ -69,7 +72,13 @@ edits backlogs, so most UI work can be exercised in any terminal. `.cats-todo/` 
    nothing. No reserved widths, so every slot's glyph must be distinct.
 2. **Two-place version bump.** `const version` in `main.go` **and** `version =` in
    `cats-plugin.toml` must match (the title chip shows it). Release = bump both,
-   commit `chore(release): vX.Y.Z`. Bump the minor for a feature, patch for a fix.
+   commit `chore(release): vX.Y.Z`. Bump the **minor** when the release brings a new
+   capability (a mark, a panel, a mode, a drop target). Bump the **patch** for a fix,
+   or for a small refinement of something already shipped — even when the commit is
+   typed `feat`: a changed or added chord, a menu row swapped, an existing mode
+   learning a key. Precedents: v0.17.1 (typing replaces a selection), v0.24.1
+   (`shift+enter` saves), v0.30.1 (⚙ Session… replaces View), v0.30.2 (enter, paste
+   and tab in the column mode). When a release mixes both, the new capability wins.
 3. **Lockstep with cats** (`~/projs/go/cats`):
    - The §7 vocabulary is **imported, not copied**: `github.com/rohanthewiz/cats/wire`
      is a public stdlib-only leaf package, and `go.mod` pins the revision of the
