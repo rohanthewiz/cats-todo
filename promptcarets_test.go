@@ -130,7 +130,6 @@ func TestCaretsEndOnTheKeysThatMeanOneCaret(t *testing.T) {
 		{"esc", tea.KeyPressMsg{Code: tea.KeyEscape}},
 		{"up", tea.KeyPressMsg{Code: tea.KeyUp}},
 		{"down", tea.KeyPressMsg{Code: tea.KeyDown}},
-		{"enter", enterKey(0)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := caretsOver(t, "one\ntwo")
@@ -143,11 +142,91 @@ func TestCaretsEndOnTheKeysThatMeanOneCaret(t *testing.T) {
 			}
 		})
 	}
-	// Enter in particular must not also insert: it is the key most likely to be
-	// pressed *because* the user thinks the mode is already over.
-	m := caretsOver(t, "one\ntwo")
-	if got := typeInForm(t, m, enterKey(0)); got.promptArea.Value() != "one\ntwo" {
-		t.Errorf("enter inserted while ending the mode: %q", got.promptArea.Value())
+}
+
+// TestCaretsEnterBreaksEveryLine: a newline goes in at every caret and the mode
+// stays on. Each caret moves to the start of the line it created, so the next
+// characters typed go at the start of every new line.
+//
+// Regression: enter used to end the mode without inserting anything. Placing
+// carets with alt+click and pressing enter therefore did nothing, which looked
+// like the editor refusing to put newlines at multiple carets.
+func TestCaretsEnterBreaksEveryLine(t *testing.T) {
+	// Every spelling bound to InsertNewline, not just plain enter. alt+enter is
+	// the one to advertise when shift+enter cannot get through, and ctrl+j is
+	// what is left when a terminal swallows Option.
+	for _, tc := range []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{"enter", enterKey(0)},
+		{"alt+enter", enterKey(tea.ModAlt)},
+		{"ctrl+j", tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := caretsOver(t, "one\ntwo")
+			m = typeInForm(t, m, tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+			m = typeInForm(t, m, tc.key)
+			if !m.carets.on {
+				t.Fatalf("%s ended the mode", tc.name)
+			}
+			if want := "one\n\ntwo\n"; m.promptArea.Value() != want {
+				t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+			}
+			if got, want := m.carets.rows, []int{1, 3}; !slices.Equal(got, want) {
+				t.Errorf("carets on rows %v, want %v — each on the line its break made", got, want)
+			}
+			m = typeInForm(t, m, typeChar('-'))
+			if want := "one\n-\ntwo\n-"; m.promptArea.Value() != want {
+				t.Errorf("after typing, value = %q, want %q", m.promptArea.Value(), want)
+			}
+		})
+	}
+}
+
+// TestCaretsEnterOnASharedRow: several carets on one row, which is what alt+click
+// on a soft-wrapped paragraph produces. Every row after the first break is
+// shifted by the break before it, so this is the case where a patch based on
+// offsets would go wrong.
+func TestCaretsEnterOnASharedRow(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "alpha bravo\ncharlie")
+	m.focusForm(formFieldPrompt)
+	m.carets = promptCarets{on: true}
+	m.carets.add(0, 5)
+	m.carets.add(0, 11)
+	m.carets.add(1, 7)
+	m.syncPromptCaret()
+
+	m = typeInForm(t, m, enterKey(0))
+	if want := "alpha\n bravo\n\ncharlie\n"; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := m.carets.rows, []int{1, 2, 4}; !slices.Equal(got, want) {
+		t.Errorf("carets on rows %v, want %v", got, want)
+	}
+	if got, want := m.carets.cols, []int{0, 0, 0}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want every one at its line start", got)
+	}
+}
+
+// TestCaretsEnterFoldsCaretsInOneCell: two goal columns past the end of a short
+// row are drawn as one caret at its end. A newline must add one line there, not
+// two, and must leave a single caret behind.
+func TestCaretsEnterFoldsCaretsInOneCell(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "ab\ncd")
+	m.focusForm(formFieldPrompt)
+	m.carets = promptCarets{on: true}
+	m.carets.add(0, 5)
+	m.carets.add(0, 9)
+	m.carets.add(1, 0)
+	m.syncPromptCaret()
+
+	m = typeInForm(t, m, enterKey(0))
+	if want := "ab\n\n\ncd"; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q — one break at the short row's end", m.promptArea.Value(), want)
+	}
+	if got, want := m.carets.rows, []int{1, 3}; !slices.Equal(got, want) {
+		t.Errorf("carets on rows %v, want %v", got, want)
 	}
 }
 
@@ -176,20 +255,131 @@ func TestCaretsEndOnAClick(t *testing.T) {
 }
 
 // TestCaretsPasteGoesToEveryLine: a paste is an insertion, and the mode is about
-// where insertions land. Only its first line goes in — the rest would land
-// somewhere no caret was asked to be.
+// where insertions land.
 func TestCaretsPasteGoesToEveryLine(t *testing.T) {
 	m := caretsOver(t, "one\ntwo")
 	next, _ := m.Update(tea.PasteMsg{Content: "» "})
 	if want := "» one\n» two"; next.(model).promptArea.Value() != want {
 		t.Errorf("value = %q, want %q", next.(model).promptArea.Value(), want)
 	}
+}
 
-	m = caretsOver(t, "one\ntwo")
-	next, _ = m.Update(tea.PasteMsg{Content: "a\nb"})
-	if want := "aone\natwo"; next.(model).promptArea.Value() != want {
-		t.Errorf("value = %q, want only the paste's first line on each: %q",
-			next.(model).promptArea.Value(), want)
+// pasteAt delivers a bracketed paste the way the terminal does, through Update.
+func pasteAt(t *testing.T, m model, content string) model {
+	t.Helper()
+	next, _ := m.Update(tea.PasteMsg{Content: content})
+	return next.(model)
+}
+
+// TestCaretsMultiLinePaste pins the two cases for a paste with newlines.
+// Regression: only the paste's first line used to go in, and everything after it
+// was silently dropped.
+func TestCaretsMultiLinePaste(t *testing.T) {
+	t.Run("as many lines as carets spread one per caret", func(t *testing.T) {
+		m := pasteAt(t, caretsOver(t, "one\ntwo"), "a\nb")
+		if want := "aone\nbtwo"; m.promptArea.Value() != want {
+			t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+		}
+		if got, want := m.carets.cols, []int{1, 1}; !slices.Equal(got, want) {
+			t.Errorf("carets at columns %v, want each after its own line", got)
+		}
+	})
+
+	t.Run("a trailing newline does not count as a line", func(t *testing.T) {
+		// Copying whole lines brings the last one's break along. Two copied lines
+		// are still two, so they still spread.
+		m := pasteAt(t, caretsOver(t, "one\ntwo"), "a\nb\n")
+		if want := "aone\nbtwo"; m.promptArea.Value() != want {
+			t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+		}
+	})
+
+	t.Run("any other count pastes the whole text at every caret", func(t *testing.T) {
+		m := caretsOver(t, "one\ntwo")
+		m = typeInForm(t, m, tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+		m = pasteAt(t, m, " x\ny\nz")
+		if want := "one x\ny\nz\ntwo x\ny\nz"; m.promptArea.Value() != want {
+			t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+		}
+		if !m.carets.on {
+			t.Fatal("the paste ended the mode")
+		}
+		// Each caret sits just after its own copy, which is where typing
+		// should continue.
+		if got, want := m.carets.rows, []int{2, 5}; !slices.Equal(got, want) {
+			t.Errorf("carets on rows %v, want %v", got, want)
+		}
+		if got, want := m.carets.cols, []int{1, 1}; !slices.Equal(got, want) {
+			t.Errorf("carets at columns %v, want %v", got, want)
+		}
+		m = typeInForm(t, m, typeChar('!'))
+		if want := "one x\ny\nz!\ntwo x\ny\nz!"; m.promptArea.Value() != want {
+			t.Errorf("after typing, value = %q, want %q", m.promptArea.Value(), want)
+		}
+	})
+
+	t.Run("CRLF and CR are folded to newlines", func(t *testing.T) {
+		m := pasteAt(t, caretsOver(t, "one\ntwo"), "a\r\nb\r\n")
+		if want := "aone\nbtwo"; m.promptArea.Value() != want {
+			t.Errorf("value = %q, want %q — a Windows copy still spreads", m.promptArea.Value(), want)
+		}
+		m = pasteAt(t, caretsOver(t, "one\ntwo"), "a\rb")
+		if want := "aone\nbtwo"; m.promptArea.Value() != want {
+			t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+		}
+	})
+
+	t.Run("a spread onto a shared row carries the later caret over the earlier insert", func(t *testing.T) {
+		m, _, _ := splitFormInTemp(t, "alpha bravo")
+		m.focusForm(formFieldPrompt)
+		m.carets = promptCarets{on: true}
+		m.carets.add(0, 5)
+		m.carets.add(0, 11)
+		m.syncPromptCaret()
+		m = pasteAt(t, m, "X\nYY")
+		if want := "alphaX bravoYY"; m.promptArea.Value() != want {
+			t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+		}
+		if got, want := m.carets.cols, []int{6, 14}; !slices.Equal(got, want) {
+			t.Errorf("carets at columns %v, want %v", got, want)
+		}
+	})
+
+	t.Run("carets folded to one cell end the mode", func(t *testing.T) {
+		// Both goals clamp to the end of "ab", so there is one caret on screen.
+		// After merging, one caret is the editor with the mode off.
+		m, _, _ := splitFormInTemp(t, "ab")
+		m.focusForm(formFieldPrompt)
+		m.carets = promptCarets{on: true}
+		m.carets.add(0, 5)
+		m.carets.add(0, 9)
+		m.syncPromptCaret()
+		m = pasteAt(t, m, "x\ny\nz")
+		if want := "abx\ny\nz"; m.promptArea.Value() != want {
+			t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+		}
+		if m.carets.on {
+			t.Error("one caret left and the mode still on")
+		}
+	})
+}
+
+// TestCaretsTakeTheTerminalsClipboardAnswer: the Cmd+V chord's OSC 52 road. The
+// terminal's answer arrives as a tea.ClipboardMsg some time after the chord.
+// While carets are up it must go to every one of them, not just the library's
+// single caret. That is what forwarding it straight to the textarea used to do.
+// The chord's local pasteboard read is not driven here, because it would read
+// the real macOS clipboard. Both roads end in pasteIntoForm.
+func TestCaretsTakeTheTerminalsClipboardAnswer(t *testing.T) {
+	m := caretsOver(t, "one\ntwo")
+	m.pendingPaste = true
+	next, _ := m.Update(tea.ClipboardMsg{Content: "a\nb"})
+	got := next.(model)
+	if want := "aone\nbtwo"; got.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q — the answer spread over both carets", got.promptArea.Value(), want)
+	}
+	if !got.carets.on {
+		t.Error("the clipboard answer ended the mode")
 	}
 }
 

@@ -1132,11 +1132,17 @@ sweep three plain lines      carets go down            type "- "
 
 which is then exactly the shape ✂ Split into prompts wants. While the mode is on,
 **what you type goes in on every line at once**: `backspace` deletes on every
-line, `←`/`→` move the carets together, `ctrl+a` takes them to the line starts and
+line, `enter` breaks the line at every caret, `←`/`→` move the carets together, `ctrl+a` takes them to the line starts and
 `ctrl+e` to the line ends — prefixing, unprefixing and appending to a block, which
 is what a column mode gets used for in every editor that has one. A paste goes to
-every caret too; only its first line, since the rest would land somewhere no caret
-was asked to be.
+every caret too. When a paste has several lines, it follows the rule other
+multi-cursor editors use. If the number of lines matches the number of carets,
+**each caret gets one line**, top to bottom: copy three names, alt+click three
+places, paste, and each place gets its own name. Otherwise **every caret gets the
+whole paste**, newlines included, and ends up after its own copy. A single
+trailing newline is not counted as a line, because copying whole lines usually
+brings one along. `\r\n` and bare `\r` count as newlines. Until v0.30.2 only the
+first line of a paste went in.
 
 Every caret lands in the column the **sweep began** in, which is column 0 for the
 sweep this is for — a drag down the left margin, or a `shift`+`↓` run from the
@@ -1169,9 +1175,16 @@ because silence is also what a terminal that ate the modifier looks like. Seeing
 that note proves alt reached the program; no note and no new caret means it did
 not.
 
-`esc` ends the mode, and so does anything that means *one* caret — `enter`, `↑`,
-`↓`, a plain click. Enter in particular does not also insert: it is the key most likely
-to be pressed because you thought the mode was already over. A chord the mode has
+**`enter` is a newline at every caret** (so are `alt+enter` and `ctrl+j`), and
+the mode stays on. Each caret moves to the start of the line its break created,
+so text typed right after enter goes at the start of every new line. A caret in
+the middle of a line splits it there, and several carets on one line split it at
+each of them. Until v0.30.2 enter ended the mode without inserting anything.
+That made multi-caret newlines impossible and looked like the editor refusing
+them.
+
+`esc` ends the mode, and so does anything that means *one* caret — `↑`, `↓`, a
+plain click. A chord the mode has
 no meaning for ends it and then does its usual job, so `shift+enter` still saves
 from inside it. Nothing is undone on the way out: everything typed is already in the
 prompt, exactly as if it had been typed once per line by hand.

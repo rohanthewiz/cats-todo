@@ -366,7 +366,7 @@ func (m *model) editAtCarets(fn func(row []rune, col int) ([]rune, int)) {
 // from inside the mode, without either being listed here.
 //
 // What the mode does own is the set of keys that would otherwise act on one
-// caret: typing, the two deletes, and the two horizontal motions. Everything
+// caret: typing, the newline, the two deletes, and the two horizontal motions. Everything
 // vertical is left out on purpose — ↑ and ↓ mean "move the caret to another
 // line", which is the one thing a caret per line has already been asked not to
 // do, so they end the mode instead.
@@ -431,12 +431,21 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 		})
 
 	case key.Matches(msg, km.InsertNewline):
-		// A newline would turn N lines into 2N and leave the carets with nothing
-		// coherent to be on. It ends the mode instead, and does not also insert:
-		// enter is the most likely key to be pressed *because* the user thinks
-		// the mode is already over.
-		m.endPromptCarets()
-		return m, nil, true
+		// A newline goes in at every caret, the way every multi-cursor editor
+		// does it. This used to end the mode on the theory that enter is pressed
+		// because the user thinks the mode is already over. In practice the
+		// opposite happened: alt+click several places and press enter to break
+		// each one, and nothing broke. esc is how the mode ends.
+		m.newlineAtCarets()
+
+	case promptPasteChord(msg.String()):
+		// Cmd+V from a host that sends the chord rather than pasting for us.
+		// Without this case the chord would fall to default, end the mode, and
+		// paste at one caret. pasteFormClipboard reads the clipboard and sends
+		// the text back through pasteIntoForm, which sees the carets are still
+		// up. Its result is returned directly because it may also return a Cmd
+		// (the OSC 52 read) that the code below would drop.
+		return m.pasteFormClipboardInMode()
 
 	case msg.Text != "":
 		// The same test the textarea itself applies to decide a key inserts —
@@ -445,6 +454,13 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 
 	default:
 		return m, nil, false
+	}
+	if !m.carets.on {
+		// spliceAtCarets may already have merged the set down to one caret and
+		// ended the mode (a newline at two goals that clamp to one cell). There
+		// is nothing left to fold, and a note naming the count would say
+		// "0 carets" on a screen that has none.
+		return m, nil, true
 	}
 	// Every branch above may have driven two carets that shared a row onto the
 	// same cell — ctrl+a is the plain case, and ← does it to neighbours at the
@@ -467,6 +483,15 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 	return m, nil, true
 }
 
+// pasteFormClipboardInMode adapts pasteFormClipboard to updatePromptCarets'
+// three-value return. handled is always true: the chord belongs to the mode
+// even when the clipboard turns out to be empty, and that refusal is worded in
+// the form note, not handed on to end the mode.
+func (m model) pasteFormClipboardInMode() (tea.Model, tea.Cmd, bool) {
+	next, cmd := m.pasteFormClipboard()
+	return next, cmd, true
+}
+
 // caretsAllAtLineStart answers whether every caret sits in column 0 of its row —
 // the effective column, not the goal, so a goal stranded past an empty row still
 // counts as "nothing behind it".
@@ -484,11 +509,16 @@ func (m model) caretsAllAtLineStart() bool {
 // It is its own method because a paste arrives here too, by a different road
 // (see the tea.PasteMsg case in Update).
 func (m *model) insertAtCarets(text string) {
-	// A pasted newline would split the rows the carets are counted against, so
-	// only the paste's first line goes in — the rest would land somewhere no
-	// caret was asked to be.
-	text, _, _ = strings.Cut(text, "\n")
+	// Terminals and pasteboards disagree on line endings: a Windows-sourced
+	// copy brings \r\n, and an old-Mac one a bare \r. The value only ever
+	// holds \n, so both are folded before anything counts lines.
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
 	if text == "" {
+		return
+	}
+	if strings.Contains(text, "\n") {
+		m.pasteLinesAtCarets(text)
 		return
 	}
 	// Stepping the goal rather than the effective column is exact: the insert
@@ -500,6 +530,147 @@ func (m *model) insertAtCarets(text string) {
 		out = append(out, []rune(text)...)
 		return append(out, row[col:]...), step
 	})
+	m.syncPromptCaret()
+}
+
+// newlineAtCarets breaks the value at every caret. Each caret moves to the start
+// of the line its break made, so typing right after enter indents or prefixes
+// every new line together. It is a splice of "\n" at every caret; see
+// spliceAtCarets for how an insert that adds rows is kept straight.
+func (m *model) newlineAtCarets() {
+	m.spliceAtCarets(func(int) string { return "\n" })
+}
+
+// pasteLinesAtCarets is a paste that carries newlines, arriving while the mode
+// is on. It follows the rule multi-cursor editors have settled on (VS Code's
+// default "spread", and Sublime's):
+//
+//	lines in the paste == carets  → one line per caret, top to bottom
+//	anything else                 → the whole paste at every caret
+//
+// The first case is what makes a column of values useful. Copy three names from
+// somewhere else, alt+click three places, paste, and each place gets its own
+// name. The second case is the general one. Pasting a two-line snippet at three
+// carets means that snippet three times, newlines included, the same as typing
+// it at each caret would.
+//
+// A single trailing newline is ignored when counting, because copying whole
+// lines almost always brings the last line's break with it. Three copied lines
+// should count as three, not as three plus an empty fourth. It is dropped only
+// when the counts then match. In the whole-paste case the text goes in exactly
+// as it was copied.
+//
+// The count is taken after carets that share a cell are merged, since what the
+// user sees and counts is the carets drawn on screen, not the goal columns
+// behind them.
+func (m *model) pasteLinesAtCarets(text string) {
+	rows := strings.Split(m.promptArea.Value(), "\n")
+	m.foldCaretsToCells(rows)
+
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if len(lines) == len(m.carets.rows) {
+		m.spliceAtCarets(func(i int) string { return lines[i] })
+		return
+	}
+	m.spliceAtCarets(func(int) string { return text })
+}
+
+// foldCaretsToCells sets every goal column to its effective one and merges
+// carets that end up in the same cell.
+//
+// A row can hold several goal columns that all clamp to its end (caretAt).
+// Splicing at that one cell twice would add the text twice, or, for a newline,
+// an empty line nobody asked for, leaving the two carets on different rows.
+// Typing never exposed this, because editAtCarets keeps the goals, but an insert
+// that adds rows does. Folding to the effective column loses nothing here: after
+// a splice every caret sits right after its insert, so a goal past the old end
+// of a row no longer means anything.
+func (m *model) foldCaretsToCells(rows []string) {
+	for i, r := range m.carets.rows {
+		if r >= 0 && r < len(rows) {
+			m.carets.cols[i] = m.carets.caretAt(i, []rune(rows[r]))
+		}
+	}
+	m.carets.dedupe()
+}
+
+// spliceAtCarets inserts textFor(i) at caret i, for every caret, where the text
+// may contain newlines. Each caret ends up right after its own insert.
+//
+// editAtCarets cannot do this because it edits a row in place and the row count
+// stays the same. An insert with a newline adds rows, which moves every row
+// below it, including rows the walk has not reached yet. So instead of patching
+// the old value, this builds a new one top to bottom. cur is the output line
+// being built. Each caret adds its row's text up to its column, then its
+// insert. Every newline in the insert closes cur and starts a new line. The
+// caret's new position is wherever cur has got to: the row is the number of
+// lines closed so far, and the column is cur's length. Nothing has to be
+// shifted afterwards, because nothing was ever measured against the old layout.
+//
+//	rows "alpha bravo" / "charlie", carets (0,5) (0,11) (1,7), inserting "\n"
+//
+//	  row 0: "alpha" + "\n"   → closes "alpha",   caret → (1,0)
+//	         " bravo" + "\n"  → closes " bravo",  caret → (2,0)
+//	         rest ""          → closes ""
+//	  row 1: "charlie" + "\n" → closes "charlie", caret → (4,0)
+//	         rest ""          → closes ""
+//
+//	  value "alpha\n bravo\n\ncharlie\n"
+//
+// The same walk with no newline in the insert is an ordinary same-row insert.
+// That is how a spread paste of short lines, with two carets on one row, puts
+// the second caret after the first caret's insert.
+func (m *model) spliceAtCarets(textFor func(i int) string) {
+	rows := strings.Split(m.promptArea.Value(), "\n")
+	m.foldCaretsToCells(rows)
+
+	out := make([]string, 0, len(rows)+len(m.carets.rows))
+	next := promptCarets{on: true}
+	i := 0
+	// Carets on rows before 0 cannot exist, but skip them anyway. Otherwise one
+	// would stop the cursor below and every caret after it would be lost.
+	for i < len(m.carets.rows) && m.carets.rows[i] < 0 {
+		i++
+	}
+	var cur strings.Builder
+	for r, line := range rows {
+		runes := []rune(line)
+		from := 0
+		// The carets are sorted by row, then column, so this row's carets are
+		// the next run in the list, left to right. Their columns only increase,
+		// which keeps each cut after the one before it.
+		for ; i < len(m.carets.rows) && m.carets.rows[i] == r; i++ {
+			c := min(max(m.carets.cols[i], from), len(runes))
+			cur.WriteString(string(runes[from:c]))
+			from = c
+			// The first part continues the current line, and every part after a
+			// newline closes it and starts a new one.
+			for j, part := range strings.Split(textFor(i), "\n") {
+				if j > 0 {
+					out = append(out, cur.String())
+					cur.Reset()
+				}
+				cur.WriteString(part)
+			}
+			next.rows = append(next.rows, len(out))
+			next.cols = append(next.cols, len([]rune(cur.String())))
+		}
+		cur.WriteString(string(runes[from:]))
+		out = append(out, cur.String())
+		cur.Reset()
+	}
+	// A caret on a row past the end of the value is dropped. It is the same case
+	// editAtCarets skips: the value got shorter while the caret was still there.
+	m.carets = next
+	m.promptArea.SetValue(strings.Join(out, "\n"))
+	if len(m.carets.rows) == 1 {
+		// Merging left one caret, which is the editor with the mode off. The
+		// key path checks this itself, but a paste arrives from Update and does
+		// not, so the check is made here where both roads meet.
+		m.syncPromptCaret()
+		m.endPromptCarets()
+		return
+	}
 	m.syncPromptCaret()
 }
 

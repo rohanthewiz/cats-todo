@@ -690,7 +690,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// The selection, if there was one, was already taken out by the chord
 		// that started this (see updateForm); the caret is sitting where it was.
-		return m.forwardForm(tea.PasteMsg{Content: msg.Content})
+		// Or the carets are: the chord keeps the column mode up while it waits
+		// (updatePromptCarets), so the answer has to go to all of them.
+		return m.pasteIntoForm(msg.Content)
 	case tea.PasteMsg:
 		// A bracketed paste is an insertion like a typed character, so it
 		// replaces a standing selection rather than landing beside it. The
@@ -702,7 +704,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// character — a paste is an insertion, and the mode is about
 				// where insertions land.
 				m.insertAtCarets(msg.Content)
-				m.formNote = m.caretNote()
+				if m.carets.on {
+					// A paste that merged carets in one cell down to a single
+					// caret has already ended the mode, so there is no count to
+					// report.
+					m.formNote = m.caretNote()
+				}
 				return m, nil
 			}
 			m.deletePromptSelection()
@@ -2477,7 +2484,7 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updatePromptMenu(msg)
 	}
 	// The column mode owns the keys that would otherwise act on one caret —
-	// typing, the deletes, the horizontal motions — and hands back everything
+	// typing, the newline, the deletes, the horizontal motions — and hands back everything
 	// else, which ends the mode and then takes its ordinary path below. It sits
 	// above the selection block because the two are exclusive by construction:
 	// dropping carets clears the highlight.
@@ -2911,6 +2918,23 @@ func (m model) pasteFormClipboard() (tea.Model, tea.Cmd) {
 		return m, tea.ReadClipboard
 	case text == "":
 		m.formNote = "the clipboard has no text"
+		return m, nil
+	}
+	return m.pasteIntoForm(text)
+}
+
+// pasteIntoForm is where a paste read by this program ends up: the Cmd+V chord's
+// local read, and the terminal's OSC 52 answer. Normally that is the focused
+// field's own paste handling (see pasteFormClipboard for why). With the column
+// mode on it is every caret, the same choice Update's tea.PasteMsg case makes
+// for a bracketed paste. Otherwise a paste reaching the textarea would land at
+// the one caret the library knows about and quietly skip all the others.
+func (m model) pasteIntoForm(text string) (tea.Model, tea.Cmd) {
+	if m.carets.on && m.formFocus == formFieldPrompt {
+		m.insertAtCarets(text)
+		if m.carets.on {
+			m.formNote = m.caretNote()
+		}
 		return m, nil
 	}
 	return m.forwardForm(tea.PasteMsg{Content: text})
@@ -5482,7 +5506,7 @@ func (m model) formFooter() string {
 	// (updatePromptCarets); the exit comes last, where a mode's exit belongs.
 	if m.carets.on {
 		return footerStyle.Render(m.fitFooter([]string{
-			"typing goes on every line", "backspace deletes", "←/→ moves them",
+			"typing goes on every line", "backspace deletes", "enter breaks each", "←/→ moves them",
 			"ctrl+a/e line ends", "esc ends",
 		}))
 	}
