@@ -12,6 +12,26 @@
 //	                shift+tab  up to four leading spaces off each of them
 //	column mode     tab        four spaces at every caret   (promptcarets.go)
 //	                shift+tab  outdent every line a caret is on
+//	                enter      each new line takes its caret's line's indent
+//	any caret       enter      a new line starting at the indent of its line
+//	                backspace  right after that enter: the whole carried indent
+//
+// ENTER CARRIES THE INDENT. A new line starts at the indent of the line enter
+// was pressed on, so a nested list or a code block keeps its level while it is
+// typed, without re-spacing every line. There are no tab stops. The new line
+// copies whatever indent the line has (2, 6, 4), rather than rounding it to a
+// multiple of four. Two keys override it:
+//
+//   - backspace straight after the enter takes the whole carried indent back in
+//     one press, for a line that should start at the margin again;
+//   - shift+tab takes one unit off, for a line that should step out a level.
+//
+//	"    - one|"  enter      → "    - one" / "    |"
+//	              backspace  → "    - one" / "|"
+//
+// Only an enter pressed on the keyboard carries. A paste goes in verbatim (it is
+// a tea.PasteMsg and never meets the newline key), because pasted text brings
+// its own indentation, and adding the caret's on top would push every line in.
 //
 // SPACES, NOT TAB CHARACTERS. That is not a preference; three things force it:
 //
@@ -195,4 +215,93 @@ func remapIndentOffset(old, out []string, deltas []int, off int) int {
 
 	start, _ := promptRowSpan(out, row, row)
 	return start + col
+}
+
+// promptCarry is an indent that enter just carried. It is kept so the backspace
+// after it can take the whole indent back (see the file comment).
+//
+// It is a snapshot of the editor right after the enter, not a flag kept in step
+// with it. The backspace honours it only while the value and the caret (or every
+// caret) still match. A click elsewhere, or an edit by any road (a paste, a menu
+// action), leaves it stale without that road needing to know it exists. It also
+// lasts one key: updateForm takes it and zeroes the field on the way in, so
+// typing a character and erasing it does not bring the one-press backspace back.
+type promptCarry struct {
+	value  string
+	widths []int // spaces carried at each caret; nil when nothing was carried
+	caret  int   // column mode off: the offset just past the indent
+	rows   []int // column mode on: every caret as the enter left it
+	cols   []int
+}
+
+// promptCarriedIndent is what enter at column col of row carries onto the new
+// line: the row's leading spaces, counted no further than the caret. A caret
+// standing inside the indent splits it, and the new line gets only the part in
+// front of the caret, because the rest already travels with the text after it.
+//
+// blank reports that the row is nothing but those spaces, with the caret at its
+// end. That is the line an earlier carry left untouched. Enter there moves the
+// indent down instead of copying it, so the line left behind is empty rather
+// than holding invisible trailing spaces (the reason reindentPromptRows skips
+// blank rows).
+//
+//	"  - a|"    → indent 2, blank false
+//	"  |  - a"  → indent 2, blank false   (only what is left of the caret)
+//	"    |"     → indent 4, blank true
+func promptCarriedIndent(row []rune, col int) (indent int, blank bool) {
+	col = min(max(col, 0), len(row))
+	for indent < col && row[indent] == ' ' {
+		indent++
+	}
+	// indent == len(row) also means col == len(row), since indent <= col.
+	return indent, indent > 0 && indent == len(row)
+}
+
+// newlineCarryingIndent is enter in the prompt with the column mode off: a line
+// break at the caret, then the indent the caret's line carries
+// (promptCarriedIndent). It stands in for the textarea's own InsertNewline,
+// which knows nothing about indentation.
+//
+// The edit goes through replacePromptRunes, a SetValue, so the library's one
+// guard on a newline is repeated here. At MaxHeight logical lines its
+// InsertNewline refuses, and SetValue would not. At that limit this reports
+// false and the key goes on to the library, which refuses it as it always has.
+func (m *model) newlineCarryingIndent() bool {
+	rows := strings.Split(m.promptArea.Value(), "\n")
+	if m.promptArea.MaxHeight > 0 && len(rows) >= m.promptArea.MaxHeight {
+		return false
+	}
+	caret := promptCaretOffset(m.promptArea)
+	row, _ := promptRowRange(rows, caret, caret)
+	start, _ := promptRowSpan(rows, row, row)
+	n, blank := promptCarriedIndent([]rune(rows[row]), caret-start)
+	from := caret
+	if blank {
+		from -= n // the blank line's spaces move down rather than being copied
+	}
+	m.replacePromptRunes(from, caret, "\n"+strings.Repeat(" ", n))
+	if n > 0 {
+		m.promptCarry = promptCarry{
+			value:  m.promptArea.Value(),
+			widths: []int{n},
+			caret:  promptCaretOffset(m.promptArea),
+		}
+	}
+	return true
+}
+
+// takeBackCarriedIndent is backspace with the column mode off, straight after an
+// enter that carried an indent. The whole indent goes in one press, and the caret
+// is back at the margin. It reports false, and does nothing, when carry does not
+// describe the editor as it stands; the key then deletes one character as usual.
+func (m *model) takeBackCarriedIndent(carry promptCarry) bool {
+	if len(carry.widths) != 1 || carry.rows != nil {
+		return false
+	}
+	caret := promptCaretOffset(m.promptArea)
+	if caret != carry.caret || m.promptArea.Value() != carry.value {
+		return false
+	}
+	m.replacePromptRunes(caret-carry.widths[0], caret, "")
+	return true
 }

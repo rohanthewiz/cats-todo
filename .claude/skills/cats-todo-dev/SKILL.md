@@ -130,6 +130,9 @@ and the rest stay local.
   on it `←/→` move, `space`/`enter` press) — **but in the prompt `tab`/`shift+tab`
   indent/outdent** (`promptindent.go`: four spaces at the caret, or every swept
   line; a click leaves the prompt, `shift+tab` from the title wraps to the bar) ·
+  `enter` in the prompt carries the line's indent (no tab stops), answered at the
+  bottom of `updateForm` rather than by the textarea; `backspace` as the very
+  next key takes it back (`promptCarry`, a one-key snapshot) ·
   `@` file picker ·
   `ctrl+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
   the swept block) · `shift+alt+↑/↓` extend the selection by a line ·

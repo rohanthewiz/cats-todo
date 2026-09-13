@@ -1134,7 +1134,8 @@ sweep three plain lines      carets go down            type "- "
 
 which is then exactly the shape ✂ Split into prompts wants. While the mode is on,
 **what you type goes in on every line at once**: `backspace` deletes on every
-line, `enter` breaks the line at every caret, `tab` types four spaces at every
+line, `enter` breaks the line at every caret (each new line keeps its own line's
+indent, and a `backspace` straight after takes all of them back), `tab` types four spaces at every
 caret and `shift+tab` outdents every caret's line, `←`/`→` move the carets together, `ctrl+a` takes them to the line starts and
 `ctrl+e` to the line ends — prefixing, unprefixing and appending to a block, which
 is what a column mode gets used for in every editor that has one. A paste goes to
@@ -1419,6 +1420,19 @@ trailing spaces), `shift+tab` takes up to four off each, and the sweep stays so
 a second press moves the block another level. A sweep that began at a line start
 still begins there afterwards, with the new indent inside the highlight. When
 there is nothing to outdent, the status line says so.
+
+**`enter` keeps the indent.** A new line starts at the indent of the line you
+pressed `enter` on, so a nested list or a code block stays at its level while you
+type it. There are no tab stops. The new line copies whatever indent the line has,
+two spaces as readily as four, rather than rounding it. To leave that level,
+press `backspace` straight after the `enter`, which takes the whole carried
+indent back in one press and puts you at the margin, or press `shift+tab` to step
+out one level. Only the `backspace` straight after counts. Once you have typed
+anything, `backspace` deletes one character again. Pressing `enter` on a line
+that holds nothing but that indent moves the indent down to the new line, so
+blank lines are left truly empty. A caret inside the indent carries only the
+spaces to its left. A paste goes in exactly as copied, because pasted text
+brings its own indentation.
 
 The indent is **spaces, not a tab character**. The editor turns a tab character
 into four spaces on every edit, the screen and the click targets are measured in

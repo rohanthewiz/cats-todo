@@ -211,3 +211,148 @@ func TestCaretsTabIndentsEveryCaret(t *testing.T) {
 		t.Errorf("carets at columns %v, want %v", got, want)
 	}
 }
+
+var backspaceKey = tea.KeyPressMsg{Code: tea.KeyBackspace}
+
+// promptAt opens a form whose prompt holds value, focused, with the caret at off.
+func promptAt(t *testing.T, value string, off int) model {
+	t.Helper()
+	m := withForm(t, "", value, 100, 40)
+	m.focusForm(formFieldPrompt)
+	setPromptCaretOffset(&m.promptArea, off)
+	return m
+}
+
+// TestPromptEnterCarriesTheIndent: a new line starts at the indent of the line
+// enter was pressed on, whatever that indent is. There are no tab stops, so an
+// indent of two carries as two. Before this every new line started at the
+// margin, and a nested list had to be re-spaced line by line.
+func TestPromptEnterCarriesTheIndent(t *testing.T) {
+	cases := []struct {
+		name, value string
+		caret       int
+		want        string
+		wantCaret   int
+	}{
+		{"four", "    code", 8, "    code\n    ", 13},
+		{"two, not rounded to a stop", "  - one", 7, "  - one\n  ", 10},
+		{"mid-line splits the text", "    ab", 5, "    a\n    b", 10},
+		{"no indent carries nothing", "plain", 5, "plain\n", 6},
+		// Only what is left of the caret: from the line start there is nothing.
+		{"line start carries nothing", "    x", 0, "\n    x", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := typeInForm(t, promptAt(t, tc.value, tc.caret), enterKey(0))
+			if m.promptArea.Value() != tc.want {
+				t.Errorf("value = %q, want %q", m.promptArea.Value(), tc.want)
+			}
+			if got := promptCaretOffset(m.promptArea); got != tc.wantCaret {
+				t.Errorf("caret at %d, want %d", got, tc.wantCaret)
+			}
+		})
+	}
+}
+
+// TestPromptEnterOnABlankIndentMovesItDown: enter on a line that is only the
+// carried indent moves the indent to the new line instead of copying it, so
+// the line left behind holds no invisible trailing spaces.
+func TestPromptEnterOnABlankIndentMovesItDown(t *testing.T) {
+	m := promptAt(t, "    - one", 9)
+	m = typeInForm(t, m, enterKey(0))
+	m = typeInForm(t, m, enterKey(0))
+	if want := "    - one\n\n    "; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := promptCaretOffset(m.promptArea), len("    - one\n\n    "); got != want {
+		t.Errorf("caret at %d, want %d", got, want)
+	}
+}
+
+// TestPromptBackspaceTakesBackTheCarriedIndent: one backspace straight after the
+// enter removes the whole carried indent. The next backspace is an ordinary one
+// again and joins the lines.
+func TestPromptBackspaceTakesBackTheCarriedIndent(t *testing.T) {
+	m := promptAt(t, "    - one", 9)
+	m = typeInForm(t, m, enterKey(0))
+	m = typeInForm(t, m, backspaceKey)
+	if want := "    - one\n"; m.promptArea.Value() != want {
+		t.Fatalf("value = %q, want %q — the whole indent in one press", m.promptArea.Value(), want)
+	}
+	if got := promptCaretOffset(m.promptArea); got != 10 {
+		t.Errorf("caret at %d, want 10, the new line's margin", got)
+	}
+	m = typeInForm(t, m, backspaceKey)
+	if want := "    - one"; m.promptArea.Value() != want {
+		t.Errorf("second backspace: value = %q, want %q", m.promptArea.Value(), want)
+	}
+}
+
+// TestPromptBackspaceAfterTypingIsOrdinary: the one-press backspace is only for
+// the key straight after the enter. Once anything else has been pressed, even a
+// character that was then erased, backspace takes one character.
+func TestPromptBackspaceAfterTypingIsOrdinary(t *testing.T) {
+	m := promptAt(t, "    - one", 9)
+	m = typeInForm(t, m, enterKey(0))
+	m = typeInForm(t, m, typeChar('x'))
+	m = typeInForm(t, m, backspaceKey)
+	if want := "    - one\n    "; m.promptArea.Value() != want {
+		t.Fatalf("value = %q, want %q — only the x", m.promptArea.Value(), want)
+	}
+	m = typeInForm(t, m, backspaceKey)
+	if want := "    - one\n   "; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q — one space, not the whole indent", m.promptArea.Value(), want)
+	}
+}
+
+// TestPromptShiftTabStepsOutOfTheCarriedIndent: shift+tab after the enter takes
+// one unit off the carried indent, for a line one level out.
+func TestPromptShiftTabStepsOutOfTheCarriedIndent(t *testing.T) {
+	m := promptAt(t, "        deep", 12)
+	m = typeInForm(t, m, enterKey(0))
+	m = typeInForm(t, m, shiftTabKey)
+	if want := "        deep\n    "; m.promptArea.Value() != want {
+		t.Fatalf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := promptCaretOffset(m.promptArea), len("        deep\n    "); got != want {
+		t.Errorf("caret at %d, want %d", got, want)
+	}
+}
+
+// TestPromptPasteDoesNotCarry: a paste goes in verbatim. Pasted text brings its
+// own indentation, and adding the caret's line's indent to every line would
+// push the whole paste in.
+func TestPromptPasteDoesNotCarry(t *testing.T) {
+	m := promptAt(t, "    a", 5)
+	next, _ := m.Update(tea.PasteMsg{Content: "b\nc"})
+	m = next.(model)
+	if want := "    ab\nc"; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+}
+
+// TestCaretsEnterCarriesEachLinesIndent: in the column mode each new line takes
+// its own caret's line's indent, and one backspace straight after takes all of
+// them back with the mode still on.
+func TestCaretsEnterCarriesEachLinesIndent(t *testing.T) {
+	m := caretsOver(t, "  one\n    two")
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	m = typeInForm(t, m, enterKey(0))
+	if want := "  one\n  \n    two\n    "; m.promptArea.Value() != want {
+		t.Fatalf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := m.carets.cols, []int{2, 4}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want %v — each past its own indent", got, want)
+	}
+
+	m = typeInForm(t, m, backspaceKey)
+	if want := "  one\n\n    two\n"; m.promptArea.Value() != want {
+		t.Fatalf("after backspace value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := m.carets.cols, []int{0, 0}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want %v", got, want)
+	}
+	if !m.carets.on {
+		t.Error("backspace ended the mode")
+	}
+}

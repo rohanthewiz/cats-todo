@@ -318,6 +318,11 @@ type model struct {
 	// decorating one — dropping the carets clears the highlight, and clearing
 	// the highlight ends the mode.
 	carets promptCarets
+	// The indent the last enter carried onto a new line (promptindent.go), so a
+	// backspace straight after it takes the whole indent back in one press. It is
+	// a snapshot that lasts exactly one key: updateForm takes it and zeroes the
+	// field on the way in, and only a newline sets it again.
+	promptCarry promptCarry
 	// pendingPaste marks that a Cmd+V asked the terminal for the clipboard over
 	// OSC 52 and is waiting for the tea.ClipboardMsg carrying it. Only that one
 	// message may paste, which is what this flag is for: the reply is
@@ -1769,6 +1774,9 @@ func (m *model) backToList() {
 	// typing into, would both outlive the gesture that made them.
 	m.menu = promptMenu{}
 	m.endPromptCarets()
+	// A carried indent is a snapshot of this form's editor, and a stale one must
+	// not meet a later form that happens to hold the same text.
+	m.promptCarry = promptCarry{}
 	// The list's own menu goes too. Pressing a row already closes it, so this is
 	// for the paths that leave the list some other way — a scheduled drop firing
 	// a stage change, a form opened by a chord while the box was up — where a
@@ -2477,6 +2485,12 @@ func (m *model) setFormFlag(on bool) tea.Cmd {
 }
 
 func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// A carried indent lives for exactly one key (promptindent.go). It is taken
+	// here, before any branch can return, so every key spends it and only a
+	// backspace (below, or the column mode's) acts on it. A newline sets it
+	// afresh.
+	carry := m.promptCarry
+	m.promptCarry = promptCarry{}
 	// The context menu is modal while it is up: it owns every key, because that
 	// is what a menu does — the one the user pressed is spent on choosing from
 	// it or on taking it down (see updatePromptMenu).
@@ -2489,7 +2503,7 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// above the selection block because the two are exclusive by construction:
 	// dropping carets clears the highlight.
 	if m.carets.on && m.formFocus == formFieldPrompt {
-		if next, cmd, handled := m.updatePromptCarets(msg); handled {
+		if next, cmd, handled := m.updatePromptCarets(msg, carry); handled {
 			return next, cmd
 		}
 		m.endPromptCarets()
@@ -2781,6 +2795,26 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// rather than reaching any editor (see annotbar.go).
 	if m.formFocus == formFieldAnnots {
 		return m.updateAnnotBar(msg)
+	}
+	// Enter and backspace in the prompt are answered here rather than by the
+	// textarea, because both need to know about indentation and it does not
+	// (promptindent.go). Enter carries the caret's line's indent onto the new
+	// line. Backspace takes a just-carried indent back in one press, and with
+	// no fresh carry it goes on to the textarea and deletes one character. Both
+	// sit below the selection block, so a sweep has already been replaced by the
+	// time the newline goes in.
+	if m.formFocus == formFieldPrompt {
+		km := m.promptArea.KeyMap
+		switch {
+		case key.Matches(msg, km.InsertNewline):
+			if m.newlineCarryingIndent() {
+				return m, nil
+			}
+		case key.Matches(msg, km.DeleteCharacterBackward):
+			if m.takeBackCarriedIndent(carry) {
+				return m, nil
+			}
+		}
 	}
 	return m.forwardForm(msg)
 }

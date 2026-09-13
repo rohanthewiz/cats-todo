@@ -370,7 +370,7 @@ func (m *model) editAtCarets(fn func(row []rune, col int) ([]rune, int)) {
 // vertical is left out on purpose — ↑ and ↓ mean "move the caret to another
 // line", which is the one thing a caret per line has already been asked not to
 // do, so they end the mode instead.
-func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+func (m model) updatePromptCarets(msg tea.KeyPressMsg, carry promptCarry) (tea.Model, tea.Cmd, bool) {
 	km := m.promptArea.KeyMap
 	switch {
 	case msg.String() == "esc":
@@ -406,6 +406,11 @@ func (m model) updatePromptCarets(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool
 		}
 
 	case key.Matches(msg, km.DeleteCharacterBackward):
+		if m.takeBackCarriedIndentAtCarets(carry) {
+			// The enter just before carried indents. One press takes them all
+			// back, leaving every caret at its line start (promptindent.go).
+			break
+		}
 		if m.caretsAllAtLineStart() {
 			// Every caret is already at the start of its line; there is nothing
 			// behind them to take out, and joining every row onto the one above
@@ -581,12 +586,82 @@ func (m *model) insertAtCarets(text string) {
 	m.syncPromptCaret()
 }
 
-// newlineAtCarets breaks the value at every caret. Each caret moves to the start
-// of the line its break made, so typing right after enter indents or prefixes
-// every new line together. It is a splice of "\n" at every caret; see
+// newlineAtCarets breaks the value at every caret, and each new line takes the
+// indent its caret's line carries (promptCarriedIndent). It is the ordinary
+// editor's enter, done at every caret. Each caret lands just past its indent, so
+// typing right after enter prefixes every new line together, each at its own
+// level. It is a splice of "\n" plus the indent at every caret; see
 // spliceAtCarets for how an insert that adds rows is kept straight.
+//
+// The indents are measured on the rows as they stand, before any break. Two
+// carets on one row therefore carry the same indent, the row's, rather than the
+// second measuring the fragment the first break made.
+//
+// A row that is only spaces with its caret at the end moves its indent down
+// instead of copying it, as in the ordinary editor. That happens only when the
+// caret is alone on its row, because emptying the row would pull the column out
+// from under a neighbour. The carets are folded to cells first, so the neighbour
+// test is the caret before and after in the sorted list. The splice's own fold
+// then finds nothing to merge, which keeps widths indexed like the carets.
 func (m *model) newlineAtCarets() {
-	m.spliceAtCarets(func(int) string { return "\n" })
+	rows := strings.Split(m.promptArea.Value(), "\n")
+	m.foldCaretsToCells(rows)
+	widths := make([]int, len(m.carets.rows))
+	emptied, carried := false, false
+	for i, r := range m.carets.rows {
+		if r < 0 || r >= len(rows) {
+			continue // spliceAtCarets drops it too
+		}
+		n, blank := promptCarriedIndent([]rune(rows[r]), m.carets.cols[i])
+		widths[i] = n
+		carried = carried || n > 0
+		alone := (i == 0 || m.carets.rows[i-1] != r) &&
+			(i == len(m.carets.rows)-1 || m.carets.rows[i+1] != r)
+		if blank && alone {
+			rows[r], m.carets.cols[i] = "", 0
+			emptied = true
+		}
+	}
+	if emptied {
+		m.promptArea.SetValue(strings.Join(rows, "\n"))
+	}
+	m.spliceAtCarets(func(i int) string { return "\n" + strings.Repeat(" ", widths[i]) })
+	if !carried || !m.carets.on {
+		// Nothing was carried, or the fold left one caret and the splice ended
+		// the mode. That lone caret's carry is not recorded: it is the rare case,
+		// and a backspace there deletes one space as it always did.
+		return
+	}
+	m.promptCarry = promptCarry{
+		value:  m.promptArea.Value(),
+		widths: widths,
+		rows:   slices.Clone(m.carets.rows),
+		cols:   slices.Clone(m.carets.cols),
+	}
+}
+
+// takeBackCarriedIndentAtCarets is the column mode's backspace straight after an
+// enter that carried indents: every caret's carried indent goes in one press. It
+// reports false, and does nothing, unless the value and every caret still stand
+// exactly where that enter left them.
+//
+// Each break put its caret on a line of its own, so the carry's rows are distinct
+// and each row loses only its own caret's indent. A caret whose line had no
+// indent carried nothing and stays where it is.
+func (m *model) takeBackCarriedIndentAtCarets(carry promptCarry) bool {
+	if carry.rows == nil || m.promptArea.Value() != carry.value ||
+		!slices.Equal(m.carets.rows, carry.rows) || !slices.Equal(m.carets.cols, carry.cols) {
+		return false
+	}
+	rows := strings.Split(carry.value, "\n")
+	for i, r := range m.carets.rows {
+		if w := carry.widths[i]; w > 0 && r >= 0 && r < len(rows) {
+			rows[r] = rows[r][w:] // the value is unchanged, so the row starts with w spaces
+			m.carets.cols[i] -= w
+		}
+	}
+	m.promptArea.SetValue(strings.Join(rows, "\n"))
+	return true
 }
 
 // pasteLinesAtCarets is a paste that carries newlines, arriving while the mode
