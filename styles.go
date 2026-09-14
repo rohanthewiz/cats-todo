@@ -195,6 +195,12 @@ var (
 			Foreground(lipgloss.Color(colFgHi)).
 			Bold(true)
 
+	// The program name on the title line (see titleLine). Same bright foreground
+	// as headerNameStyle but regular weight: the name is constant and reads fine
+	// without emphasis, so the weight is left to the version beside it, the part
+	// that actually changes between releases.
+	appNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi))
+
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
 	countStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
 

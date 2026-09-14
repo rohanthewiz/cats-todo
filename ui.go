@@ -4792,8 +4792,9 @@ const appName = "CatsTodo"
 
 // titleLine is the program title drawn as the first line of the list and the
 // form: "CatsTodo vX.Y.Z - Prompts". The name and version take the bright
-// heading weight and the section takes the dim one, the same name-then-note
+// foreground and the section takes the dim one, the same name-then-note
 // hierarchy headerTitle draws one line below, so the two lines don't compete.
+// Only the version is bold; "CatsTodo" itself is regular weight (appNameStyle).
 //
 // The version comes from the `version` const, which already has to track
 // cats-plugin.toml (see main.go) — so the title can never advertise a release
@@ -4810,9 +4811,20 @@ func (m model) titleLine(section string) string {
 	// A pane narrow enough to cut into the name itself gets the cut text in one
 	// style; there is no section left to set apart.
 	if len(full) <= len(name) || full[:len(name)] != name {
-		return headerNameStyle.Render(full)
+		return styleAppName(full)
 	}
-	return headerNameStyle.Render(name) + descStyle.Render(full[len(name):])
+	return styleAppName(name) + descStyle.Render(full[len(name):])
+}
+
+// styleAppName renders the name-and-version part of the title: "CatsTodo" at
+// regular weight, whatever follows it (" vX.Y.Z", possibly truncated) bold.
+// Text that doesn't start with the full app name — a pane so narrow the cut
+// lands inside "CatsTodo" — is all name, so it is all regular weight.
+func styleAppName(s string) string {
+	if len(s) <= len(appName) || s[:len(appName)] != appName {
+		return appNameStyle.Render(s)
+	}
+	return appNameStyle.Render(appName) + headerNameStyle.Render(s[len(appName):])
 }
 
 // headerGap is the breath between the header line's segments.
