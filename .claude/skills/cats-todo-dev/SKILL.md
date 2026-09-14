@@ -82,7 +82,10 @@ and the rest stay local.
    typed `feat`: a changed or added chord, a menu row swapped, an existing mode
    learning a key. Precedents: v0.17.1 (typing replaces a selection), v0.24.1
    (`shift+enter` saves), v0.30.1 (⚙ Session… replaces View), v0.30.2 (enter, paste
-   and tab in the column mode). When a release mixes both, the new capability wins.
+   and tab in the column mode), v0.31.1 (an existing-pane drop applies the todo's
+   model/effort — new code, but a fix: settings a user configured were expected to
+   apply, so honouring them is correcting a surprise, not adding a feature). When a
+   release mixes both, the new capability wins.
 3. **Lockstep with cats** (`~/projs/go/cats`):
    - The §7 vocabulary is **imported, not copied**: `github.com/rohanthewiz/cats/wire`
      is a public stdlib-only leaf package, and `go.mod` pins the revision of the
