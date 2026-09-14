@@ -72,6 +72,14 @@ truncated rather than wrapped in a narrow pane: everything below it is clicked
 by row, and a title that grew a line would move every button out from under the
 pointer.
 
+In the editor the title is also the way back: click it and you return to the
+Prompts list with your changes **saved**, exactly as ✔ Save would (an empty
+prompt is refused with the same message, and the editor stays open). The title
+names where you're going, not a verb, so nothing about clicking it suggests your
+typing would be thrown away. **esc** (✖ Cancel) remains the one way out that
+discards the edit. A brand-new prompt that is still completely blank just closes,
+since there's nothing to keep.
+
 The editor's row of buttons runs across the top of the form, right under that
 title, on the line a "Edit prompt" heading used to take: **Images**, **Session**,
 **Save**, **Send**, **Cancel**. A screen whose whole job is to end an editing

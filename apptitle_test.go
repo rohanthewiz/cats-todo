@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -35,5 +36,65 @@ func TestAppTitleNeverWraps(t *testing.T) {
 	line := m.titleLine("Prompt Editor")
 	if strings.Contains(line, "\n") || lipgloss.Width(line) > m.width {
 		t.Errorf("title %q is %d cells in a %d-cell pane", ansi.Strip(line), lipgloss.Width(line), m.width)
+	}
+}
+
+// openAddForm is a form over real temp stores, sized for clicks, with the
+// given prompt typed in — the fixture the title-click tests share.
+func openAddForm(t *testing.T, title, prompt string) (model, *store) {
+	t.Helper()
+	m, project, _ := newModelInTemp(t)
+	m.width, m.height = 100, 40
+	next, _ := m.beginAdd()
+	m = next.(model)
+	m.titleInput.SetValue(title)
+	m.promptArea.SetValue(prompt)
+	return m, project
+}
+
+// TestClickingFormTitleSavesAndGoesHome: a click on the editor's program title
+// returns to the Prompts list with the edit kept, the same write ✔ Save makes.
+func TestClickingFormTitleSavesAndGoesHome(t *testing.T) {
+	m, project := openAddForm(t, "keep me", "the prompt body")
+	m = clickForm(m, 3, appTitleRow)
+	if m.stage != stageList {
+		t.Fatalf("stage after clicking the title = %v, want stageList", m.stage)
+	}
+	if len(project.todos) != 1 || project.todos[0].Prompt != "the prompt body" {
+		t.Errorf("project todos = %+v, want the typed prompt saved", project.todos)
+	}
+}
+
+// TestEscFromFormDiscards is the other half of the contract the title click is
+// defined against: esc leaves the editor without writing anything.
+func TestEscFromFormDiscards(t *testing.T) {
+	m, project := openAddForm(t, "drop me", "never saved")
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(model)
+	if m.stage != stageList {
+		t.Fatalf("stage after esc = %v, want stageList", m.stage)
+	}
+	if len(project.todos) != 0 {
+		t.Errorf("project todos = %+v, want nothing saved on esc", project.todos)
+	}
+}
+
+// TestClickingFormTitleOnEmptyPrompt: the save's own refusal still applies —
+// a title with no prompt keeps the form open and says why — but a new form
+// with nothing in it at all simply goes home, since there is nothing to keep.
+func TestClickingFormTitleOnEmptyPrompt(t *testing.T) {
+	m, project := openAddForm(t, "title only", "")
+	m = clickForm(m, 3, appTitleRow)
+	if m.stage != stageForm || m.formErr == "" {
+		t.Errorf("stage = %v, formErr = %q; want the form kept open with the empty-prompt refusal", m.stage, m.formErr)
+	}
+
+	m, project = openAddForm(t, "", "")
+	m = clickForm(m, 3, appTitleRow)
+	if m.stage != stageList {
+		t.Errorf("stage after clicking the title on a blank form = %v, want stageList", m.stage)
+	}
+	if len(project.todos) != 0 {
+		t.Errorf("project todos = %+v, want nothing saved from a blank form", project.todos)
 	}
 }

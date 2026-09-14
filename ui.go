@@ -1330,6 +1330,22 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	m.endPromptCarets()
 	m.formNote = ""
 	switch {
+	case msg.Y == appTitleRow:
+		// The program title ("CatsTodo vX.Y.Z - Prompt Editor") is the way home:
+		// a click on it goes back to the Prompts list, keeping the edit. It saves
+		// rather than cancels because the title is a navigation target, not a
+		// button labeled with a verb — a hand heading for "the list" has no reason
+		// to expect its typing thrown away, and esc (✖ Cancel) stays the one road
+		// that discards. saveForm is ✔ Save's own path, so its refusals hold here
+		// too: an empty prompt keeps the form open and says why.
+		//
+		// The one exception is a new prompt with nothing in it. There is nothing
+		// to keep, so refusing ("the prompt can't be empty") would only block the
+		// way back; it leaves the way cancel does instead.
+		if m.formMode == formAdd && m.formIsBlank() {
+			return m.cancelForm()
+		}
+		return m.saveForm()
 	case msg.Y == formTitleLabelRow:
 		return m, m.focusForm(formFieldTitle)
 	case msg.Y == formTitleRow:
@@ -2999,6 +3015,17 @@ func (m model) cancelForm() (tea.Model, tea.Cmd) {
 	m.backToList()
 	m.formErr = ""
 	return m, nil
+}
+
+// formIsBlank reports a form holding nothing a save could keep: no title, no
+// prompt, no attachments. Annotations and session options don't count — they
+// describe a prompt, and without one there is nothing for them to be about.
+// Used by the title-click road home (see clickForm), which leaves a blank new
+// prompt quietly rather than refusing it the way ✔ Save must.
+func (m model) formIsBlank() bool {
+	return strings.TrimSpace(m.titleInput.Value()) == "" &&
+		strings.TrimSpace(m.promptArea.Value()) == "" &&
+		len(m.formImages) == 0
 }
 
 // The form's focus stops, in tab order — the values m.formFocus holds. The
@@ -5268,8 +5295,9 @@ const indentWidth = 2
 // back up by one before dispatch — would leave two frames of reference in the
 // code, and every future mouse path would have to remember which it was in.
 //
-// The title is not clickable; a press on it falls through to whatever the
-// stage does with a row that is not a control (nothing, on both screens).
+// On the list the title is not clickable; a press on it falls through to
+// nothing. On the form a click on it saves and goes back to the list — the
+// title names the way home (see clickForm).
 const appTitleRow = 0
 
 // appTitleLines is how many lines the title spends. titleLine truncates to the
