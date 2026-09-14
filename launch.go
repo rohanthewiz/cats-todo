@@ -27,9 +27,29 @@ func runTodoUI(scope launchScope) {
 		errExit(err)
 	}
 
+	runProgram(newModel(ctx, project, global, client))
+}
+
+// runProgram runs a model as the TUI and hands the terminal back afterwards.
+// It is split from runTodoUI so the hangup path can be exercised with a
+// trivial model, without stores or a cats socket.
+func runProgram(m tea.Model) {
+	// A pane whose terminal is torn down (pty master closed, e.g. the host
+	// SIGKILLed) must take the TUI with it; see terminalWatch for why bubbletea
+	// alone keeps running.
+	watch := watchTerminal()
+	defer watch.stop()
+
 	// The alt screen is declared by the model's View in bubbletea v2, not here.
-	p := tea.NewProgram(newModel(ctx, project, global, client))
-	if _, err := p.Run(); err != nil {
+	p := tea.NewProgram(m, watch.options()...)
+	_, err := p.Run()
+
+	// A hung-up terminal has no screen to reset and no reader for an error, and
+	// stderr is that same dead tty. Return straight away so the process exits.
+	if watch.gone() {
+		return
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "cats-todo:", err)
 	}
 
