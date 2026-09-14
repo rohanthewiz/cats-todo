@@ -63,12 +63,22 @@ is a text editor, so enter means there what it means in every other one — and
 `shift+enter` (or `cmd+s`) saves. Outside cats it still manages backlogs; only drops need the
 socket.
 
-The editor's row of buttons runs across the **top** of the form, on the line a
-"Edit prompt" heading used to take: **Images**, **Session**, **Save**, **Send**,
-**Cancel**. A screen whose whole job is to end an editing session is better
-opened by the buttons that end it than by a title repeating what you can already
-see — and a row on the form's first line cannot be pushed around by a taller
-editor or a wrapped note, so the buttons stay where your hand left them.
+Both screens open with the same title line, directly under the pane's header:
+`CatsTodo vX.Y.Z - Prompts` on the list and `CatsTodo vX.Y.Z - Prompt Editor`
+in the editor. It names the program, the running version (the binary's own, so
+it can't disagree with what is installed) and which of the two screens you are
+on, so switching between them reads as one tool changing section. It is
+truncated rather than wrapped in a narrow pane: everything below it is clicked
+by row, and a title that grew a line would move every button out from under the
+pointer.
+
+The editor's row of buttons runs across the top of the form, right under that
+title, on the line a "Edit prompt" heading used to take: **Images**, **Session**,
+**Save**, **Send**, **Cancel**. A screen whose whole job is to end an editing
+session is better opened by the buttons that end it than by a heading repeating
+what you can already see — and a row at a fixed line near the top cannot be
+pushed around by a taller editor or a wrapped note, so the buttons stay where
+your hand left them.
 
 **Send** is the one way to hand a prompt straight to an agent without going back
 to the list: it saves what you have typed and opens the target picker on it, so a
@@ -132,7 +142,7 @@ Scheduled drops (`ctrl+s`, below) can target a worktree too. The branch is cut
 when the drop fires, not when it is scheduled, so it always comes off HEAD as
 it stands at that moment.
 
-The filter rides on the header line — the 🔍 box next to the title, lit while
+The filter rides on the header line under the title — the 🔍 box next to the backlog's name, lit while
 it holds the keys — and typing from anywhere lands in it. Under the header sits
 a row of action buttons — **Add**, **Edit**, **Send**, **Export**, **Delete**
 — each labelled with the chord it stands for. `tab` walks the focus

@@ -301,13 +301,13 @@ func TestFormBarShape(t *testing.T) {
 		}
 	}
 
-	// Row 0, and nothing above it: the toolbar took the heading's line rather
-	// than being inserted at the top, so every row constant below it — and every
-	// hit-test counted from them — is unchanged.
-	if got := m.formBarRow(); got != 0 {
-		t.Errorf("formBarRow = %d, want the form's first line", got)
+	// Directly under the program title, and nothing else above it: the toolbar
+	// took the heading's line rather than being inserted below other chrome, so
+	// every row constant under it is the title's one line plus the old layout.
+	if got := m.formBarRow(); got != appTitleRow+appTitleLines {
+		t.Errorf("formBarRow = %d, want the line under the program title", got)
 	}
-	first, _, _ := strings.Cut(m.viewForm(), "\n")
+	first := strings.Split(m.viewForm(), "\n")[m.formBarRow()]
 	for _, a := range acts {
 		if !strings.Contains(first, a.label) {
 			t.Errorf("the form's first line is %q, want the toolbar with %q on it", first, a.label)
@@ -320,7 +320,7 @@ func TestFormBarShape(t *testing.T) {
 	}
 	edit := withForm(t, "a title", "body", 120, 40)
 	edit.formMode = formEdit
-	if line, _, _ := strings.Cut(edit.viewForm(), "\n"); strings.Contains(ansi.Strip(line), "backlog") {
+	if line := strings.Split(edit.viewForm(), "\n")[edit.formBarRow()]; strings.Contains(ansi.Strip(line), "backlog") {
 		t.Errorf("an edit names a scope that is not a choice: %q", line)
 	}
 }

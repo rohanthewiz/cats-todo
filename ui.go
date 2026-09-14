@@ -2363,11 +2363,13 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 }
 
 // formChromeHeight is how many lines the form spends on everything that isn't
-// the prompt editor, so the editor gets the rest: the eight above it (see
-// formPromptRow — the toolbar is the first of those now), then the attachment
-// note, the session note, an error line, a blank, and the footer — thirteen —
-// plus two of slack for a footer that needs a second line in a narrow pane.
-const formChromeHeight = 15
+// the prompt editor, so the editor gets the rest: the nine above it (see
+// formPromptRow — the program title and then the toolbar lead those), then the
+// attachment note, the session note, an error line, a blank, and the footer —
+// fourteen — plus two of slack for a footer that needs a second line in a
+// narrow pane. Written against formPromptRow so a line added above the editor
+// shrinks the editor rather than pushing the footer off the bottom.
+const formChromeHeight = formPromptRow + 7
 
 // newFormInputs builds the title field and prompt editor, sized to the screen
 // and pre-filled with the given values.
@@ -4783,6 +4785,36 @@ func headerTitle(note string) string {
 	return descStyle.Render(note)
 }
 
+// appName is the program's display name on the title line. It is spelled as a
+// product name rather than as the binary's "cats-todo", because this line
+// names the tool to a person, not a command to a shell.
+const appName = "CatsTodo"
+
+// titleLine is the program title drawn as the first line of the list and the
+// form: "CatsTodo vX.Y.Z - Prompts". The name and version take the bright
+// heading weight and the section takes the dim one, the same name-then-note
+// hierarchy headerTitle draws one line below, so the two lines don't compete.
+//
+// The version comes from the `version` const, which already has to track
+// cats-plugin.toml (see main.go) — so the title can never advertise a release
+// other than the binary that is running.
+//
+// The line is truncated to the pane before it is styled. It has to stay one
+// line: it sits above every row constant the screens hit-test against
+// (appTitleLines), and a title that wrapped in a narrow pane would move every
+// click below it by a row. Truncating the plain text and then splitting it
+// keeps the ANSI resets intact, the hazard headerTitle's comment describes.
+func (m model) titleLine(section string) string {
+	name := appName + " v" + version
+	full := m.fitToPane(name+" - "+section, 0)
+	// A pane narrow enough to cut into the name itself gets the cut text in one
+	// style; there is no section left to set apart.
+	if len(full) <= len(name) || full[:len(name)] != name {
+		return headerNameStyle.Render(full)
+	}
+	return headerNameStyle.Render(name) + descStyle.Render(full[len(name):])
+}
+
 // headerGap is the breath between the header line's segments.
 const headerGap = 2
 
@@ -5046,6 +5078,8 @@ func (m model) headerLine() string {
 
 func (m model) viewList() string {
 	var b strings.Builder
+	b.WriteString(m.titleLine("Prompts"))
+	b.WriteString("\n")
 	b.WriteString(m.headerLine())
 	b.WriteString("\n\n")
 	b.WriteString(m.actionBar())
@@ -5208,17 +5242,40 @@ func (m model) barShowsHints() bool {
 // cursorGlyph occupies), so the action bar lines up with them.
 const indentWidth = 2
 
-// headerRow is the line the title chip, scope note and query box share — the
-// top of the list view. A click here hands the keys back to the query box.
-const headerRow = 0
+// appTitleRow is the line the program's title ("CatsTodo vX.Y.Z - Prompts")
+// is drawn on — the very first line of both the list and the form, directly
+// under the pane header cats draws around us.
+//
+// It is a line of the view itself rather than something composited on top in
+// renderStage. That choice keeps one coordinate system: a mouse message's Y is
+// counted from the top of the pane, and so is every row constant below, so the
+// title simply pushes those constants down by appTitleLines and every
+// hit-test, overlay placement (menus, hover card, note pad — all anchored on
+// the click's own Y) and test that asks for a row by name keeps working. The
+// alternative — prepending after the overlays and translating each mouse Y
+// back up by one before dispatch — would leave two frames of reference in the
+// code, and every future mouse path would have to remember which it was in.
+//
+// The title is not clickable; a press on it falls through to whatever the
+// stage does with a row that is not a control (nothing, on both screens).
+const appTitleRow = 0
+
+// appTitleLines is how many lines the title spends. titleLine truncates to the
+// pane so it can never wrap, which is what lets this be a constant.
+const appTitleLines = 1
+
+// headerRow is the line the scope note and query box share — the top of the
+// list's own content, under the title. A click here hands the keys back to the
+// query box.
+const headerRow = appTitleRow + appTitleLines
 
 // actionBarRow is the row the bar is drawn on, counting from the top of the
-// list view: the header (0), a blank (1), the bar (2). Each of those is
-// exactly one line — headerLayout budgets the header so it cannot wrap — so a
-// click's Y can be compared against a constant instead of the view being
-// re-measured. TestActionBarRow finds the bar in the rendered frame and fails
-// if the layout above it ever grows a line.
-const actionBarRow = 2
+// list view: the title (0), the header (1), a blank (2), the bar (3). Each of
+// those is exactly one line — titleLine truncates and headerLayout budgets the
+// header so neither can wrap — so a click's Y can be compared against a
+// constant instead of the view being re-measured. TestActionBarRow finds the
+// bar in the rendered frame and fails if the layout above it ever grows a line.
+const actionBarRow = headerRow + 2
 
 // listRowsRow is the first line the todo rows are drawn on, directly under the
 // bar. A grouped list opens with its own blank-and-heading, so the first
@@ -5256,13 +5313,13 @@ func (m *model) sizeListWindow() {
 	m.list.setMaxRows(max(m.height-listRowsRow-listChromeBelow-m.list.separatorLines(), 1))
 }
 
-// The form's fixed rows, counting from the top of that view: the toolbar (0), a
-// blank (1), the Title label (2), the title field (3), a blank (4), the
-// annotation bar (5), the flag's note (6), the Prompt label (7), then the
-// prompt editor. Every one of those is exactly one line, so a click's Y is
+// The form's fixed rows, counting from the top of that view: the program title
+// (0, see appTitleRow), the toolbar (1), a blank (2), the Title label (3), the
+// title field (4), a blank (5), the annotation bar (6), the flag's note (7), the
+// Prompt label (8), then the prompt editor. Every one of those is exactly one line, so a click's Y is
 // compared against these constants instead of the view being re-measured.
 //
-// Row 6 is the one line that is not always the same thing, and it is a line
+// Row 7 is the one line that is not always the same thing, and it is a line
 // either way: it was the blank between the bar and the Prompt label, and it
 // still is whenever the flag is down. The note field takes that blank over
 // rather than being inserted below it, because every constant under it — and
@@ -5277,17 +5334,21 @@ func (m *model) sizeListWindow() {
 // Everything below the editor moves with its height, so those rows are not named
 // here — and nothing below it is clickable any more, now that the toolbar leads
 // the form instead of closing it.
+//
+// Each is written as an offset past the toolbar rather than as a bare number,
+// so the program title above it (or anything else ever added there) moves the
+// whole block together instead of needing every literal re-counted.
 const (
-	formTitleLabelRow  = 2
-	formTitleRow       = 3
-	formAnnotRow       = 5
-	formFlagNoteRow    = 6
-	formPromptLabelRow = 7
-	formPromptRow      = 8
+	formTitleLabelRow  = appTitleLines + 2
+	formTitleRow       = appTitleLines + 3
+	formAnnotRow       = appTitleLines + 5
+	formFlagNoteRow    = appTitleLines + 6
+	formPromptLabelRow = appTitleLines + 7
+	formPromptRow      = appTitleLines + 8
 )
 
-// formBarRow is the line the form's toolbar sits on — the first line of the
-// form, where the heading used to be (see viewForm).
+// formBarRow is the line the form's toolbar sits on — the first line under the
+// program title, where the heading used to be (see viewForm).
 //
 // It stays a method rather than becoming another const in the block above
 // because it was one for as long as the bar sat under the editor, and every
@@ -5296,7 +5357,8 @@ const (
 // on row 0 cannot be moved by a taller editor, a wrapped session line or a failed
 // save, all of which used to shift it out from under the pointer.
 func (m model) formBarRow() int {
-	return 0
+	// Directly under the program title (appTitleRow).
+	return appTitleRow + appTitleLines
 }
 
 // targetRowsRow is the first line the drop picker's target rows are drawn on,
@@ -5307,8 +5369,14 @@ const targetRowsRow = 4
 
 func (m model) viewForm() string {
 	var b strings.Builder
-	// The toolbar leads the form, on the line the heading used to have. See
-	// formActions for why the buttons are worth more there than a title was.
+	// The program title first, the same line the list opens with, so moving
+	// between the two screens reads as one program changing section rather than
+	// as a different tool taking over the pane.
+	b.WriteString(m.titleLine("Prompt Editor"))
+	b.WriteString("\n")
+	// The toolbar leads the form's own content, on the line the heading used to
+	// have. See formActions for why the buttons are worth more there than a
+	// heading was.
 	bar := m.formBar()
 	b.WriteString(bar)
 	// The scope rides at the end of that row in add mode, dimmed and past the
