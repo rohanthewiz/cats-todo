@@ -17,6 +17,15 @@ version = "0.31.2"
 description = "A prompt backlog for cats. Jot down prompts of future work (per-project and global), then fuzzy-pick one and drop it into a Claude Code session — an existing agent pane or a brand-new one — paste-only or run-now."
 platforms = ["linux", "macos"]
 
+# Expose the built binary on the user's PATH. The host symlinks each entry into
+# the cats bin dir (~/.cats/bin/cats-todo -> <plugins-root>/<id>/bin/cats-todo),
+# which `catctl shellinit` and every cats pane put first on PATH. Without this,
+# actions ran the fresh plugin build while a bare `cats-todo` typed in a shell
+# (or run by an agent) resolved to whatever hand-installed copy was on PATH —
+# two versions answering to one name. Top-level key, so it sits above the
+# [[build]] tables.
+bin = ["./bin/cats-todo"]
+
 # Build the binary at install/link time; the host runs this once in the plugin
 # root. cats-todo is its own Go module, so a plain `go build .` resolves
 # everything from this repo's go.mod.
