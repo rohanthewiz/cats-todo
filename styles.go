@@ -195,10 +195,10 @@ var (
 			Foreground(lipgloss.Color(colFgHi)).
 			Bold(true)
 
-	// The program name on the title line (see titleLine). Same bright foreground
-	// as headerNameStyle but regular weight: the name is constant and reads fine
-	// without emphasis, so the weight is left to the version beside it, the part
-	// that actually changes between releases.
+	// The program name and version on the title line (see titleLine). Same
+	// bright foreground as headerNameStyle but regular weight: the title is
+	// identity, not a heading to scan for, so it doesn't take the emphasis the
+	// backlog's name on the header line below it uses.
 	appNameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colFgHi))
 
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent)).Bold(true)
