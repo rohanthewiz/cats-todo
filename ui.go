@@ -4134,6 +4134,13 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 			if p.AgentState != "" {
 				desc = "[" + p.AgentState + "] " + desc
 			}
+			// The prompt's model and effort are switched on a running claude
+			// pane before it lands; whatever cannot be (permission mode
+			// anywhere, everything on another agent) is said here, before
+			// the pick, for the same reason flagNote is.
+			if lost := td.Session.paneUnapplied(p.Agent); lost != "" {
+				desc += " · the session's " + lost + " can't be set on a running " + p.Agent + " and won't be applied"
+			}
 			targets = append(targets, dropTarget{
 				kind:  targetExistingPane,
 				pane:  p.Pane,
@@ -5850,9 +5857,9 @@ func yesNo(b bool) string {
 // The note is what the option actually does — a panel of bare enum names would
 // make the user open the README to find out what "dontAsk" costs them.
 var sessRowLabels = [sessRowCount]struct{ label, note string }{
-	sessRowModel:      {"Model", "--model, on a new claude session"},
-	sessRowEffort:     {"Effort", "--effort, on a new claude session"},
-	sessRowPermission: {"Permission", "--permission-mode, on a new claude session"},
+	sessRowModel:      {"Model", "--model on a new claude session, /model on a running one"},
+	sessRowEffort:     {"Effort", "--effort on a new claude session, /effort on a running one"},
+	sessRowPermission: {"Permission", "--permission-mode, on a new claude session only"},
 	sessRowClear:      {"Clear first", "send /clear before the prompt, in an existing pane"},
 	sessRowContext:    {"Context", "load prior work before reading the prompt"},
 	sessRowContextArg: {"", ""}, // its note is the mode's own (see viewSession)
@@ -6002,7 +6009,7 @@ func (m model) viewSession() string {
 	})))
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render(m.fitFooter([]string{
-		saved, "the launch flags ride on new claude sessions only",
+		saved, "model/effort also switch a running claude pane; permission can't",
 	})))
 	return b.String()
 }

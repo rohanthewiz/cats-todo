@@ -1575,7 +1575,8 @@ editor's [annotation bar](#annotations), in sight of the title they qualify.
 
 | Row | What it does |
 |---|---|
-| Model, Effort, Permission | `--model`, `--effort`, `--permission-mode` on the launch |
+| Model, Effort | `--model`, `--effort` on the launch; `/model`, `/effort` in a running pane |
+| Permission | `--permission-mode` on the launch (a new session only) |
 | Clear first | sends `/clear` as its own message before the prompt |
 | Context | starts with `/sess-load [n]` or `/sess-use <pattern>` |
 | Files | "also read these files" ahead of the prompt |
@@ -1584,13 +1585,34 @@ editor's [annotation bar](#annotations), in sight of the title they qualify.
 | Release | cut a release once the work is done |
 
 Three different mechanisms carry them, and which one an option rides is forced
-by what the receiving end can accept. The three launch flags go on the agent's
-own command line, so they only apply to a **new** session — and only to
-`claude`, whose flags they are; the picker says so on any other agent's row, and
-the prompt still goes. `/clear` has to be its own submitted message, because
-pasted at the top of a prompt it would just be text — so it applies to a drop
-into an **existing** pane. Everything else is text wrapped around the prompt
-body, which works everywhere:
+by what the receiving end can accept. On a **new** session the three launch
+flags go on the agent's own command line — and only for `claude`, whose flags
+they are; the picker says so on any other agent's row, and the prompt still
+goes.
+
+A drop into an **existing** pane has no command line, but a prompt that asked
+for a model still means that model, so the settings are applied to the running
+session instead, each as its own submitted message ahead of the prompt:
+
+```
+/clear            (Clear first)
+/model sonnet     (Model — claude panes only)
+/effort high      (Effort — claude panes only)
+<your prompt>
+```
+
+`/clear` comes first so the model and effort land on the session that will read
+the prompt, and `/model` before `/effort` because the levels a model accepts are
+its own. They are submitted in paste mode too — the pause is for the prompt, not
+the setup. The two claude commands go only to a pane cats detected as `claude`:
+typed into a shell they would be a command line, and run mode would run it. A
+command that fails aborts the drop rather than delivering the prompt onto the
+wrong setup. Permission mode is the one setting a running session cannot be
+given — Claude Code only cycles through modes with `shift+tab`, from a starting
+point nothing on the wire reports — so the pane's row in the picker says it will
+be left as it is, before you pick it.
+
+Everything else is text wrapped around the prompt body, which works everywhere:
 
 ```
 First, load prior context: run /sess-load 2

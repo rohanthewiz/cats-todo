@@ -23,20 +23,27 @@ func performDrop(client *catsClient, act pendingAction) error {
 	prompt := composePrompt(act.todo.Prompt, act.images, act.todo.Session)
 	switch act.target.kind {
 	case targetExistingPane:
-		// "Clear first" is delivered as its own submitted message, because
-		// /clear is a built-in of the agent's input rather than anything this
-		// prompt could carry: pasted at the top of a body it would be text.
+		// The prompt's session settings are applied to the running session
+		// first — /clear, then /model and /effort for a claude pane (see
+		// paneSetupCommands). Each is delivered as its own submitted message,
+		// because they are built-ins of the agent's input rather than anything
+		// this prompt could carry: pasted at the top of a body they would be
+		// text. They are submitted in paste mode too — dropPaste pauses before
+		// the *prompt* goes, and a setting left typed-but-unsent would sit in
+		// the input box with the prompt glued onto the end of it.
 		//
-		// A failed /clear aborts the drop rather than typing the prompt anyway.
-		// The user asked for a session with nothing behind it; delivering into
-		// whatever state the pane is actually in — half-cleared, or a modal
-		// waiting on an answer — is the one outcome they ruled out.
-		if act.todo.Session != nil && act.todo.Session.Clear {
-			if err := client.sendInput(act.target.pane, "/clear", true); err != nil {
-				return fmt.Errorf("clearing the pane first: %w", err)
+		// A failed command aborts the drop rather than typing the prompt anyway.
+		// The user asked for this prompt to run on a particular setup;
+		// delivering into whatever state the pane is actually in — half-cleared,
+		// on the wrong model, or a modal waiting on an answer — is the one
+		// outcome they ruled out.
+		for _, cmd := range act.todo.Session.paneSetupCommands(act.target.agent) {
+			if err := client.sendInput(act.target.pane, cmd, true); err != nil {
+				return fmt.Errorf("applying %s to the pane first: %w", strings.Fields(cmd)[0], err)
 			}
-			// The agent has to finish handling /clear before it will read the
-			// next keystrokes; typing into the gap loses the head of the prompt.
+			// The agent has to finish handling the command before it will read
+			// the next keystrokes; typing into the gap loses the head of
+			// whatever comes next.
 			time.Sleep(clearSettle)
 		}
 		if err := client.sendInput(act.target.pane, prompt, act.mode == dropRun); err != nil {

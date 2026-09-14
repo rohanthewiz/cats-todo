@@ -141,6 +141,64 @@ func TestLaunchArgs(t *testing.T) {
 	}
 }
 
+// TestPaneSetupCommands pins what a drop into an existing pane submits ahead of
+// the prompt. The order is the contract — /clear before the settings so they
+// land on the session that reads the prompt, /model before /effort because a
+// model switch can clamp the effort — and the claude gate is the safety: a
+// "/model" typed into a shell pane in run mode is a command line that gets run.
+func TestPaneSetupCommands(t *testing.T) {
+	all := &SessionOpts{Model: "sonnet", Effort: "high", Permission: permPlan, Clear: true}
+
+	cases := []struct {
+		name  string
+		opts  *SessionOpts
+		agent string
+		want  []string
+	}{
+		{"nil options send nothing", nil, "claude", nil},
+		{"unconfigured options send nothing", &SessionOpts{}, "claude", nil},
+		{"claude gets clear, model, effort in that order", all, "claude",
+			[]string{"/clear", "/model sonnet", "/effort high"}},
+		{"a claude path is still claude", &SessionOpts{Model: "opus"}, "/usr/local/bin/claude",
+			[]string{"/model opus"}},
+		{"another agent gets only /clear", all, "codex", []string{"/clear"}},
+		{"an undetected agent gets only /clear", all, "", []string{"/clear"}},
+		{"permission alone sends nothing", &SessionOpts{Permission: permAuto}, "claude", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.opts.paneSetupCommands(c.agent); !slices.Equal(got, c.want) {
+				t.Errorf("paneSetupCommands(%q) = %q, want %q", c.agent, got, c.want)
+			}
+		})
+	}
+}
+
+// TestPaneUnapplied pins the picker's warning against paneSetupCommands: every
+// set option that does not become a command on that pane is named, and nothing
+// that does is.
+func TestPaneUnapplied(t *testing.T) {
+	cases := []struct {
+		name  string
+		opts  *SessionOpts
+		agent string
+		want  string
+	}{
+		{"nil options lose nothing", nil, "codex", ""},
+		{"claude takes model and effort", &SessionOpts{Model: "sonnet", Effort: "max", Clear: true}, "claude", ""},
+		{"permission never reaches a running pane", &SessionOpts{Model: "sonnet", Permission: permPlan}, "claude", "permission mode"},
+		{"another agent loses all three", &SessionOpts{Model: "sonnet", Effort: "low", Permission: permAuto}, "codex", "model/effort/permission mode"},
+		{"clear and text options are never lost", &SessionOpts{Clear: true, Finish: finishCommit}, "codex", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.opts.paneUnapplied(c.agent); got != c.want {
+				t.Errorf("paneUnapplied(%q) = %q, want %q", c.agent, got, c.want)
+			}
+		})
+	}
+}
+
 // TestComposePromptWithOptions walks the matrix of blocks present and absent.
 // The image block has to stay between the body and the wrap-up — a "when the
 // work is done" instruction only reads as the last word if nothing follows it —

@@ -277,6 +277,80 @@ func (o *SessionOpts) hasLaunchFlags() bool {
 	return o != nil && (o.Model != "" || o.Effort != "" || o.Permission != "")
 }
 
+// --- Delivery: an existing pane ---------------------------------------------
+//
+// A drop into a pane that is already running has no argv to put flags on, but
+// the prompt still asked for a model and an effort, and a drop that quietly
+// ignores them runs the work on whatever the pane happened to be set to. Claude
+// Code answers both from inside a running session — `/model <model>` and
+// `/effort <level>` switch it without a picker when given an argument — so the
+// same choices are delivered there as submitted slash commands instead.
+//
+//	new session     claude --model M --effort E --permission-mode P
+//	existing pane   /clear  →  /model M  →  /effort E  →  <prompt>
+//
+// Permission mode is the one option with no such road. Claude Code's only
+// in-session control is shift+tab, which *cycles* modes from wherever the pane
+// currently is — and nothing on the wire says where that is, so there is no
+// keystroke count that lands on a chosen mode. (`/plan` enters plan mode, but on
+// a pane already in it the same command opens the plan view, which would then
+// swallow the prompt.) It is named on the picker row rather than guessed at.
+
+// paneSetupCommands are the slash commands a drop into an existing pane submits,
+// one message each, before the prompt — in the order they must run:
+//
+//   - /clear first, so the model and effort that follow are set on the session
+//     that will actually read the prompt, not on a conversation about to vanish.
+//   - /model before /effort, because the levels a model accepts are the model's:
+//     setting effort first and switching model after can clamp it back.
+//
+// /clear goes to any agent, as it always has. /model and /effort are Claude
+// Code's commands, so they go only to a pane cats detected as claude: typed at a
+// shell (or at another agent's input) they would be a command line of their own,
+// and in run mode that line gets executed.
+func (o *SessionOpts) paneSetupCommands(agent string) []string {
+	if o == nil {
+		return nil
+	}
+	var cmds []string
+	if o.Clear {
+		cmds = append(cmds, "/clear")
+	}
+	if !isClaudeCommand(agent) {
+		return cmds
+	}
+	if o.Model != "" {
+		cmds = append(cmds, "/model "+o.Model)
+	}
+	if o.Effort != "" {
+		cmds = append(cmds, "/effort "+o.Effort)
+	}
+	return cmds
+}
+
+// paneUnapplied names the options a drop into this agent's running pane cannot
+// carry, as the words the picker row says them in — "" when everything lands.
+// It is paneSetupCommands' complement, kept beside it so the two cannot
+// disagree about what reaches the pane.
+func (o *SessionOpts) paneUnapplied(agent string) string {
+	if o == nil {
+		return ""
+	}
+	var lost []string
+	if !isClaudeCommand(agent) {
+		if o.Model != "" {
+			lost = append(lost, "model")
+		}
+		if o.Effort != "" {
+			lost = append(lost, "effort")
+		}
+	}
+	if o.Permission != "" {
+		lost = append(lost, "permission mode")
+	}
+	return strings.Join(lost, "/")
+}
+
 // isClaudeCommand reports whether a launch command runs Claude Code. The command
 // is an argv, not a shell line, so the agent is its first word; a path is
 // allowed for the same reason cats reports one ("/usr/local/bin/claude" is still

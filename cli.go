@@ -40,8 +40,8 @@ func addFromCLI(args []string) {
 	// Session options. Every one of them is optional and every zero value means
 	// "inherit the default", so `add` with none of them behaves exactly as it
 	// did before they existed.
-	model := fs.String("model", "", "model for a new claude session (sonnet, opus, claude-opus-5, …)")
-	effort := fs.String("effort", "", "effort for a new claude session (low|medium|high|xhigh|max)")
+	model := fs.String("model", "", "model for the claude session: a new one's --model, a running pane's /model (sonnet, opus, claude-opus-5, …)")
+	effort := fs.String("effort", "", "effort for the claude session: a new one's --effort, a running pane's /effort (low|medium|high|xhigh|max)")
 	perm := fs.String("perm", "", "permission mode for a new claude session (acceptEdits|auto|plan|manual|dontAsk|bypassPermissions)")
 	clear := fs.Bool("clear", false, "send /clear before the prompt when dropping into an existing pane")
 	var sessLoad optString
