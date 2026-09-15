@@ -50,6 +50,7 @@ and the rest stay local.
 | `promptsort.go` | ⇅ Sort lines: items when it is a list (markers stay, bodies move), plain lines otherwise |
 | `promptcarets.go` | ⌶ Caret on every line: the column mode, its goal column, and its caret paints |
 | `promptmove.go` | `alt+↑/↓` moving the caret's line or the swept block |
+| `promptundo.go` | ↶ Undo (`cmd+z`/`ctrl+z`): the per-session history, its coalescing rule, and the commit point `Update` calls (`route` is the old `Update` body) |
 | `promptlines.go` | the sweep → whole-rows arithmetic those four share |
 | `spell.go` / `spellpanel.go` / `internal/spell` | spell check + panel; embedded SCOWL list + `extra.txt` |
 | `settings.go` | `~/.config/cats-todo/settings.json` (`spellcheck`, `orderByPriority`, `showFrozen`) |
@@ -143,8 +144,11 @@ and the rest stay local.
   `@` file picker ·
   `ctrl+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
   the swept block) · `shift+alt+↑/↓` extend the selection by a line ·
+  `cmd+z` (`super+z`/`meta+z`) or `ctrl+z` undo (`promptundo.go`) ·
   **right-click** the context menu (`promptmenu.go`: ✂ Split · ⇅ Sort · ⌶ Caret
-  on every line · ✓ Spelling — the spell ask no longer has a direct road) ·
+  on every line · ✓ Spelling — the spell ask no longer has a direct road ·
+  ≡ Insert a prompt · ↶ Undo, last because the top row is what a bare enter
+  presses) ·
   **Send** is click-only by design.
 - Two modal states live on the form stage rather than on a stage of their own,
   and both are answered at the very top of `updateForm`: the context menu (owns

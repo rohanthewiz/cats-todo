@@ -318,6 +318,11 @@ type model struct {
 	// decorating one — dropping the carets clears the highlight, and clearing
 	// the highlight ends the mode.
 	carets promptCarets
+	// The editor's undo history (promptundo.go): where the prompt has been, so
+	// cmd+z can put it back. Filled by the commit point in Update rather than by
+	// the operations themselves, and emptied when a form opens — a stack is
+	// about one editing session.
+	promptUndo promptUndo
 	// The indent the last enter carried onto a new line (promptindent.go), so a
 	// backspace straight after it takes the whole indent back in one press. It is
 	// a snapshot that lasts exactly one key: updateForm takes it and zeroes the
@@ -555,9 +560,40 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(textinput.Blink, scheduleTick())
 }
 
-// Update routes by stage; non-key messages flow to whatever input is active so
-// cursors keep blinking and text keeps flowing.
+// Update routes the message and then records what it did to the prompt.
+//
+// The recording is here, around the routing, rather than inside the twenty
+// operations that can change the editor's text. Those operations are spread
+// across a dozen files and keep arriving; asking each new one to remember to
+// snapshot itself would make the undo history a feature that is correct only
+// until the next one forgets. Watching the value across a single choke point
+// cannot forget: a chord, a menu row, a bracketed paste, an insertion made from
+// a picker on another stage and a keystroke the textarea handled entirely by
+// itself all come through here, and all of them are compared the same way.
+//
+// The snapshot is skipped everywhere the editor's text is not live (see
+// editsPrompt), which is most of the program — the list stage must not pay two
+// copies of a prompt for every cursor blink.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if !m.stage.editsPrompt() {
+		return m.route(msg)
+	}
+	before := m.promptEditState()
+	next, cmd := m.route(msg)
+	// Both sides must be an editing stage: a save or an esc leaves the value
+	// standing in a textarea nobody is looking at any more, and the next form to
+	// open replaces it wholesale. Neither is an edit of this prompt.
+	nm, ok := next.(model)
+	if !ok || !nm.stage.editsPrompt() {
+		return next, cmd
+	}
+	nm.commitPromptEdit(before, msg)
+	return nm, cmd
+}
+
+// route is Update's stage routing: non-key messages flow to whatever input is
+// active so cursors keep blinking and text keeps flowing.
+func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -1791,8 +1827,12 @@ func (m *model) backToList() {
 	m.menu = promptMenu{}
 	m.endPromptCarets()
 	// A carried indent is a snapshot of this form's editor, and a stale one must
-	// not meet a later form that happens to hold the same text.
+	// not meet a later form that happens to hold the same text. The undo history
+	// goes for the same reason, one size larger: it is where *this* prompt has
+	// been, and a stack surviving into the next form would offer to replace one
+	// todo's text with another's (see promptundo.go).
 	m.promptCarry = promptCarry{}
+	m.promptUndo = promptUndo{}
 	// The list's own menu goes too. Pressing a row already closes it, so this is
 	// for the paths that leave the list some other way — a scheduled drop firing
 	// a stage change, a form opened by a chord while the box was up — where a
@@ -2334,6 +2374,9 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	// nothing here. Both entry points clear it rather than trusting cancelForm to
 	// have, because a form can also be reached from a stage that never had one.
 	m.clearPromptSel()
+	// Same argument, and the same two entry points: the undo history is about
+	// one editing session (promptundo.go).
+	m.promptUndo = promptUndo{}
 	m.stage = stageForm
 	return m, cmd
 }
@@ -2373,7 +2416,8 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.discardClipboardCaptures()
 	cmd := m.focusForm(formFieldPrompt)
 	m.formErr, m.formNote = "", ""
-	m.clearPromptSel() // see beginAdd
+	m.clearPromptSel()          // see beginAdd
+	m.promptUndo = promptUndo{} // and see beginAdd
 	m.stage = stageForm
 	return m, cmd
 }
@@ -2701,6 +2745,20 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// alt+enter, which stays a newline — so the chip is still the way in
 		// there.
 		return m.sendForm()
+	case "super+z", "meta+z", "ctrl+z":
+		// Undo (promptundo.go). cmd+z is the chord every editor on this machine
+		// puts it on, in the two spellings a terminal may report Cmd with — see
+		// the save chord above for which terminals forward Cmd at all.
+		//
+		// ctrl+z rides along as the binding that always works, and it is free to
+		// take: in a shell that chord suspends the program, but bubbletea holds
+		// the pane in raw mode, so it was never a suspend here — it arrived and
+		// did nothing whatsoever. Where Cmd is eaten it is the only road to the
+		// feature, and undoing is a better answer to it than silence. (The
+		// opposite call from cmd+d's, one line down, and for the opposite
+		// reason: ctrl+d is already the textarea's delete-forward, so a
+		// duplicate bound over it would break a key that works.)
+		return m.undoPrompt()
 	case "super+d", "meta+d":
 		// Cmd+D duplicates the caret's line — the chord every editor on this
 		// machine puts a line copy on, and the reason it is Cmd-only is the
@@ -5808,7 +5866,14 @@ func (m model) formFooter() string {
 	// 120 cells, so a chord that is genuinely optional — the library is a
 	// convenience, and its other way in is a '/' the user was going to type
 	// anyway — goes where only a wide pane will ever read it.
-	segs = append(segs, "ctrl+l spelling", "alt+↑/↓ move line", "cmd+d dup line", "ctrl+p prompt library")
+	// Undo (promptundo.go) rides at the very tail with the library, which is
+	// where the rule puts a new standing segment on a line that is already full.
+	// It can afford to: the editor's right-click menu carries a ↶ Undo row that
+	// prints the chord itself, so this line is the second teacher rather than
+	// the only one — and the chord it names follows the terminal, since cmd+z
+	// arrives only where Cmd is forwarded (see undoChord).
+	segs = append(segs, "ctrl+l spelling", "alt+↑/↓ move line", "cmd+d dup line",
+		"ctrl+p prompt library", m.undoChord()+" undo")
 	lines = append(lines, m.fitFooter(segs))
 
 	for i, ln := range lines {

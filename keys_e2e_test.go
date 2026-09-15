@@ -121,3 +121,46 @@ func TestAttachKeysEndToEnd(t *testing.T) {
 		t.Errorf("attachment %s was recorded but never copied in", refs[0].rel)
 	}
 }
+
+// TestUndoKeyEndToEnd drives the undo chord with the byte a terminal actually
+// sends, for the reason the tests above exist: the binding is the feature.
+//
+// ctrl+z is the spelling that matters here. Cmd+z is what the hand reaches for,
+// but it exists on the wire only under the kitty protocol and only from a
+// terminal willing to give up the Command key, so ctrl+z (0x1a) is the road
+// everywhere else — and it is worth proving that it arrives as a key at all.
+// In a shell that byte is the suspend request, but bubbletea holds the pane in
+// raw mode, so it reaches the model like any other chord.
+//
+// Keys: enter (the list is empty, so the add form) · "one two" · ctrl+z (take
+// back the word just typed) · shift+enter (save) · ctrl+c.
+func TestUndoKeyEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	project := &store{scope: scopeProject, path: filepath.Join(dir, "project", "todos.json")}
+	global := &store{scope: scopeGlobal, path: filepath.Join(dir, "global", "todos.json")}
+	m := newModel(RunContext{WorkDir: filepath.Join(dir, "project")}, project, global, nil)
+
+	keys := "\r" + "one two" + "\x1a" + "\x1b[13;2u" + "\x03"
+
+	var out bytes.Buffer
+	p := tea.NewProgram(m, tea.WithInput(strings.NewReader(keys)), tea.WithOutput(&out))
+	done := make(chan error, 1)
+	go func() { _, err := p.Run(); done <- err }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("program run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		p.Kill()
+		t.Fatal("program did not exit on ctrl+c")
+	}
+
+	if len(project.todos) != 1 {
+		t.Fatalf("project todos = %+v, want the single prompt the keystrokes entered", project.todos)
+	}
+	if got := project.todos[0].Prompt; got != "one" {
+		t.Errorf("prompt = %q, want %q — the second word should have been undone "+
+			"(%q means the chord never arrived)", got, "one", "one two")
+	}
+}

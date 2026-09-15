@@ -1022,8 +1022,14 @@ a chord anybody would guess. So they live where every editor keeps that list:
 │ ⌶ Caret on every line        │
 │ ✓ Spelling…           ctrl+l │
 │ ≡ Insert a prompt…    ctrl+p │
+│ ↶ Undo                 cmd+z │
 ╰──────────────────────────────╯
 ```
+
+↶ Undo is last, against the convention that puts it at the top of a text field's
+menu: the cursor opens on the first row that can act, so the top row is what a
+bare `enter` presses, and every other row on this menu makes a change you can
+press again to fix while that one throws work away.
 
 It is built fresh on every press, from what the press was actually aimed at — but
 an item that cannot act on the current selection is drawn **dim and still there**,
@@ -1493,6 +1499,42 @@ for its own menus, and iTerm2 needs the chord mapped by hand. It is the reason
 `ctrl+s` could be spent on the ⚙ panel: under cats the editor has two save
 chords that both arrive, and the letter is worth more to the one control that
 had no keyboard road of its own.
+
+
+## Undo
+
+The editor changes a lot of text per keystroke — a sort, a block indent, a line
+move, `cmd+D`, typing at a dozen carets at once, a snippet dropped in at the
+caret. Every one of those is aimed by hand and can be aimed wrong, and until
+v0.32.0 the only way back was to retype what had been there.
+
+**`cmd+z`** (`ctrl+z` in a terminal that eats Cmd — both are always bound) takes
+back the last thing that happened to the prompt, and **↶ Undo** on the editor's
+right-click menu does the same. Press it again for the step before that. The
+caret goes back with the text, to where it stood when the undone edit began, so
+the next keystroke lands where you left off rather than wherever the cursor
+happened to end up.
+
+**A run of like keys is one step.** Undoing "hello" one letter at a time would be
+a machine's idea of undo, not an editor's. Consecutive typing coalesces into one
+step and so do consecutive deletions; a **word boundary**, a newline, an arrow
+key, a click, or an edit of any other kind ends the run. So one press takes back
+the word you just typed, the block you just indented, or the sort you did not
+mean — a unit you would recognize as *what I last did*. Everything else — a
+paste, a menu item, a picker's insertion, a spelling correction — is always a
+step of its own, never folded in with the keys around it.
+
+The history is **per editing session**: it starts empty when a form opens and is
+gone when you leave, because offering to replace one todo's prompt with the text
+of the one you edited before it is the worst thing an undo could do. With nothing
+to take back, the chord and the menu row both say so.
+
+What it cannot take back is anything that has already left the editor. **✂ Split
+writes prompts into the backlog** and then removes the bullets from the text;
+undo brings the text back, and the prompts it wrote stay written — delete those
+from the list if you meant to call the whole thing off. The rule is the honest
+one: the editor can only undo what is still in the editor.
+
 
 ## Spell check
 

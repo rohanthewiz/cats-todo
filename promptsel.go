@@ -117,13 +117,22 @@ func (m *model) clearPromptSel() {
 // Rows above the caret are summed, one rune each plus the newline that ended
 // them.
 func promptCaretOffset(ta textarea.Model) int {
-	rows := strings.Split(ta.Value(), "\n")
-	row := min(max(ta.Line(), 0), len(rows)-1)
+	return promptCaretOffsetIn(ta.Value(), ta.Line(), ta.Column())
+}
+
+// promptCaretOffsetIn is that same arithmetic against a value the caller is
+// already holding. The undo history (promptundo.go) reads the text and the
+// caret in one breath on every message that reaches the editor, and asking the
+// textarea for its value a second time to get the offset was the one avoidable
+// copy of the whole prompt on that path.
+func promptCaretOffsetIn(value string, line, col int) int {
+	rows := strings.Split(value, "\n")
+	row := min(max(line, 0), len(rows)-1)
 	off := 0
 	for i := range row {
 		off += len([]rune(rows[i])) + 1 // +1 for the '\n' that ends the row
 	}
-	return off + min(max(ta.Column(), 0), len([]rune(rows[row])))
+	return off + min(max(col, 0), len([]rune(rows[row])))
 }
 
 // --- Keyboard -----------------------------------------------------------------

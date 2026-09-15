@@ -12,6 +12,7 @@
 //	│ ⌶ Caret on every line        │
 //	│ ✓ Spelling…           ctrl+l │
 //	│ ≡ Insert a prompt…    ctrl+p │
+//	│ ↶ Undo                 cmd+z │
 //	╰──────────────────────────────╯
 //
 // It is built fresh on every press, from what the press was actually aimed at:
@@ -39,13 +40,25 @@ const (
 	menuSort
 	menuCarets
 	menuSpell
-	// menuInsert opens the prompt library (promptpick.go). It is last because
-	// it is the one row that is not about the text under the pointer — every
-	// other item acts on what was swept or clicked, and this one brings text in
-	// — and because it is always live: putting an always-live row first would
-	// make it the default the keyboard lands on, ahead of the items the press
-	// was almost certainly aimed at.
+	// menuInsert opens the prompt library (promptpick.go). It sits below the
+	// four rows above because it is not about the text under the pointer —
+	// every one of those acts on what was swept or clicked, and this one brings
+	// text in — and because it is always live: putting an always-live row first
+	// would make it the default the keyboard lands on, ahead of the items the
+	// press was almost certainly aimed at.
 	menuInsert
+	// menuUndo takes back the last change to the prompt (promptundo.go). Every
+	// other row on this menu *makes* one, which is the argument for its being
+	// here at all: a hand that has just pressed ⇅ Sort and did not mean it looks
+	// for the way back where the sort came from.
+	//
+	// It is last, against the convention that puts Undo at the top of a text
+	// field's menu, because the top row is where the cursor opens (firstLive)
+	// and so what a bare enter presses. Every other row can be pressed by
+	// mistake and pressed again to fix; this one throws work away, and a
+	// destructive default on the key a hand reaches for straight after a click
+	// is the one arrangement worth breaking a convention over.
+	menuUndo
 	menuActionCount
 )
 
@@ -72,6 +85,10 @@ func (m model) openPromptMenu(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// Split, sort and carets all read the selection; each says the first thing
 	// that is wrong with it rather than a generic "not available".
 	selWhy, rowsWhy := "sweep some text first", "sweep some text first"
+	undoWhy := ""
+	if len(m.promptUndo.stack) == 0 {
+		undoWhy = "nothing to undo — this prompt has not changed since the editor opened"
+	}
 	if lo, hi, ok := m.promptSelSpan(); ok {
 		_, items := splitBulletList(string([]rune(m.promptArea.Value())[lo:hi]))
 		selWhy = ""
@@ -92,6 +109,11 @@ func (m model) openPromptMenu(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// Never dim: an empty library still opens a screen that says where
 		// entries go, which is the answer someone with none actually needs.
 		{act: menuInsert, label: "≡ Insert a prompt…", hint: "ctrl+p"},
+		// Dim with an empty history, like the three selection rows above: the
+		// row stays where it was learned and says why it cannot act. Its hint
+		// follows the terminal (undoChord), since cmd+z only arrives where Cmd
+		// is forwarded at all.
+		{act: menuUndo, label: "↶ Undo", hint: m.undoChord(), why: undoWhy},
 	}
 
 	// The spell row is the one item that is about the cell the pointer is on
@@ -166,6 +188,8 @@ func (m model) pressPromptMenu(i int) (tea.Model, tea.Cmd) {
 		// Straight into the panel on the word the press was aimed at, with the
 		// ✚ Add row highlighted (openSpellPanelOn, spellpanel.go).
 		return m.openSpellPanelOn(word)
+	case menuUndo:
+		return m.undoPrompt()
 	case menuInsert:
 		// The same call the chord makes. Anything swept is still standing here —
 		// the menu does not clear it — so the picker's ctrl+s can offer to save
