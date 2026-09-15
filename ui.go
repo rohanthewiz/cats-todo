@@ -2400,6 +2400,16 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 	ta.Placeholder = "The prompt to hand Claude Code later…"
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
+	// No line cap. The library's MaxHeight (default 99) is two things at once:
+	// the tallest the viewport may grow, and — while MaxContentHeight is unset —
+	// the number of logical lines at which InsertNewline is refused. A paste
+	// skips that check, so a 100-line paste went in whole and then left enter
+	// dead with no word as to why. The viewport's height is ours to set anyway
+	// (SetHeight from the pane size, here and on resize), so the cap bought
+	// nothing. Zero also keeps the wrap memo cache at the library's full
+	// capacity; with MaxHeight set, Update shrinks that cache to MaxHeight
+	// entries, and every row past the 99th was re-wrapped on each keystroke.
+	ta.MaxHeight = 0
 	// Plain enter is a newline here, because that is what enter means in every
 	// other editor a prompt gets typed into; save lives on shift+enter (and the
 	// ✔ Save chip, and cmd+s) instead — see updateForm, which catches that chord

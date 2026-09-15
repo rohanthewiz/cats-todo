@@ -266,6 +266,8 @@ func promptCarriedIndent(row []rune, col int) (indent int, blank bool) {
 // guard on a newline is repeated here. At MaxHeight logical lines its
 // InsertNewline refuses, and SetValue would not. At that limit this reports
 // false and the key goes on to the library, which refuses it as it always has.
+// The form's editor is built with MaxHeight 0 (see newFormInputs), so today
+// the guard never trips; it stays so the two agree if a cap ever returns.
 func (m *model) newlineCarryingIndent() bool {
 	rows := strings.Split(m.promptArea.Value(), "\n")
 	if m.promptArea.MaxHeight > 0 && len(rows) >= m.promptArea.MaxHeight {
