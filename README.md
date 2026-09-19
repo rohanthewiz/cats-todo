@@ -153,7 +153,8 @@ it stands at that moment.
 The filter rides on the header line under the title — the 🔍 box next to the backlog's name, lit while
 it holds the keys — and typing from anywhere lands in it. Under the header sits
 a row of action buttons — **Add**, **Edit**, **Send**, **Export**, **Delete**
-— each labelled with the chord it stands for. `tab` walks the focus
+— each labelled with the chord it stands for, the chord drawn a shade dimmer
+than the word so the action is what the eye lands on. `tab` walks the focus
 out of the filter and across them (`shift+tab` walks back, `←`/`→` move along
 the row, `enter` presses, `esc` returns to the filter); `↑`/`↓` keep moving the
 row highlight the whole time, so you can pick a prompt and then press the button

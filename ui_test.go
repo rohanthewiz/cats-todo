@@ -1740,3 +1740,28 @@ func markerCount(t *testing.T, view, glyph string) int {
 	}
 	return n
 }
+
+// TestActionBarDimsHints checks that the list bar's chords are drawn quieter
+// than their labels, and that splitting a chip into a label half and a hint half
+// doesn't change its width — the click spans actionChips hands out were
+// measured on the whole chip, so a pair that drew even one column wider would
+// shift every button after it off its hit-test span.
+func TestActionBarDimsHints(t *testing.T) {
+	m := withTodo("ship it")
+	m.width = 200
+	if m.barTier() != tierHints {
+		t.Fatalf("a 200-column bar should carry its hints")
+	}
+
+	chips := m.actionChips()
+	bar := m.actionBar()
+	if got, want := lipgloss.Width(bar), chips[len(chips)-1].end; got != want {
+		t.Fatalf("bar is %d columns wide, but its chips were laid out to %d", got, want)
+	}
+
+	a := m.listActions()[actionAdd]
+	want := btnStyle.PaddingLeft(0).Foreground(lipgloss.Color(colDim)).Render(a.hint)
+	if !strings.Contains(bar, want) {
+		t.Fatalf("the %q hint is not drawn in the dim tone: %q", a.hint, bar)
+	}
+}

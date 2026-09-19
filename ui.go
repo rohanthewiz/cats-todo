@@ -5271,7 +5271,8 @@ func (m model) actionBar() string {
 
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", indentWidth))
-	gap := strings.Repeat(" ", chipGap(m.barTier()))
+	tier := m.barTier()
+	gap := strings.Repeat(" ", chipGap(tier))
 	for i, c := range m.actionChips() {
 		if i > 0 {
 			b.WriteString(gap)
@@ -5279,15 +5280,49 @@ func (m model) actionBar() string {
 		// Derived, never nested: each chip is still one style, the hue dropped
 		// into it rather than wrapped around it.
 		st := btnStyle.Foreground(lipgloss.Color(acts[i].tint))
+		hintFg := colDim
 		switch {
 		case m.actionFocus && i == m.actionIdx:
+			// The pressed chip stays one solid block: its field is the tint and
+			// its letters the page color, and there is no grey that reads as
+			// "quieter" on every tint — so the focus keeps the hint at full ink.
 			st = btnFocusStyle.Background(lipgloss.Color(acts[i].tint))
+			hintFg = ""
 		case acts[i].needsSel && !hasSel:
+			// An inert chip is already grey (colDim on colPanel); its hint steps
+			// one tier further down the ramp so the two halves still separate.
 			st = btnOffStyle
+			hintFg = colFaint
 		}
-		b.WriteString(st.Render(c.text))
+		b.WriteString(renderChipDimHint(st, hintFg, acts[i], tier, c.text))
 	}
 	return b.String()
+}
+
+// renderChipDimHint draws a chip whose key hint is quieter than its label, so
+// the action ("✚ Add") is what the eye lands on and the chord ("ctrl+a") reads
+// as an annotation on it.
+//
+// The chip is drawn as two sibling renders of the same style rather than one
+// style nested in another — an inner render's reset would end the outer
+// style's background mid-chip (the reason btnStyle's note gives). The split
+// moves the padding, it doesn't add any:
+//
+//	st.Padding(0,1).Render("✚ Add ctrl+a")   → " ✚ Add ctrl+a "
+//	head: st.PaddingRight(0) "✚ Add "        → " ✚ Add "
+//	tail: st.PaddingLeft(0)  "ctrl+a", dim   →        "ctrl+a "
+//
+// so the pair is exactly as wide as the chip actionChips measured, and the
+// hit-test spans still land on the glyphs. Anything with no hint showing (a
+// narrower tier, a click-only action) or no dimmer tone to use (hintFg "")
+// renders as the one style it always was.
+func renderChipDimHint(st lipgloss.Style, hintFg string, a listAction, tier chipTier, text string) string {
+	if hintFg == "" || tier > tierHints || a.hint == "" {
+		return st.Render(text)
+	}
+	head := st.PaddingRight(0).Render(a.label + " ")
+	tail := st.PaddingLeft(0).Foreground(lipgloss.Color(hintFg)).Render(a.hint)
+	return head + tail
 }
 
 // actionChip is one rendered button: its text, and the half-open column span
