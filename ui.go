@@ -509,6 +509,18 @@ type model struct {
 	viewRef todoRef
 	viewVP  viewport.Model
 
+	// listFocus is the prompt the list should come back highlighting — set by
+	// every screen that is *about* one prompt (form, view, drop and schedule
+	// pickers, export, delete confirm, the list-opened session panel) and
+	// consumed by backToList. The list's cursor is a position, not an identity:
+	// an edit that changes a title under a filter, a priority under the
+	// priority lens, or a done/frozen state moves the row, and a scheduled
+	// drop firing meanwhile can rebuild the list under it, so the index the
+	// cursor held on the way out can name a different prompt on the way back.
+	// Zero means "no particular prompt" (a cancelled add, the View panel), and
+	// the cursor keeps its position.
+	listFocus todoRef
+
 	width, height int
 
 	status    string // transient message under the list
@@ -1821,6 +1833,14 @@ func (m *model) moveActionFocus(delta int) tea.Cmd {
 // its own, and the box still shows a steady cursor.
 func (m *model) backToList() {
 	m.stage = stageList
+	// Land on the prompt the screen being left was about, then forget it so a
+	// later return from a prompt-less screen doesn't jump back here. A ref
+	// that is no longer on screen (deleted, folded, filtered out) leaves the
+	// cursor where it was — selectRow is a no-op for it.
+	if m.listFocus != (todoRef{}) {
+		m.selectRow(m.listFocus)
+		m.listFocus = todoRef{}
+	}
 	// The editor's two transient modes end with the screen they belong to: a
 	// menu drawn over a form that is no longer up, or carets on lines nothing is
 	// typing into, would both outlive the gesture that made them.
@@ -2399,6 +2419,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.formMode = formEdit
 	m.formScope = ref.scope
 	m.editID = ref.id
+	m.listFocus = ref
 	m.titleInput, m.promptArea = m.newFormInputs(td.Title, td.Prompt)
 	m.loadSpellDict()
 	m.formImages = m.newFormImages(ref.scope, td)
@@ -3544,6 +3565,7 @@ func (m model) beginListSession(ref todoRef) (tea.Model, tea.Cmd) {
 		m.formSession = td.Session.clone()
 	}
 	m.sessFromList, m.sessListRef = true, ref
+	m.listFocus = ref
 	return m.beginSession()
 }
 
@@ -3952,6 +3974,9 @@ func (m model) persistForm() (model, todoRef, bool) {
 	// The backlog holds its own copies now, so the captures' temp files have
 	// nothing left to answer for.
 	m.discardClipboardCaptures()
+	// An add lands on the prompt it just created, an edit on the one it just
+	// changed — wherever the rebuild below has moved it.
+	m.listFocus = saved
 	m.rebuildList()
 	m.backToList()
 	return m, saved, true
@@ -3968,6 +3993,7 @@ func (m model) beginDelete() (tea.Model, tea.Cmd) {
 	m.confirmKind = confirmDelete
 	m.pendingDelete = ref
 	m.pendingTitle = firstNonEmpty(td.Title, firstLine(td.Prompt, 40))
+	m.listFocus = ref
 	m.stage = stageConfirm
 	return m, nil
 }
@@ -4080,6 +4106,7 @@ func (m model) startDrop(ref todoRef) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.dropTodo = ref
+	m.listFocus = ref
 	m.targets, m.targetList = m.buildTargets()
 	m.stage = stageTarget
 	return m, textinput.Blink
@@ -4416,6 +4443,7 @@ func (m model) beginSchedule() (tea.Model, tea.Cmd) {
 	ti.Focus()
 
 	m.schedRef = ref
+	m.listFocus = ref
 	m.schedInput = ti
 	m.schedErr = ""
 	m.stage = stageSchedule
@@ -4625,6 +4653,7 @@ func (m model) beginView() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.viewRef = ref
+	m.listFocus = ref
 	m.viewVP = viewport.New(viewport.WithWidth(m.viewWidth()), viewport.WithHeight(m.viewHeight()))
 	m.viewVP.SetContent(m.viewContent(td))
 	m.stage = stageView

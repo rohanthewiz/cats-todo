@@ -63,6 +63,16 @@ is a text editor, so enter means there what it means in every other one — and
 `shift+enter` (or `cmd+s`) saves. Outside cats it still manages backlogs; only drops need the
 socket.
 
+Coming back to the list from a prompt — the editor (saved or not), the prompt
+view, a drop or schedule picker, an export, a delete you answered no to —
+lands the highlight on **that prompt**, wherever its row now is. The list's
+cursor is a position, and the row may well have moved while you were away: a
+new priority under the priority lens, a title that re-sorts under a filter, or
+another prompt finishing and closing the gap above it. Coming back on the old
+position would put the next key on a neighbour. A new prompt you save is the
+one highlighted; a cancelled add, or a prompt no longer on screen (deleted,
+folded, filtered out), leaves the cursor where it was.
+
 Both screens open with the same title line, directly under the pane's header:
 `CatsTodo vX.Y.Z - Prompts` on the list and `CatsTodo vX.Y.Z - Prompt Editor`
 in the editor. It names the program, the running version (the binary's own, so
