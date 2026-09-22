@@ -1,4 +1,4 @@
-# ℹ Info annotation — a note, never sent to an agent
+# ℹ Info annotation — a note, never sent to an agent — v0.33.0
 
 Session: `be26d34e-0868-4d03-ac59-d2254b81196f`
 Date: 2026-09-22
@@ -91,8 +91,13 @@ the context-menu diagram, the `add` examples).
 
 ## Release
 
-Not released yet. This is a new capability, so it will be a **minor** bump
-(v0.33.0): `main.go` and `cats-plugin.toml`, then commit, tag and push.
+**v0.33.0**, a minor bump because this is a new capability. The steps were:
+
+1. Committed the feature as `37e51c8` (`feat(annotations): ℹ info mark — a note, never sent to an agent`).
+2. Bumped the version in `main.go` and `cats-plugin.toml`.
+3. Committed the bump as `f058fcc` (`chore(release): v0.33.0`).
+4. Created the annotated tag `v0.33.0` ("v0.33.0 — an ℹ info mark keeps notes in the backlog and away from agents").
+5. Pushed `main` and the tag.
 
 ## Next
 
@@ -101,4 +106,3 @@ Not released yet. This is a new capability, so it will be a **minor** bump
   an Export-like "➦ Send to notes" that is available only when `Info` is set,
   through the cats control socket or a gonotes CLI or API. It could mark the
   prompt done once it is filed. Work out gonotes' intake contract first.
-- Release v0.33.0 (commit the feature, bump both version files, tag, push).
