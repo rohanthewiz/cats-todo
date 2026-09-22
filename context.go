@@ -253,6 +253,36 @@ func isOwnPane(ctx RunContext, p wire.PaneInfo) bool {
 	return false
 }
 
+// editorAgents are agent labels that mark a pane as an EDITOR rather than a
+// coding agent. ced reports its state over cats' hook socket under the label
+// "ced" — that label is how cats' pane.open_file finds the editor pane and how
+// a blocked question in it reaches a phone — so pane.list shows it with an
+// Agent set exactly like claude or copilot. But an editor is a cats plugin, not
+// an LLM: dropping a prompt into it would type the prompt into a file buffer,
+// and launching "a new ced session" for a prompt is meaningless.
+//
+// This mirrors cats' own `editor.agents` default (["ced"]). pane.list does not
+// carry cats' editor policy on the wire, so the list is restated here rather
+// than read from cats' config; a user who configures a different editor label
+// in cats would need to add it here too.
+var editorAgents = []string{"ced"}
+
+// isDropAgent reports whether p is a pane a todo can be dropped into: it runs
+// a coding agent, and that agent is not an editor. Case-insensitive, matching
+// cats' IsEditorAgent — an agent label is a name a human typed into a hook
+// asset or a config.
+func isDropAgent(p wire.PaneInfo) bool {
+	if p.Agent == "" {
+		return false
+	}
+	for _, e := range editorAgents {
+		if strings.EqualFold(e, p.Agent) {
+			return false
+		}
+	}
+	return true
+}
+
 // paneWorkspaceID extracts the public workspace id from a pane's "w1:p3"
 // handle, or "" when the handle is absent/unparseable.
 func paneWorkspaceID(p wire.PaneInfo) string {

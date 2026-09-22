@@ -4179,7 +4179,9 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 	if m.client != nil {
 		if panes, err := m.client.paneList(); err == nil {
 			for _, p := range panes {
-				if p.Agent == "" || isOwnPane(m.ctx, p) {
+				// isDropAgent also drops editor panes (ced): they carry an agent
+				// label for cats' benefit but are not somewhere a prompt can run.
+				if !isDropAgent(p) || isOwnPane(m.ctx, p) {
 					continue
 				}
 				agents = append(agents, p)

@@ -291,6 +291,29 @@ func TestIsOwnPane(t *testing.T) {
 	}
 }
 
+// TestIsDropAgent pins that an editor pane (ced reports an agent label over the
+// hook socket so cats can find it) is never offered as a drop target — neither
+// as a running pane nor, since the new-session rows are derived from the same
+// scan, as "New ced session" — while real coding agents still are.
+func TestIsDropAgent(t *testing.T) {
+	tests := []struct {
+		agent string
+		want  bool
+	}{
+		{"claude", true},
+		{"copilot", true},
+		{"codex", true},
+		{"", false},
+		{"ced", false},
+		{"CEd", false},
+	}
+	for _, tt := range tests {
+		if got := isDropAgent(wire.PaneInfo{PaneMeta: wire.PaneMeta{Agent: tt.agent}}); got != tt.want {
+			t.Errorf("isDropAgent(agent=%q) = %v, want %v", tt.agent, got, tt.want)
+		}
+	}
+}
+
 // TestPaneWorkspaceID pins the handle-prefix extraction the picker uses to
 // group panes by workspace.
 func TestPaneWorkspaceID(t *testing.T) {
