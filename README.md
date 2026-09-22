@@ -287,6 +287,7 @@ prompt:
 ❯ ○ ▲ 🍏 💎 fix the drop path     the daemon cannot resolve a bare agent name
   ○ △ context menu grammar        right click across the manager screens
   ○ ⚑ port the export picker      blocked until the api rename lands
+  ○ ℹ the api returns 204 on …    a note to file away, not work
   ○ 🍏 bump the version           two files, one number
   ○ 💎 split the store            pays every time anyone touches it
   ○ ordinary work                 nothing said about it
@@ -309,19 +310,20 @@ they are found by reading the left edge rather than by their column — the grou
 that varies in width is the cheaper trade, and it is why the names below are
 allowed to be ragged.
 
-Four annotations exist today:
+Five annotations exist today:
 
 | Mark | Means | Set by |
 |---|---|---|
 | `▲` `△` | **priority** — critical, high | the editor's **Priority** radios, `--priority` |
 | `🍏` | **low-hanging fruit** — a quick win | the editor's **Quick win** checkbox, `--fruit` |
 | `💎` | **high value** — a large payoff for whoever picks it up | the editor's **High value** checkbox, `--high-value` |
+| `ℹ` | **info** — a note, not work; never sent to an agent | the editor's **Info** checkbox, `--info` |
 | `⚑` | **flagged** — singled out, with an optional note saying why | the editor's **Flag** checkbox and its note field, `--flag` |
 
 Freezing is *not* an annotation. It is a state, mutually exclusive with done, and
 it stays in the badge (`❄`) where the three groups are read from.
 
-All four are stored as nothing at all when nothing has been said — so a backlog
+All five are stored as nothing at all when nothing has been said — so a backlog
 nobody has annotated is byte-for-byte the file it was before the feature existed,
 and a teammate on an older build reads it unchanged.
 
@@ -455,13 +457,39 @@ The note lives and dies with the mark. Clearing the flag drops the words with it
 in the editor and in the file both, so a backlog never holds a note about a
 prompt whose row draws nothing.
 
+#### Info
+
+`ℹ` marks a prompt that is **not work at all** — a note that landed in the
+backlog because that is where the hand was: a quirk of an API, a decision and
+its reason, a link worth keeping. It belongs in a notes program eventually (a
+gonotes-style plugin is the intended destination), and until then the backlog
+holds it without mistaking it for something to do.
+
+So the mark changes where the prompt may go. **It is never handed to an
+agent**: `shift+enter`, ✉ Send (from the editor or the context menu) and
+`ctrl+s` Schedule all refuse it in words that name the way out —
+`that prompt is marked info — a note, not for agents; clear ℹ Info to send it`
+— and the context menu dims those rows with the same sentence. An agent handed a
+note would try to *do* it, and the whole point of writing it down as a note was
+that there was nothing to do. Raising the mark on a prompt that already has a
+schedule clears the schedule, the same way freezing does, and a hand-edited
+backlog holding both is skipped by the schedule tick rather than fired or
+recorded as missed.
+
+It is an annotation rather than a fourth state because it sits alongside the
+states instead of replacing one: a note can be done (filed away), frozen (not
+worth keeping) or open (not yet collected), and it can still carry a priority. It
+draws in the muted secondary-text grey rather than a hue — every coloured mark is
+an argument about work, and a note is the absence of one — and, being a text
+glyph like the flag, it recedes further on a closed row instead of going away.
+
 #### Where they are set
 
-All four are set in two places, on the same controls. On the editor itself, on a
-segmented bar between the title and the prompt body — three checkboxes and a
-radio group, because that is what the four facts are: the fruit and the gem are
-each independent, the priority is exactly one of three levels, and the flag is
-independent again. And
+All five are set in two places, on the same controls. On the editor itself, on a
+segmented bar between the title and the prompt body — four checkboxes and a
+radio group, because that is what the five facts are: the fruit and the gem are
+each independent, the priority is exactly one of three levels, and info and the
+flag are independent again. And
 on the list, without opening anything, from
 [the row's context menu](#marking-priority-and-quick-wins-from-the-list) — the
 same checkboxes and the same three radios, laid out down instead of across.
@@ -470,7 +498,7 @@ same checkboxes and the same three radios, laid out down instead of across.
 Title
 fix the drop path
 
-☐ 🍏 Quick win   ☑ 💎 High value   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☑ ⚑ Flag
+☐ 🍏 Quick win   ☑ 💎 High value   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☐ ℹ Info   ☑ ⚑ Flag
 ⚑ note  blocked until the api rename lands
 
 Prompt
@@ -497,9 +525,16 @@ everything that can grow.)
 are one estimate read from both ends, and a hand that has just answered "cheap"
 is one `→` away from answering "and worth it".
 
-A narrow pane drops the bar's words and keeps its glyphs (`☐ 🍏  ☐ 💎  ( ) –
-( ) △  ( ) ▲  ☐ ⚑`), and a narrower one still closes the space inside each
-segment (`☐🍏  ☐💎  ( )–  ( )△  ( )▲  ☐⚑`, which fits a 30-cell pane). It never
+**☐ ℹ Info** sits just before the flag: like the flag it is about how to *read*
+the prompt rather than how to rank it, and the flag stays last because it is the
+segment that opens something beneath it.
+
+A pane a little under the full width first narrows the gaps and keeps every word
+(the full bar is 106 cells; the snug one fits a 100-cell pane). A narrow pane
+drops the bar's words and keeps its glyphs (`☐ 🍏  ☐ 💎  ( ) –  ( ) △  ( ) ▲  ☐ ℹ
+☐ ⚑`), a narrower one closes the space inside each segment (`☐🍏  ☐💎  ( )–
+( )△  ( )▲  ☐ℹ  ☐⚑`), and the narrowest takes the gaps down to one cell
+(`☐🍏 ☐💎 ( )– ( )△ ( )▲ ☐ℹ ☐⚑`, 28 cells, which fits a 30-cell pane). It never
 drops a segment and it never wraps, for the same reason — it sits on a
 hit-tested row, and a bar that wrapped would put the prompt editor one line below
 where every click on it is aimed.
@@ -843,6 +878,7 @@ on the prompt you pointed at.
 │ (•) Priority: none              │
 │ ( ) Priority: △ high            │
 │ ( ) Priority: ▲ critical        │
+│ ☐ ℹ Info (a note)               │
 │ ☑ ⚑ Flag: blocked on the api    │
 │ ✎ Edit flag note…               │
 │ ✓ Select             ctrl+space │
@@ -864,7 +900,7 @@ done** reads **↺ Reopen** on a finished prompt, **❄ Freeze** reads **☀ Unf
 on a shelved one. So a prompt closed by accident is reopened from the same menu,
 on the row that now offers exactly that. A row that cannot act right now is drawn **dim and still
 there** and says why when you press it, in the same words the chord uses: sending
-a frozen prompt, or scheduling one with no cats socket. Everything else about
+a frozen prompt or an [info](#info) note, or scheduling one with no cats socket. Everything else about
 the box — `↑`/`↓` and `enter`, a click off it to dismiss, any other key taking it
 down, floating over the list rather than replacing it — works exactly as [the
 prompt editor's context menu](#the-prompt-editors-context-menu) does, because it
@@ -887,14 +923,14 @@ say "Export" and quietly mean four.
 
 The six middle rows are the reason this menu exists. A prompt's annotations —
 its [priority](#priority), its [low-hanging fruit](#low-hanging-fruit) and
-[high value](#high-value) marks and its [flag](#flag) — are facts you read
+[high value](#high-value) marks, its [info](#info) mark and its [flag](#flag) — are facts you read
 straight off a list row, but until now the only way to *set*
 one was to open the editor and find the annotation bar: a full round trip
 through a form, to change a fact about a row you were already looking at.
 
 They are the editor's controls, in the editor's glyphs, laid out down instead of
-across. **☐ 🍏 Quick win**, **☐ 💎 High value** and **☐ ⚑ Flag** are checkboxes
-and toggle. The three
+across. **☐ 🍏 Quick win**, **☐ 💎 High value**, **☐ ℹ Info** and **☐ ⚑ Flag**
+are checkboxes and toggle. The three
 **Priority** rows are radios and set exactly their level, so pressing `▲ critical` on a prompt that
 is already critical leaves it there rather than switching it off — and `none` is
 a row of its own, which makes clearing a level the same gesture as setting one.
@@ -966,6 +1002,7 @@ cats-todo add --priority critical fix the … # → marked critical
 cats-todo add --fruit bump the version …    # → marked 🍏 low-hanging fruit
 cats-todo add --high-value split the store …  # → marked 💎 high value
 cats-todo add --flag="waiting on the api" …  # → flagged, with a note
+cats-todo add --info the api returns 204 on …  # → ℹ a note, never sent to an agent
 git log -p | cats-todo add -t "review this diff"   # → the prompt from piped stdin
 ```
 
@@ -979,9 +1016,9 @@ type — so `add` is safe to bind to a key or drop in a script.
 setting when the prompt starts mid-thought, or when it arrives on stdin and its
 first line is a diff header.
 
-`--priority`, `--fruit`, `--high-value` and `--flag` set the prompt's
+`--priority`, `--fruit`, `--high-value`, `--info` and `--flag` set the prompt's
 [annotations](#annotations) (`critical`, `high`, `none`; the `🍏` quick-win mark;
-the `💎` high-value gem; and the `⚑` flag), so a prompt captured mid-firefight
+the `💎` high-value gem; the `ℹ` info mark; and the `⚑` flag), so a prompt captured mid-firefight
 arrives already marked rather than needing to be opened afterwards to say so:
 
 ```sh
@@ -998,7 +1035,7 @@ the flags have no effect on a backlog until someone actually marks something.
 `--priority` is long-only on purpose — a bare `-p` beside `--perm` reads as an
 abbreviation of it, and a flag that looks like it means permissions while meaning
 priority is the kind of thing that gets found out at the wrong moment — and
-`--fruit`, `--high-value` and `--flag` follow it for the same reason. The mark
+`--fruit`, `--high-value`, `--info` and `--flag` follow it for the same reason. The mark
 is spelled `--high-value` rather than `--value` because a bare boolean called
 "value" reads on a command line as a flag that wants one: `--value "fix the
 thing"` looks like it is swallowing the prompt behind it.

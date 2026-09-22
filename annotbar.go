@@ -7,13 +7,20 @@
 // prompt is actually written showed neither. The bar puts them on the form
 // itself, where the title they qualify is, as one horizontal line of segments:
 //
-//	☐ 🍏 Quick win   ☐ 💎 High value   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☐ ⚑ Flag
+//	☐ 🍏 Quick win   ☐ 💎 High value   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☐ ℹ Info   ☐ ⚑ Flag
 //
-// Three checkboxes and one radio group, because that is what the four facts
+// ☐ ℹ Info marks the prompt as a note rather than work — something to collect
+// into a notes program later, never to hand to an agent (Todo.Info). It sits
+// with the flag at the tail because both are about how to *read* the prompt
+// rather than how to rank it, and before the flag so the flag stays the last
+// segment, the one that opens something beneath it.
+//
+// Four checkboxes and one radio group, because that is what the five facts
 // are: the fruit and the gem are each independent ("cheap, whatever else is
 // true"; "worth a lot, whatever else is true"), and the priority is exactly one
-// of three levels; the flag is independent again ("and there is something to
-// say about it"). The glyphs each segment carries — 🍏, 💎, △, ▲, ⚑ — are the
+// of three levels; info and the flag are independent again ("this is a note,
+// not work"; "and there is something to say about it"). The glyphs each
+// segment carries — 🍏, 💎, △, ▲, ℹ, ⚑ — are the
 // marks the choice will draw on the list row, so the bar teaches the legend at
 // the moment the mark is made.
 //
@@ -53,6 +60,7 @@ const (
 	annotSegPrioNone            // the priority radios, one per level, in
 	annotSegPrioHigh            // the order they escalate — the same walk
 	annotSegPrioCritical        // the old panel row cycled
+	annotSegInfo                // the ℹ Info checkbox — a note, not work
 	annotSegFlag                // the ⚑ Flag checkbox, and its note field
 	annotSegCount
 )
@@ -67,7 +75,7 @@ type annotSeg struct {
 	start, end int
 }
 
-// annotBarTier is one way of spelling the whole bar: the six segment texts, the
+// annotBarTier is one way of spelling the whole bar: the segment texts, the
 // gap between them, and the group label — empty on a tier that cannot afford
 // it. Grouping the three means a tier is chosen once, as a unit, instead of the
 // gap and the wording being narrowed by separate conditions that could each be
@@ -94,7 +102,7 @@ func (t annotBarTier) width() int {
 	return w
 }
 
-// annotBarTiers is the bar spelled three ways, widest first, for the pane to
+// annotBarTiers is the bar spelled five ways, widest first, for the pane to
 // choose from.
 //
 // The bar must shrink rather than wrap, because it sits on a row every click is
@@ -103,9 +111,11 @@ func (t annotBarTier) width() int {
 // order every chip bar in this program concedes in — words, then gaps, then
 // bare glyphs — and never drops a segment:
 //
-//	full     ☐ 🍏 Quick win   ☐ 💎 High value   Priority  (•) none  …     95 cells
-//	compact  ☐ 🍏   ☐ 💎   (•) –   ( ) △   ( ) ▲   ☐ ⚑                     36 cells
-//	tight    ☐🍏  ☐💎  (•)–  ( )△  ( )▲  ☐⚑                               30 cells
+//	full     ☐ 🍏 Quick win   ☐ 💎 High value   Priority  (•) none  …    106 cells
+//	snug     ☐ 🍏 Quick win  ☐ 💎 High value  Priority  (•) none  …        99 cells
+//	compact  ☐ 🍏   ☐ 💎   (•) –   ( ) △   ( ) ▲   ☐ ℹ   ☐ ⚑               41 cells
+//	tight    ☐🍏  ☐💎  (•)–  ( )△  ( )▲  ☐ℹ  ☐⚑                           34 cells
+//	tightest ☐🍏 ☐💎 (•)– ( )△ ( )▲ ☐ℹ ☐⚑                                 28 cells
 //
 // The full tier spells the levels out. The compact one gives up the words,
 // which the marks themselves still teach, and keeps every state glyph — the
@@ -115,12 +125,15 @@ func (t annotBarTier) width() int {
 // of; that reads as one token rather than two, which is the right reading
 // anyway, and it is the last cell the bar has to give.
 //
-// The tight tier comes to exactly 30 cells, which is the narrowest pane this
-// form is drawn in at all — pinned by TestAnnotBarFitsNarrowPanes. That number
-// is what a sixth segment costs: with five the compact tier still fit 30, and
-// the gem is two cells of emoji plus its box plus a gap. A seventh mark would
-// have to find its cells somewhere else again.
-func (m model) annotBarTiers() [3]annotBarTier {
+// The narrowest pane this form is drawn in at all is 30 cells — pinned by
+// TestAnnotBarFitsNarrowPanes. The sixth segment (the gem) used up the tight
+// tier's last slack at exactly 30; the seventh (ℹ Info) is what the tightest
+// tier exists for. It gives up the second cell of each gap, the only cells
+// left that are not a state glyph, and comes to 28. The tight tier is kept
+// above it rather than replaced because a two-cell gap is easier to aim a
+// click between on the panes that can still afford it. An eighth mark would
+// have nothing left to give but a segment, which the bar never drops.
+func (m model) annotBarTiers() [5]annotBarTier {
 	a := m.formAnnots
 	check := func(on bool) string {
 		if on {
@@ -128,7 +141,7 @@ func (m model) annotBarTiers() [3]annotBarTier {
 		}
 		return "☐"
 	}
-	box, valueBox, flagBox := check(a.Fruit), check(a.HighValue), check(a.Flag)
+	box, valueBox, infoBox, flagBox := check(a.Fruit), check(a.HighValue), check(a.Info), check(a.Flag)
 	// The radio that is filled. An exact match on purpose: a hand-edited
 	// backlog can hold anything, including the retired "low", and a value this
 	// program cannot read is not a level it should claim was chosen — so an
@@ -145,18 +158,31 @@ func (m model) annotBarTiers() [3]annotBarTier {
 	// one radio with no mark of its own, so an unlabelled "( )" would be the
 	// only segment on the bar saying nothing at all. The dash is the mark for
 	// "nothing said", which is exactly the level.
-	return [3]annotBarTier{
-		{
-			texts: [annotSegCount]string{
-				annotSegFruit:        box + " " + fruitGlyph + " Quick win",
-				annotSegValue:        valueBox + " " + valueGlyph + " High value",
-				annotSegPrioNone:     radio(priorityNone) + " none",
-				annotSegPrioHigh:     radio(priorityHigh) + " " + prioHighGlyph + " high",
-				annotSegPrioCritical: radio(priorityCritical) + " " + prioCriticalGlyph + " critical",
-				annotSegFlag:         flagBox + " " + flagGlyph + " Flag",
-			},
-			gap: 3, divider: "Priority",
-		},
+	tightest := [annotSegCount]string{
+		annotSegFruit:        box + fruitGlyph,
+		annotSegValue:        valueBox + valueGlyph,
+		annotSegPrioNone:     radio(priorityNone) + "–",
+		annotSegPrioHigh:     radio(priorityHigh) + prioHighGlyph,
+		annotSegPrioCritical: radio(priorityCritical) + prioCriticalGlyph,
+		annotSegInfo:         infoBox + infoGlyph,
+		annotSegFlag:         flagBox + flagGlyph,
+	}
+	full := [annotSegCount]string{
+		annotSegFruit:        box + " " + fruitGlyph + " Quick win",
+		annotSegValue:        valueBox + " " + valueGlyph + " High value",
+		annotSegPrioNone:     radio(priorityNone) + " none",
+		annotSegPrioHigh:     radio(priorityHigh) + " " + prioHighGlyph + " high",
+		annotSegPrioCritical: radio(priorityCritical) + " " + prioCriticalGlyph + " critical",
+		annotSegInfo:         infoBox + " " + infoGlyph + " Info",
+		annotSegFlag:         flagBox + " " + flagGlyph + " Flag",
+	}
+	return [5]annotBarTier{
+		{texts: full, gap: 3, divider: "Priority"},
+		// The same words a cell closer together. The ℹ Info segment pushed
+		// the widest tier past 100 cells, the width a form most often gets;
+		// narrowing the gaps first keeps the words there, which is the order
+		// of concession above — the gap is the cheaper thing to give.
+		{texts: full, gap: 2, divider: "Priority"},
 		{
 			texts: [annotSegCount]string{
 				annotSegFruit:        box + " " + fruitGlyph,
@@ -164,6 +190,7 @@ func (m model) annotBarTiers() [3]annotBarTier {
 				annotSegPrioNone:     radio(priorityNone) + " –",
 				annotSegPrioHigh:     radio(priorityHigh) + " " + prioHighGlyph,
 				annotSegPrioCritical: radio(priorityCritical) + " " + prioCriticalGlyph,
+				annotSegInfo:         infoBox + " " + infoGlyph,
 				annotSegFlag:         flagBox + " " + flagGlyph,
 			},
 			gap: 2,
@@ -175,14 +202,16 @@ func (m model) annotBarTiers() [3]annotBarTier {
 				annotSegPrioNone:     radio(priorityNone) + "–",
 				annotSegPrioHigh:     radio(priorityHigh) + prioHighGlyph,
 				annotSegPrioCritical: radio(priorityCritical) + prioCriticalGlyph,
+				annotSegInfo:         infoBox + infoGlyph,
 				annotSegFlag:         flagBox + flagGlyph,
 			},
 			gap: 2,
 		},
+		{texts: tightest, gap: 1},
 	}
 }
 
-// annotBarLayout lays the bar out for the current pane: the six live segments
+// annotBarLayout lays the bar out for the current pane: the live segments
 // with their spans, and the finished line.
 //
 // The widest tier that fits wins; the narrowest is the floor, drawn even when
@@ -245,6 +274,8 @@ func (m model) annotSegStyle(i int) lipgloss.Style {
 		st = prioHighStyle
 	case i == annotSegPrioCritical && a.Priority == priorityCritical:
 		st = prioCriticalStyle
+	case i == annotSegInfo && a.Info:
+		st = infoStyle
 	case i == annotSegFlag && a.Flag:
 		st = flagStyle
 	}
@@ -279,6 +310,8 @@ func (m *model) activateAnnotSeg(i int) tea.Cmd {
 		m.formAnnots.Priority = priorityHigh
 	case annotSegPrioCritical:
 		m.formAnnots.Priority = priorityCritical
+	case annotSegInfo:
+		m.formAnnots.Info = !m.formAnnots.Info
 	case annotSegFlag:
 		return m.setFormFlag(!m.formAnnots.Flag)
 	}

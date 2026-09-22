@@ -358,6 +358,11 @@ var (
 	// than an emoji, so unlike the apple it can take a foreground at all, which
 	// is what lets it recede on a closed row instead of going quiet (flagMark).
 	flagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colInfo))
+	// The info mark. Deliberately not colInfo despite the name: that blue is
+	// the flag's, and the two sit side by side. colMuted is the grey of
+	// secondary text, which is the claim the mark makes — this row is a note,
+	// not an argument for attention (see infoMark).
+	infoStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colMuted))
 )
 
 // The annotation glyphs (see annotations.go for the columns they live in).
@@ -393,6 +398,12 @@ const (
 	// wide (East Asian Ambiguous, like the triangles and the badge), so a row
 	// wearing all three marks still costs what the packing promised.
 	flagGlyph = "⚑"
+	// The info mark: the INFORMATION SOURCE letter, drawn without the emoji
+	// variation selector so it stays a one-cell text glyph that takes a
+	// foreground (a terminal that insists on the emoji form still draws it,
+	// just in its own colour). It is the "i" everyone already reads as
+	// "for your information", which is the whole of what the mark says.
+	infoGlyph = "ℹ"
 )
 
 var (

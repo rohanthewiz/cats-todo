@@ -125,6 +125,23 @@ type Todo struct {
 	// fields existed, and an older binary ignores the keys rather than choking.
 	Flag     bool   `json:"flag,omitempty"`
 	FlagNote string `json:"flagNote,omitempty"`
+	// Info marks a prompt that is not work at all — a note jotted into the
+	// backlog because that is where the hand was, waiting to be collected into
+	// a proper notes program (a gonotes-style plugin) rather than handed to an
+	// agent. It is an annotation rather than a fourth state because it is
+	// orthogonal to open/frozen/done in the same way the others are: a note
+	// can still be done (filed away) or frozen (not worth keeping), and it
+	// still sorts and carries priority like any other row.
+	//
+	// What it changes is where the prompt may go. startDrop and beginSchedule
+	// refuse it in words, fireDueSchedules skips it, and applyTo clears any
+	// pending schedule as the mark goes up — the same "decision holds from
+	// both sides" rule freezing keeps (see beginSchedule).
+	//
+	// Same compat contract as the fields above — omitted when false, so an
+	// untouched backlog is byte-identical and an older binary ignores the key
+	// (and would, being older, let the note be dropped; an accepted limit).
+	Info bool `json:"info,omitempty"`
 }
 
 // Schedule is a one-shot auto-drop waiting to fire: at time At, the todo's

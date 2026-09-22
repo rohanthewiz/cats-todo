@@ -4105,6 +4105,14 @@ func (m model) startDrop(ref todoRef) (tea.Model, tea.Cmd) {
 		m.backToList()
 		return m, nil
 	}
+	// An info prompt is a note, not work: it is waiting for a notes program,
+	// and an agent handed one would try to *do* it. The mark is the whole
+	// decision, so the refusal names the way out of it, as the frozen one does.
+	if td, ok := m.resolve(ref); ok && td.Info {
+		m.setStatus(infoSendWhy, false)
+		m.backToList()
+		return m, nil
+	}
 	m.dropTodo = ref
 	m.listFocus = ref
 	m.targets, m.targetList = m.buildTargets()
@@ -4428,6 +4436,13 @@ func (m model) beginSchedule() (tea.Model, tea.Cmd) {
 		m.setStatus("that prompt is frozen — unfreeze it (ctrl+f) to schedule it", false)
 		return m, nil
 	}
+	// A schedule is a deferred drop, so an info prompt refuses it for the
+	// reason it refuses a send (see startDrop) — and applyTo already clears a
+	// schedule when the mark goes up, so this is that rule from the other side.
+	if td.Info {
+		m.setStatus(infoScheduleWhy, false)
+		return m, nil
+	}
 
 	ti := textinput.New()
 	ti.Prompt = ""
@@ -4564,7 +4579,11 @@ func (m *model) fireDueSchedules(now time.Time) tea.Cmd {
 			// holding one should not exist — this is the backstop for a backlog
 			// edited by hand or written by an older binary that did not know the
 			// invariant, where firing would be the worst possible reading of it.
-			if sc == nil || sc.Missed || t.closed() || now.Before(sc.At) {
+			//
+			// An info prompt is skipped on the same backstop reading: the
+			// mark clears the schedule as it goes up (annots.applyTo), so one
+			// holding both came from a hand edit, and a note is never fired.
+			if sc == nil || sc.Missed || t.closed() || t.Info || now.Before(sc.At) {
 				continue
 			}
 			ref := todoRef{scope: s.scope, id: t.ID}

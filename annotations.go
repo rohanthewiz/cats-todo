@@ -53,6 +53,7 @@ type annots struct {
 	Fruit     bool   // low-hanging fruit — a quick win
 	HighValue bool   // the gem — a large payoff, see Todo.HighValue
 	Flag      bool   // singled out — see Todo.Flag
+	Info      bool   // a note, not work — never dropped, see Todo.Info
 	// FlagNote is the flag's optional words. It rides in the set rather than
 	// beside it because it is not a mark of its own: it is what this mark says,
 	// and every screen that edits the flag edits the two together.
@@ -61,7 +62,7 @@ type annots struct {
 
 // annotsOf reads a todo's annotations off it.
 func annotsOf(t Todo) annots {
-	return annots{Priority: t.Priority, Fruit: t.Fruit, HighValue: t.HighValue, Flag: t.Flag, FlagNote: t.FlagNote}
+	return annots{Priority: t.Priority, Fruit: t.Fruit, HighValue: t.HighValue, Flag: t.Flag, FlagNote: t.FlagNote, Info: t.Info}
 }
 
 // applyTo writes the set back onto a todo, leaving everything else alone.
@@ -77,13 +78,21 @@ func (a annots) applyTo(t *Todo) {
 	if a.Flag {
 		t.FlagNote = strings.TrimSpace(a.FlagNote)
 	}
+	// A note is never delivered, so a schedule on one is a promise to do the
+	// one thing the mark forbids. It goes as the mark goes up — the way
+	// freezing clears it — rather than lingering for fireDueSchedules to skip
+	// forever and the row to keep advertising a ◷ that will never fire.
+	t.Info = a.Info
+	if a.Info {
+		t.Schedule = nil
+	}
 }
 
 // any reports whether anything has actually been said. It is what lets a screen
 // stay silent about a prompt nobody has annotated — the CLI's echo — rather
 // than announce the defaults on every one.
 func (a annots) any() bool {
-	return a.Priority != priorityNone || a.Fruit || a.HighValue || a.Flag
+	return a.Priority != priorityNone || a.Fruit || a.HighValue || a.Flag || a.Info
 }
 
 // summary is the annotations in words, for the screens with no room to draw
@@ -144,6 +153,11 @@ var annotSlots = []annotSlot{
 	{name: "priority", mark: priorityMark, label: priorityAnnotLabel},
 	{name: "low-hanging fruit", mark: fruitMark, label: fruitAnnotLabel},
 	{name: "high value", mark: valueMark, label: valueAnnotLabel},
+	// Info sits after the estimates and before the flag. It is a glance-fact
+	// like them — no words to stop for — but it reframes the whole row ("this
+	// is a note, not work"), so it closes the quick-read group and hands off to
+	// the one mark that has to be read.
+	{name: "info", mark: infoMark, label: infoAnnotLabel},
 	// The flag trails all three. It is the mark whose meaning is written on the
 	// prompt rather than carried by the glyph, so it is the one a reader has to
 	// stop for — and a stop belongs at the end of the group, after the facts
@@ -265,6 +279,42 @@ func valueMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 		return "", prioClosedStyle, prioClosedSelStyle
 	}
 	return valueGlyph, valueStyle, valueStyle
+}
+
+// The info mark's refusals, shared by the chords (startDrop, beginSchedule)
+// and the list menu's dim rows so the two roads say the same words. They name
+// the way out — the mark itself — because a refusal that only said "no" would
+// leave the reader hunting for which of the row's facts was the obstacle.
+const (
+	infoSendWhy     = "that prompt is marked info — a note, not for agents; clear ℹ Info to send it"
+	infoScheduleWhy = "that prompt is marked info — a note, not for agents; clear ℹ Info to schedule it"
+)
+
+// infoAnnotLabel is the info mark in words. It says what the mark *does*
+// ("not for agents") as well as what it is, because on the screens that spell
+// the marks out — the prompt view, the CLI echo — the refusal a later send
+// meets should not be the first place the reader learns about it.
+func infoAnnotLabel(t Todo) string {
+	if !t.Info {
+		return ""
+	}
+	return "info — a note, not for agents"
+}
+
+// infoMark is the info annotation. Grey rather than a hue: every coloured
+// mark on the row is an argument about work (how urgent, how cheap, how
+// valuable, look at this), and a note is the absence of one — so it takes the
+// muted secondary-text grey and reads as quiet. Being a text glyph, it recedes
+// further on a closed row instead of going quiet the way the emoji do (see
+// fruitMark), since a filed-away note is still a note worth recognising.
+func infoMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
+	if !t.Info {
+		return "", lipgloss.NewStyle(), lipgloss.NewStyle()
+	}
+	if t.closed() {
+		return infoGlyph, prioClosedStyle, prioClosedSelStyle
+	}
+	return infoGlyph, infoStyle, infoStyle
 }
 
 // flagMark is the flag annotation.

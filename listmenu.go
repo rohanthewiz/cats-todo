@@ -103,6 +103,8 @@ const (
 	listMenuPrioNone
 	listMenuPrioHigh
 	listMenuPrioCritical
+	// Info before the flag, in the order the row draws them (annotSlots).
+	listMenuInfo
 	listMenuFlag
 	// The note sits directly under the mark it belongs to, and is the one
 	// annotation row that opens something instead of answering it: a note is
@@ -174,6 +176,8 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		sendWhy = "a drop is still in progress…"
 	case td.Frozen:
 		sendWhy = "that prompt is frozen — unfreeze it (ctrl+f) to send it"
+	case td.Info:
+		sendWhy = infoSendWhy
 	}
 
 	// Schedule's are beginSchedule's, and they are not the same set. A drop
@@ -192,6 +196,8 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		schedWhy = "that prompt is done — reopen it (ctrl+t) to schedule it"
 	case td.Frozen:
 		schedWhy = "that prompt is frozen — unfreeze it (ctrl+f) to schedule it"
+	case td.Info:
+		schedWhy = infoScheduleWhy
 	}
 
 	// The two flipping rows. Freeze is offered from every state, including done,
@@ -218,6 +224,10 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 	valueBox := "☐"
 	if td.HighValue {
 		valueBox = "☑"
+	}
+	infoBox := "☐"
+	if td.Info {
+		infoBox = "☑"
 	}
 	// The flag's row wears its note, trimmed to something a menu can hold — the
 	// menu sizes itself to its widest row (menuBox.size), and a long note would
@@ -283,6 +293,7 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		{act: listMenuPrioNone, label: radio(priorityNone) + " Priority: none"},
 		{act: listMenuPrioHigh, label: radio(priorityHigh) + " Priority: " + prioHighGlyph + " high"},
 		{act: listMenuPrioCritical, label: radio(priorityCritical) + " Priority: " + prioCriticalGlyph + " critical"},
+		{act: listMenuInfo, label: infoBox + " " + infoGlyph + " Info (a note)"},
 		{act: listMenuFlag, label: flagLabel},
 		{act: listMenuFlagNote, label: noteLabel, why: noteWhy},
 		// Export needs no socket — the picker is shorter without one (no
@@ -378,7 +389,7 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 		return m.toggleSelected()
 	case listMenuFreeze:
 		return m.freezeSelected()
-	case listMenuFruit, listMenuValue, listMenuFlag, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical:
+	case listMenuFruit, listMenuValue, listMenuInfo, listMenuFlag, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical:
 		return m.setMenuAnnots(ref, it.act, atX, atY)
 	case listMenuFlagNote:
 		// Deliberate rather than raised: the mark was already up when the menu
@@ -429,6 +440,8 @@ func (m model) setMenuAnnots(ref todoRef, act, atX, atY int) (tea.Model, tea.Cmd
 		a.Fruit = !a.Fruit
 	case listMenuValue:
 		a.HighValue = !a.HighValue
+	case listMenuInfo:
+		a.Info = !a.Info
 	case listMenuFlag:
 		// The mark, and only the mark. Raising it saves a bare flag before the
 		// note pad opens, so the press stands on its own whatever happens next;
@@ -454,6 +467,16 @@ func (m model) setMenuAnnots(ref todoRef, act, atX, atY int) (tea.Model, tea.Cmd
 		m.setStatus("marked high value", false)
 	case act == listMenuValue:
 		m.setStatus("no longer high value", false)
+	case act == listMenuInfo && a.Info:
+		// Say what the mark costs as it is paid, and that a pending schedule
+		// went with it — the ◷ vanishing from the row should not be a mystery.
+		if td.Schedule != nil {
+			m.setStatus("marked info — a note, not for agents; its schedule was cleared", false)
+		} else {
+			m.setStatus("marked info — a note, not for agents", false)
+		}
+	case act == listMenuInfo:
+		m.setStatus("no longer info — it can be sent again", false)
 	case act == listMenuFlag && a.Flag:
 		// The mark is on disk; now the words are asked for, on the cell the
 		// press landed on. The pad is an invitation, never a gate — escaping it

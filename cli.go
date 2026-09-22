@@ -81,11 +81,16 @@ func addFromCLI(args []string) {
 	// Unlike --sess-load it gets no expandSessLoad rewrite, so the value must be
 	// attached with "=". A bare word after `--flag` is prose, and the whole
 	// point of the flag is that the prompt following it is a sentence.
+	// ℹ Info: this is a note, not work — it will never be dropped or
+	// scheduled (see Todo.Info). A plain boolean rather than an optString
+	// because the prompt text already *is* the note; there is nothing else
+	// for the mark to say.
+	info := fs.Bool("info", false, "mark as info — a note to keep, never sent to an agent")
 	var flagged optString
 	fs.Var(&flagged, "flag", "single it out, optionally with a note (--flag, --flag=\"why\")")
 
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [--priority p] [--fruit] [--high-value] [--flag[=note]] [session options] [prompt...]")
+		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [--priority p] [--fruit] [--high-value] [--info] [--flag[=note]] [session options] [prompt...]")
 		fmt.Fprintln(os.Stderr, "  the prompt is the remaining args joined; with none it is read from a piped stdin")
 		fmt.Fprintln(os.Stderr, "  session options: --model --effort --perm --clear --sess-load[=n] --sess-use --ctx")
 		fmt.Fprintln(os.Stderr, "                   --finish --review --release")
@@ -106,7 +111,7 @@ func addFromCLI(args []string) {
 	if err != nil {
 		errExit(err)
 	}
-	ann := annots{Priority: prio, Fruit: *fruit, HighValue: *highValue, Flag: flagged.set, FlagNote: flagged.value}
+	ann := annots{Priority: prio, Fruit: *fruit, HighValue: *highValue, Flag: flagged.set, FlagNote: flagged.value, Info: *info}
 
 	prompt := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if prompt == "" {
