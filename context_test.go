@@ -295,21 +295,31 @@ func TestIsOwnPane(t *testing.T) {
 // hook socket so cats can find it) is never offered as a drop target — neither
 // as a running pane nor, since the new-session rows are derived from the same
 // scan, as "New ced session" — while real coding agents still are.
+//
+// The plugin_type cases are the current-cats path, where the wire says what a
+// pane is. The untyped ced cases are the older-cats path, where only the
+// editorAgents fallback stands between ced and the picker.
 func TestIsDropAgent(t *testing.T) {
 	tests := []struct {
-		agent string
-		want  bool
+		agent, pluginType string
+		want              bool
 	}{
-		{"claude", true},
-		{"copilot", true},
-		{"codex", true},
-		{"", false},
-		{"ced", false},
-		{"CEd", false},
+		{"claude", "", true},
+		{"copilot", "", true},
+		{"codex", "", true},
+		{"claude", wire.PluginTypeAgent, true}, // a plugin that IS an agent
+		{"", "", false},
+		{"ced", "", false}, // older cats: no type, the fallback list catches it
+		{"CEd", "", false},
+		{"ced", wire.PluginTypeEditor, false},
+		{"vimx", wire.PluginTypeEditor, false},    // an editor label only cats' config knows
+		{"notes", wire.PluginTypeNotesMgr, false}, // a tool reporting over the hook API
+		{"x", "dev_server", false},                // a type newer than this build is a tool
 	}
 	for _, tt := range tests {
-		if got := isDropAgent(wire.PaneInfo{PaneMeta: wire.PaneMeta{Agent: tt.agent}}); got != tt.want {
-			t.Errorf("isDropAgent(agent=%q) = %v, want %v", tt.agent, got, tt.want)
+		p := wire.PaneInfo{PaneMeta: wire.PaneMeta{Agent: tt.agent, PluginType: tt.pluginType}}
+		if got := isDropAgent(p); got != tt.want {
+			t.Errorf("isDropAgent(agent=%q, plugin_type=%q) = %v, want %v", tt.agent, tt.pluginType, got, tt.want)
 		}
 	}
 }

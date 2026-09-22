@@ -261,18 +261,27 @@ func isOwnPane(ctx RunContext, p wire.PaneInfo) bool {
 // an LLM: dropping a prompt into it would type the prompt into a file buffer,
 // and launching "a new ced session" for a prompt is meaningless.
 //
-// This mirrors cats' own `editor.agents` default (["ced"]). pane.list does not
-// carry cats' editor policy on the wire, so the list is restated here rather
-// than read from cats' config; a user who configures a different editor label
-// in cats would need to add it here too.
+// This list is now only a FALLBACK. cats sends each pane's plugin_type in
+// pane.list, and marks every label in its own `editor.agents` as "editor", so
+// against a current cats the wire already answers the question, including for
+// an editor label the user configured and this list has never heard of. The
+// list stays for a cats older than plugin_type, which sends no type at all:
+// without it, ced would turn back into a drop target there.
 var editorAgents = []string{"ced"}
 
 // isDropAgent reports whether p is a pane a todo can be dropped into: it runs
-// a coding agent, and that agent is not an editor. Case-insensitive, matching
-// cats' IsEditorAgent — an agent label is a name a human typed into a hook
-// asset or a config.
+// an LLM agent, not a tool plugin that happens to report over the hook API.
+//
+// Two checks, and both must pass:
+//
+//  1. wire.PaneMeta.IsDropAgent: an agent is detected, and cats' plugin_type
+//     is empty or "agent". This is the authoritative rule, and it keeps out
+//     editors, todos/notes managers, and any type newer than this build.
+//  2. The label is not in editorAgents (case-insensitive, matching cats'
+//     IsEditorAgent). This only matters against an older cats, where
+//     plugin_type is always empty and check 1 alone would let ced through.
 func isDropAgent(p wire.PaneInfo) bool {
-	if p.Agent == "" {
+	if !p.IsDropAgent() {
 		return false
 	}
 	for _, e := range editorAgents {

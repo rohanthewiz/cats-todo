@@ -16,6 +16,10 @@ name = "Cats Todo"
 version = "0.33.0"
 description = "A prompt backlog for cats. Jot down prompts of future work (per-project and global), then fuzzy-pick one and drop it into a Claude Code session — an existing agent pane or a brand-new one — paste-only or run-now."
 platforms = ["linux", "macos"]
+# What kind of tool this is. A todos manager is not an LLM agent, so cats lists
+# its pane under PLUGINS, not AGENTS, and never offers it as a drop target. A
+# cats older than the key ignores it.
+type = "todos_mgr"
 
 # Expose the built binary on the user's PATH. The host symlinks each entry into
 # the cats bin dir (~/.cats/bin/cats-todo -> <plugins-root>/<id>/bin/cats-todo),
