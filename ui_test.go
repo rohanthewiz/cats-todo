@@ -206,12 +206,12 @@ func TestActionBarRender(t *testing.T) {
 		}
 	}
 
-	// Five labelled chips need just under fifty columns; 55 has the words but
-	// not the chords.
-	m.width = 55
+	// Six labelled chips (» Next joined the five) need just under sixty
+	// columns; 64 has the words but not the chords.
+	m.width = 64
 	narrow := m.actionBar()
 	if got := m.barTier(); got != tierLabels {
-		t.Fatalf("a 55-column bar is at tier %d, want labels alone", got)
+		t.Fatalf("a 64-column bar is at tier %d, want labels alone", got)
 	}
 	for _, a := range m.listActions() {
 		if !strings.Contains(narrow, a.label) {

@@ -47,6 +47,9 @@ const (
 	// stagePrompt (which is what its renderer is already called) would be tidier
 	// but is a separate change.
 	stageViewOpts
+	// stageNextList is the Next List page (nextlist.go): the project's
+	// ai_docs/todo/next-list.md, as rows a new prompt can be started from.
+	stageNextList
 )
 
 // confirmKind distinguishes what the confirm stage is about to do.
@@ -384,6 +387,11 @@ type model struct {
 	// every open over a freshly read library, so nothing here outlives the
 	// gesture that asked for it and a hand-edited file is never stale.
 	snips snippetPicker
+
+	// The Next List page (nextlist.go). Rebuilt on every open over a fresh
+	// read of the file, and re-read on ↻ Refresh, so nothing here outlives
+	// the visit.
+	next nextPage
 
 	// Attachment editor (a sub-stage of the form, so its state lives and dies
 	// with the form's).
@@ -827,6 +835,8 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSpell(msg)
 		case stageViewOpts:
 			return m.updateViewOpts(msg)
+		case stageNextList:
+			return m.updateNextList(msg)
 		}
 	}
 	return m.forward(msg)
@@ -871,6 +881,8 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.peerAddrInput, cmd = m.peerAddrInput.Update(msg)
 	case stageSpell:
 		cmd = m.spellList.editQuery(msg)
+	case stageNextList:
+		cmd = m.next.list.editQuery(msg)
 	}
 	return m, cmd
 }
@@ -1004,6 +1016,8 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.beginClearDone()
 	case "ctrl+r":
 		return m.beginImport()
+	case "ctrl+g":
+		return m.beginNextList()
 	case "ctrl+o":
 		return m.beginExport()
 	case "ctrl+up":
@@ -1099,6 +1113,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.clickSpell(msg)
 	case stageViewOpts:
 		return m.clickViewOpts(msg)
+	case stageNextList:
+		return m.clickNext(msg)
 	}
 	return m, nil
 }
@@ -1769,6 +1785,7 @@ const (
 	actionSend
 	actionExport
 	actionDelete
+	actionNext
 )
 
 // listActions is the action bar's contents, in order. Send's hint follows
@@ -1798,6 +1815,12 @@ func (m model) listActions() []listAction {
 		{label: "✉ Send", hint: m.modEnter(), tint: colAccent, needsSel: true},
 		{label: "➦ Export", hint: "ctrl+o", tint: colCyan, needsSel: true},
 		{label: "✖ Delete", hint: "ctrl+x", tint: colErr, needsSel: true},
+		// Next opens a page rather than acting on a prompt, so it stands apart
+		// at the far end of the row, after the lifecycle it is not part of —
+		// which also leaves every button a tab or a hand already knows where
+		// it was. Tinted colBrown, a hue no other chip speaks, since this is
+		// the only chip that leads to another page rather than acting here.
+		{label: "» Next", hint: "ctrl+g", tint: colBrown},
 	}
 }
 
@@ -1935,6 +1958,8 @@ func (m model) runAction(i int) (tea.Model, tea.Cmd) {
 		return m.beginExport()
 	case actionDelete:
 		return m.beginDelete()
+	case actionNext:
+		return m.beginNextList()
 	}
 	return m, nil
 }
@@ -2388,6 +2413,15 @@ func (m *model) selectRow(ref todoRef) {
 // --- Add / Edit form ----------------------------------------------------------
 
 func (m model) beginAdd() (tea.Model, tea.Cmd) {
+	return m.beginAddWith("", "")
+}
+
+// beginAddWith opens the add form already holding a title and prompt — a draft
+// made somewhere else (the Next List page) for the user to finish. It is the
+// add form in every other respect: nothing is written until a save, and the
+// autosave's baseline is the draft as handed in, so an untouched draft that is
+// cancelled leaves no trace in the backlog.
+func (m model) beginAddWith(title, prompt string) (tea.Model, tea.Cmd) {
 	// Neither backlog is writable: a --project launch that found no project
 	// (the pane woke up at the filesystem root), the one combination that
 	// leaves both stores unavailable. An unavailable store's save is a silent
@@ -2405,7 +2439,7 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 		m.formScope = scopeGlobal
 	}
 	m.editID = ""
-	m.titleInput, m.promptArea = m.newFormInputs("", "")
+	m.titleInput, m.promptArea = m.newFormInputs(title, prompt)
 	m.loadSpellDict()
 	m.formImages, m.formImagesOrig = nil, nil
 	// A new prompt starts on the defaults — the zero SessionOpts is exactly the
@@ -4890,7 +4924,7 @@ func (m model) View() tea.View {
 	switch {
 	case m.stage == stageList:
 		v.MouseMode = tea.MouseModeAllMotion
-	case m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageImport || m.stage == stageSpell || m.stage == stageViewOpts:
+	case m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageImport || m.stage == stageSpell || m.stage == stageViewOpts || m.stage == stageNextList:
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -4935,6 +4969,8 @@ func (m model) renderStage() string {
 		return m.viewSpell()
 	case stageViewOpts:
 		return m.viewViewOpts()
+	case stageNextList:
+		return m.viewNextList()
 	default:
 		// The menu floats over the list rather than replacing it, and is
 		// composited here rather than inside viewList for the reason the form's
@@ -5309,7 +5345,7 @@ func (m model) listFooter() string {
 		// double-click is a guess worth confirming, not one worth making blind.
 		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+space select · ctrl+o export · ctrl+x delete") +
 			"\n" +
-			footerStyle.Render("ctrl+r import · ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
+			footerStyle.Render("ctrl+r import · ctrl+g next list · ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
 	}
 	// Freeze rides directly after done: the two are the ways a prompt leaves the
 	// open list, and reading them side by side is what teaches that they are
@@ -6506,6 +6542,8 @@ func (m *model) applySizes() {
 		m.peerAddrInput.SetWidth(w)
 	case stageSpell:
 		m.spellList.input.SetWidth(w)
+	case stageNextList:
+		m.next.resize(m.width, m.height)
 	case stageView:
 		m.viewVP.SetWidth(m.viewWidth())
 		m.viewVP.SetHeight(m.viewHeight())

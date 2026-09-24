@@ -52,6 +52,7 @@ and the rest stay local.
 | `promptmove.go` | `alt+↑/↓` moving the caret's line or the swept block |
 | `promptundo.go` | ↶ Undo (`cmd+z`/`ctrl+z`): the per-session history, its coalescing rule, and the commit point `Update` calls (`route` is the old `Update` body) |
 | `autosave.go` | the form's timed autosave (45s default, `autosaveSeconds` in settings.json): throttle timer (generation-guarded tick), `formSig` change detection, the add→edit switch, and cancel's revert |
+| `nextlist.go` | the Next List page (`stageNextList`): parses `ai_docs/todo/next-list.md` (Open + Roadmap), one-run-of-text rows cut to the pane, ✚ New prompt → prefilled add form (`beginAddWith`), ↻ Refresh |
 | `promptlines.go` | the sweep → whole-rows arithmetic those four share |
 | `spell.go` / `spellpanel.go` / `internal/spell` | spell check + panel; embedded SCOWL list + `extra.txt` |
 | `settings.go` | `~/.config/cats-todo/settings.json` (`spellcheck`, `orderByPriority`, `showFrozen`, `autosaveSeconds`) |
@@ -128,7 +129,8 @@ and the rest stay local.
 - **List:** `enter` edit · `shift/alt+enter` drop · `ctrl+a` add · `ctrl+e` edit ·
   `ctrl+v` view · `ctrl+t` done · `ctrl+f` freeze · `ctrl+s` schedule · `ctrl+o` export ·
   `ctrl+x` delete · `ctrl+↑/↓` move · `ctrl+d` fold closed · `ctrl+l` View panel ·
-  `ctrl+w` clear done · `tab` button row · `esc`/`ctrl+c` quit.
+  `ctrl+w` clear done · `ctrl+r` import · `ctrl+g` Next List page (there `ctrl+r` is
+  refresh) · `tab` button row · `esc`/`ctrl+c` quit.
 - **Form:** `ctrl+s` save (also `cmd+s` as `super+s`/`meta+s`, which only a terminal
   that reports Cmd — cats does — can send; and `enter` from the title field) ·
   `enter`/`shift+enter`/`alt+enter`/`ctrl+j` newline in the prompt · `ctrl+o` (and

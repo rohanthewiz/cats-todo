@@ -757,6 +757,59 @@ holds is skipped, because the common mistake is importing the same bundle
 twice. A prompt whose attachment cannot be brought across still lands, without
 it, and is counted: the text is the part with the value.
 
+## The Next List
+
+A project that keeps a living list of follow-ups — `ai_docs/todo/next-list.md`,
+the file the `/next-list` and `/sess-save` skills maintain — can start prompts
+straight from it. `ctrl+g`, or the list bar's **» Next** chip, opens it as a
+page of its own:
+
+```
+Next list  ai_docs/todo/next-list.md · 24 open · 3 roadmap
+
+│ 🔍 type to filter                  │  27/27
+
+  ✚ New prompt enter   ↻ Refresh ctrl+r   ← Back esc
+
+Open
+❯ N-001 Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions run inside Cats.app, where GUI au…
+  N-003 A plugin started by hand from a shell (e.g. `cats-todo` typed at a prompt) has no `CATS_PLUG…
+Roadmap
+  N-019 …
+```
+
+Only **Open** and **Roadmap** are listed. Non-goals and Closed hold items too,
+but nothing in them is waiting to be started.
+
+A row here is laid out differently from a backlog row. It is **not** split
+into a title and a dimmer body, because a next-list item has no title: its
+first sentence is just the start of a paragraph. Instead the row is the item's
+ID followed by its own text, flattened onto one line and cut only where the
+pane ends. The ID's colour shows the item's value: yellow for high, straw for
+medium, grey for low. Typing filters across the whole item, including text
+past the edge of the row, as well as the ID, the value and the section name,
+so `N-014`, `high` and `roadmap` all work as queries.
+
+`enter` (or a double-click, or **✚ New prompt**) opens the **add** form
+already holding the item. The title is its ID and opening words. The prompt
+starts with `Next list item N-014 (ai_docs/todo/next-list.md):` and is followed
+by the item's text as written, sub-bullets included, so the agent that gets it
+knows which item it is working on and can close it in the file. Nothing is
+written until you save; `esc` there throws the draft away.
+
+The page reads the file when it opens and again on **↻ Refresh**
+(`ctrl+r`). It does not watch the file: the list is usually edited in another
+pane by a session that is wrapping up, and a refresh you ask for won't reshuffle
+the rows while you're moving through them. A refresh keeps the query and keeps
+the highlight on the item it was on. On this page `ctrl+r` means refresh rather
+than the list's import, because there is nothing to import into here.
+
+A project without the file still opens the page. The page names the missing
+file and says that `/next-list seed` creates it. The list is found beside the
+project backlog (the directory holding `.cats-todo/`). A `--global` launch
+inside a project reads that project's list, and a prompt made from it goes into
+the global backlog, since that is the only backlog the launch manages.
+
 ## Sending to a machine on the local network
 
 cats' control socket is a unix socket — it reaches the cats on *this* machine
