@@ -7,9 +7,9 @@
 // prompt is actually written showed neither. The bar puts them on the form
 // itself, where the title they qualify is, as one horizontal line of segments:
 //
-//	☐ 🍏 Quick win   ☐ 💎 High value   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☐ ℹ Info   ☐ ⚑ Flag
+//	☐ 🍏 Quick win   ☐ 💎 High value   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☐ ｉ Info   ☐ ⚑ Flag
 //
-// ☐ ℹ Info marks the prompt as a note rather than work — something to collect
+// ☐ ｉ Info marks the prompt as a note rather than work — something to collect
 // into a notes program later, never to hand to an agent (Todo.Info). It sits
 // with the flag at the tail because both are about how to *read* the prompt
 // rather than how to rank it, and before the flag so the flag stays the last
@@ -20,7 +20,7 @@
 // true"; "worth a lot, whatever else is true"), and the priority is exactly one
 // of three levels; info and the flag are independent again ("this is a note,
 // not work"; "and there is something to say about it"). The glyphs each
-// segment carries — 🍏, 💎, △, ▲, ℹ, ⚑ — are the
+// segment carries — 🍏, 💎, △, ▲, ｉ, ⚑ — are the
 // marks the choice will draw on the list row, so the bar teaches the legend at
 // the moment the mark is made.
 //
@@ -60,7 +60,7 @@ const (
 	annotSegPrioNone            // the priority radios, one per level, in
 	annotSegPrioHigh            // the order they escalate — the same walk
 	annotSegPrioCritical        // the old panel row cycled
-	annotSegInfo                // the ℹ Info checkbox — a note, not work
+	annotSegInfo                // the ｉ Info checkbox — a note, not work
 	annotSegFlag                // the ⚑ Flag checkbox, and its note field
 	annotSegCount
 )
@@ -111,11 +111,11 @@ func (t annotBarTier) width() int {
 // order every chip bar in this program concedes in — words, then gaps, then
 // bare glyphs — and never drops a segment:
 //
-//	full     ☐ 🍏 Quick win   ☐ 💎 High value   Priority  (•) none  …    106 cells
-//	snug     ☐ 🍏 Quick win  ☐ 💎 High value  Priority  (•) none  …        99 cells
-//	compact  ☐ 🍏   ☐ 💎   (•) –   ( ) △   ( ) ▲   ☐ ℹ   ☐ ⚑               41 cells
-//	tight    ☐🍏  ☐💎  (•)–  ( )△  ( )▲  ☐ℹ  ☐⚑                           34 cells
-//	tightest ☐🍏 ☐💎 (•)– ( )△ ( )▲ ☐ℹ ☐⚑                                 28 cells
+//	full     ☐ 🍏 Quick win   ☐ 💎 High value   Priority  (•) none  …    107 cells
+//	snug     ☐ 🍏 Quick win  ☐ 💎 High value  Priority  (•) none  …       100 cells
+//	compact  ☐ 🍏   ☐ 💎   (•) –   ( ) △   ( ) ▲   ☐ ｉ   ☐ ⚑              42 cells
+//	tight    ☐🍏  ☐💎  (•)–  ( )△  ( )▲  ☐ｉ  ☐⚑                          35 cells
+//	tightest ☐🍏 ☐💎 (•)– ( )△ ( )▲ ☐ｉ ☐⚑                                29 cells
 //
 // The full tier spells the levels out. The compact one gives up the words,
 // which the marks themselves still teach, and keeps every state glyph — the
@@ -127,9 +127,11 @@ func (t annotBarTier) width() int {
 //
 // The narrowest pane this form is drawn in at all is 30 cells — pinned by
 // TestAnnotBarFitsNarrowPanes. The sixth segment (the gem) used up the tight
-// tier's last slack at exactly 30; the seventh (ℹ Info) is what the tightest
+// tier's last slack at exactly 30; the seventh (ｉ Info) is what the tightest
 // tier exists for. It gives up the second cell of each gap, the only cells
-// left that are not a state glyph, and comes to 28. The tight tier is kept
+// left that are not a state glyph, and comes to 29 — the info glyph is two
+// cells wide since it became a chip the size of the emoji (see infoGlyph),
+// which spent one of the two cells of slack this tier had. The tight tier is kept
 // above it rather than replaced because a two-cell gap is easier to aim a
 // click between on the panes that can still afford it. An eighth mark would
 // have nothing left to give but a segment, which the bar never drops.
@@ -178,8 +180,9 @@ func (m model) annotBarTiers() [5]annotBarTier {
 	}
 	return [5]annotBarTier{
 		{texts: full, gap: 3, divider: "Priority"},
-		// The same words a cell closer together. The ℹ Info segment pushed
-		// the widest tier past 100 cells, the width a form most often gets;
+		// The same words a cell closer together. The ｉ Info segment pushed
+		// the widest tier past 100 cells, the width a form most often gets
+		// (this one is exactly 100 since the glyph went to two cells);
 		// narrowing the gaps first keeps the words there, which is the order
 		// of concession above — the gap is the cheaper thing to give.
 		{texts: full, gap: 2, divider: "Priority"},
@@ -247,7 +250,11 @@ func (m model) annotBarLayout() (segs [annotSegCount]annotSeg, line string) {
 		st := m.annotSegStyle(i)
 		w := lipgloss.Width(text)
 		segs[i] = annotSeg{text: text, style: st, start: x, end: x + w}
-		b.WriteString(st.Render(text))
+		// Through withInfoChips so the ｉ Info segment's glyph wears its chip
+		// whether the box is checked or not — the apple and the gem paint
+		// themselves in both states too, and the bar is where the row's
+		// legend is learned.
+		b.WriteString(withInfoChips(st, text))
 		x += w
 	}
 	return segs, b.String()

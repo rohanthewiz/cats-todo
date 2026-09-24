@@ -301,20 +301,62 @@ func infoAnnotLabel(t Todo) string {
 	return "info — a note, not for agents"
 }
 
-// infoMark is the info annotation. Grey rather than a hue: every coloured
-// mark on the row is an argument about work (how urgent, how cheap, how
-// valuable, look at this), and a note is the absence of one — so it takes the
-// muted secondary-text grey and reads as quiet. Being a text glyph, it recedes
-// further on a closed row instead of going quiet the way the emoji do (see
-// fruitMark), since a filed-away note is still a note worth recognising.
+// infoMark is the info annotation, drawn as a chip: the glyph on its own blue
+// field (see infoGlyph for why a chip rather than a bare letter).
+//
+// It was grey, on the argument that every coloured mark on the row is a claim
+// about work and a note is the absence of one. That was right about the claim
+// and wrong about the cost: the mark's job is to stop an info row being mistaken
+// for work at a glance, and a grey letter beside two emoji was not seen at a
+// glance at all. The field is the same on the highlighted row — it is the
+// mark's own surface, not the row's, so the row renderer leaves it alone (see
+// fuzzylist.view).
+//
+// On a closed row the field drops away and the letter goes to the closed-row
+// grey, still italic so it is recognisably the same mark. A filed-away note is
+// still worth recognising, but no longer worth the loudest cell on its row.
 func infoMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 	if !t.Info {
 		return "", lipgloss.NewStyle(), lipgloss.NewStyle()
 	}
 	if t.closed() {
-		return infoGlyph, prioClosedStyle, prioClosedSelStyle
+		return infoGlyph, prioClosedStyle.Italic(true), prioClosedSelStyle.Italic(true)
 	}
-	return infoGlyph, infoStyle, infoStyle
+	return infoGlyph, infoChipStyle, infoChipStyle
+}
+
+// withInfoChips renders text in st, except that each info glyph in it is drawn
+// as the chip. It is for the screens that write the glyph inside a label — the
+// form's annotation bar, the list's context menu — where the label is one
+// string measured as one string, but a single style over all of it would paint
+// the blue field across the words too.
+//
+// The pieces are sibling renders rather than a chip nested inside st: an inner
+// render ends in a reset, which would drop st's field for the rest of the label
+// (the same reason renderChipDimHint splits its chip). Splitting on the glyph
+// keeps the width identical to lipgloss.Width(text), so whatever measured the
+// label — a hit-test span, a menu's box — still lines up with what is drawn.
+//
+//	st  "☑ "   chip "ｉ"   st " Info"
+//	   └─ st's field ─┘└ blue ┘└─ st's field ─┘
+//
+// An underline on st (the bar's keyboard cursor) is carried onto the chip, so
+// the cursor still reads as one run under the whole segment.
+func withInfoChips(st lipgloss.Style, text string) string {
+	if !strings.Contains(text, infoGlyph) {
+		return st.Render(text)
+	}
+	chip := infoChipStyle.Underline(st.GetUnderline())
+	var b strings.Builder
+	for i, part := range strings.Split(text, infoGlyph) {
+		if i > 0 {
+			b.WriteString(chip.Render(infoGlyph))
+		}
+		if part != "" {
+			b.WriteString(st.Render(part))
+		}
+	}
+	return b.String()
 }
 
 // flagMark is the flag annotation.

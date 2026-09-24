@@ -287,7 +287,7 @@ prompt:
 ❯ ○ ▲ 🍏 💎 fix the drop path     the daemon cannot resolve a bare agent name
   ○ △ context menu grammar        right click across the manager screens
   ○ ⚑ port the export picker      blocked until the api rename lands
-  ○ ℹ the api returns 204 on …    a note to file away, not work
+  ○ ｉ the api returns 204 on …    a note to file away, not work
   ○ 🍏 bump the version           two files, one number
   ○ 💎 split the store            pays every time anyone touches it
   ○ ordinary work                 nothing said about it
@@ -317,7 +317,7 @@ Five annotations exist today:
 | `▲` `△` | **priority** — critical, high | the editor's **Priority** radios, `--priority` |
 | `🍏` | **low-hanging fruit** — a quick win | the editor's **Quick win** checkbox, `--fruit` |
 | `💎` | **high value** — a large payoff for whoever picks it up | the editor's **High value** checkbox, `--high-value` |
-| `ℹ` | **info** — a note, not work; never sent to an agent | the editor's **Info** checkbox, `--info` |
+| `ｉ` | **info** — a note, not work; never sent to an agent | the editor's **Info** checkbox, `--info` |
 | `⚑` | **flagged** — singled out, with an optional note saying why | the editor's **Flag** checkbox and its note field, `--flag` |
 
 Freezing is *not* an annotation. It is a state, mutually exclusive with done, and
@@ -459,11 +459,16 @@ prompt whose row draws nothing.
 
 #### Info
 
-`ℹ` marks a prompt that is **not work at all** — a note that landed in the
+`ｉ` marks a prompt that is **not work at all** — a note that landed in the
 backlog because that is where the hand was: a quirk of an API, a decision and
 its reason, a link worth keeping. It belongs in a notes program eventually (a
 gonotes-style plugin is the intended destination), and until then the backlog
 holds it without mistaking it for something to do.
+
+On a list row the mark is drawn as a chip — a bold italic white `ｉ` on a solid
+blue field, two cells wide like 🍏 and 💎 — so an info row is spotted at a
+glance rather than read. On a done or frozen row the field drops away and the
+letter goes grey, the way the other marks recede on closed work.
 
 So the mark changes where the prompt may go. **It is never handed to an
 agent**: `shift+enter`, ✉ Send (from the editor or the context menu) and
@@ -498,7 +503,7 @@ same checkboxes and the same three radios, laid out down instead of across.
 Title
 fix the drop path
 
-☐ 🍏 Quick win   ☑ 💎 High value   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☐ ℹ Info   ☑ ⚑ Flag
+☐ 🍏 Quick win   ☑ 💎 High value   Priority  (•) none   ( ) △ high   ( ) ▲ critical   ☐ ｉ Info   ☑ ⚑ Flag
 ⚑ note  blocked until the api rename lands
 
 Prompt
@@ -525,16 +530,16 @@ everything that can grow.)
 are one estimate read from both ends, and a hand that has just answered "cheap"
 is one `→` away from answering "and worth it".
 
-**☐ ℹ Info** sits just before the flag: like the flag it is about how to *read*
+**☐ ｉ Info** sits just before the flag: like the flag it is about how to *read*
 the prompt rather than how to rank it, and the flag stays last because it is the
 segment that opens something beneath it.
 
 A pane a little under the full width first narrows the gaps and keeps every word
-(the full bar is 106 cells; the snug one fits a 100-cell pane). A narrow pane
-drops the bar's words and keeps its glyphs (`☐ 🍏  ☐ 💎  ( ) –  ( ) △  ( ) ▲  ☐ ℹ
+(the full bar is 107 cells; the snug one fits a 100-cell pane exactly). A narrow pane
+drops the bar's words and keeps its glyphs (`☐ 🍏  ☐ 💎  ( ) –  ( ) △  ( ) ▲  ☐ ｉ
 ☐ ⚑`), a narrower one closes the space inside each segment (`☐🍏  ☐💎  ( )–
-( )△  ( )▲  ☐ℹ  ☐⚑`), and the narrowest takes the gaps down to one cell
-(`☐🍏 ☐💎 ( )– ( )△ ( )▲ ☐ℹ ☐⚑`, 28 cells, which fits a 30-cell pane). It never
+( )△  ( )▲  ☐ｉ  ☐⚑`), and the narrowest takes the gaps down to one cell
+(`☐🍏 ☐💎 ( )– ( )△ ( )▲ ☐ｉ ☐⚑`, 29 cells, which fits a 30-cell pane). It never
 drops a segment and it never wraps, for the same reason — it sits on a
 hit-tested row, and a bar that wrapped would put the prompt editor one line below
 where every click on it is aimed.
@@ -878,7 +883,7 @@ on the prompt you pointed at.
 │ (•) Priority: none              │
 │ ( ) Priority: △ high            │
 │ ( ) Priority: ▲ critical        │
-│ ☐ ℹ Info (a note)               │
+│ ☐ ｉ Info (a note)              │
 │ ☑ ⚑ Flag: blocked on the api    │
 │ ✎ Edit flag note…               │
 │ ✓ Select             ctrl+space │
@@ -929,7 +934,7 @@ one was to open the editor and find the annotation bar: a full round trip
 through a form, to change a fact about a row you were already looking at.
 
 They are the editor's controls, in the editor's glyphs, laid out down instead of
-across. **☐ 🍏 Quick win**, **☐ 💎 High value**, **☐ ℹ Info** and **☐ ⚑ Flag**
+across. **☐ 🍏 Quick win**, **☐ 💎 High value**, **☐ ｉ Info** and **☐ ⚑ Flag**
 are checkboxes and toggle. The three
 **Priority** rows are radios and set exactly their level, so pressing `▲ critical` on a prompt that
 is already critical leaves it there rather than switching it off — and `none` is
@@ -1002,7 +1007,7 @@ cats-todo add --priority critical fix the … # → marked critical
 cats-todo add --fruit bump the version …    # → marked 🍏 low-hanging fruit
 cats-todo add --high-value split the store …  # → marked 💎 high value
 cats-todo add --flag="waiting on the api" …  # → flagged, with a note
-cats-todo add --info the api returns 204 on …  # → ℹ a note, never sent to an agent
+cats-todo add --info the api returns 204 on …  # → ｉ a note, never sent to an agent
 git log -p | cats-todo add -t "review this diff"   # → the prompt from piped stdin
 ```
 
@@ -1018,7 +1023,7 @@ first line is a diff header.
 
 `--priority`, `--fruit`, `--high-value`, `--info` and `--flag` set the prompt's
 [annotations](#annotations) (`critical`, `high`, `none`; the `🍏` quick-win mark;
-the `💎` high-value gem; the `ℹ` info mark; and the `⚑` flag), so a prompt captured mid-firefight
+the `💎` high-value gem; the `ｉ` info mark; and the `⚑` flag), so a prompt captured mid-firefight
 arrives already marked rather than needing to be opened afterwards to say so:
 
 ```sh

@@ -6376,6 +6376,13 @@ func (m model) viewPrompt() string {
 			continue
 		}
 		glyph, st, _ := sl.mark(td)
+		// A mark with its own field (the info chip) draws only its glyph in
+		// that style; its words go in the info grey, or the blue field would
+		// run the length of the label.
+		if _, bare := st.GetBackground().(lipgloss.NoColor); !bare {
+			meta += " · " + st.Render(glyph) + infoStyle.Render(" "+label)
+			continue
+		}
 		if glyph != "" {
 			label = glyph + " " + label
 		}

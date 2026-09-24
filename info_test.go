@@ -7,9 +7,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
-// TestInfoPromptsRefuseToLeave pins the rule the ℹ mark exists for: a note is
+// TestInfoPromptsRefuseToLeave pins the rule the ｉ mark exists for: a note is
 // never handed to an agent. Both keyboard roads — a drop and a schedule — are
 // refused in words that name the mark as the way out, mirroring the frozen
 // refusal (TestFrozenPromptsRefuseToLeave), with a live client so the socket
@@ -112,5 +114,47 @@ func TestInfoRoundTripsAndStaysOutOfTheFile(t *testing.T) {
 	}
 	if strings.Contains(string(raw), `"info"`) {
 		t.Errorf("an unmarked todo wrote an info key:\n%s", raw)
+	}
+}
+
+// TestInfoMarkIsAChip pins what makes the info mark findable on a row: it is
+// as wide as the emoji it sits beside and it carries its own field — and on a
+// closed row it gives the field up, receding like the other marks. It also
+// pins withInfoChips' contract: splitting a label around the glyph changes
+// neither its text nor its width, so the bar's hit-test spans and the menu's
+// box still match what is drawn.
+func TestInfoMarkIsAChip(t *testing.T) {
+	if w, want := lipgloss.Width(infoGlyph), lipgloss.Width(fruitGlyph); w != want {
+		t.Errorf("info glyph is %d cells, want %d like the apple beside it", w, want)
+	}
+
+	glyph, st, sel := infoMark(Todo{Info: true})
+	if glyph != infoGlyph {
+		t.Fatalf("infoMark glyph = %q, want %q", glyph, infoGlyph)
+	}
+	for name, s := range map[string]lipgloss.Style{"ordinary": st, "selected": sel} {
+		if _, bare := s.GetBackground().(lipgloss.NoColor); bare {
+			t.Errorf("%s info mark has no field of its own", name)
+		}
+		if !s.GetItalic() {
+			t.Errorf("%s info mark is not italic", name)
+		}
+	}
+
+	_, closed, _ := infoMark(Todo{Info: true, Done: true})
+	if _, bare := closed.GetBackground().(lipgloss.NoColor); !bare {
+		t.Error("a closed row's info mark kept its field; it should recede")
+	}
+
+	label := "☑ " + infoGlyph + " Info"
+	out := withInfoChips(menuRowStyle, label)
+	if got := ansi.Strip(out); got != label {
+		t.Errorf("withInfoChips text = %q, want %q", got, label)
+	}
+	if lipgloss.Width(out) != lipgloss.Width(label) {
+		t.Errorf("withInfoChips width = %d, want %d", lipgloss.Width(out), lipgloss.Width(label))
+	}
+	if chip := infoChipStyle.Render(infoGlyph); !strings.Contains(out, chip) {
+		t.Errorf("withInfoChips did not draw the glyph as the chip: %q", out)
 	}
 }

@@ -710,6 +710,16 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 			if selected {
 				st = an.selStyle
 			}
+			// A mark that paints its own field (the info chip) keeps it on
+			// the highlighted row — the field is the mark, and onRow would
+			// swap it for the row's. Its trailing space is rendered apart so
+			// the chip's field stops at the glyph and the gap to the next
+			// mark still takes the row's field.
+			if _, bare := st.GetBackground().(lipgloss.NoColor); !bare {
+				r.WriteString(st.Render(an.text))
+				r.WriteString(onRow(lipgloss.NewStyle(), selected).Render(" "))
+				continue
+			}
 			r.WriteString(onRow(st, selected).Render(an.text + " "))
 		}
 		r.WriteString(highlightName(it.name, s.matched, selected, it.strike, it.dim))

@@ -69,6 +69,16 @@ const (
 	// started, which leaves it a hair off colWarn's 43° so the two stay separable
 	// by hue and not only by paleness.
 	colInfo = "#6ea9d8"
+	// The info chip's field and letter. A deeper, more saturated blue than
+	// colInfo rather than colInfo itself, for two reasons: white on colInfo is
+	// under 3:1, too little for a single italic letter to survive; and colInfo
+	// is the flag pennant's foreground one slot to the right, and a field of
+	// the very same blue beside it would read as one mark drawn twice. This one
+	// is the blue of a system info badge — white on it clears 5:1 — and the
+	// pennant is an outline in a paler tone, so the two separate by shape and
+	// by weight before hue comes into it.
+	colInfoChip   = "#2f6db8"
+	colInfoChipFg = "#ffffff"
 	// The attachment hue, and the app's answer to "which color means images"
 	// wherever that question comes up (today: the form toolbar's ❐ Images chip).
 	// It is colInfo's sibling by construction — same lightness (64%) and the same
@@ -358,11 +368,22 @@ var (
 	// than an emoji, so unlike the apple it can take a foreground at all, which
 	// is what lets it recede on a closed row instead of going quiet (flagMark).
 	flagStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colInfo))
-	// The info mark. Deliberately not colInfo despite the name: that blue is
-	// the flag's, and the two sit side by side. colMuted is the grey of
-	// secondary text, which is the claim the mark makes — this row is a note,
-	// not an argument for attention (see infoMark).
+	// The info mark's words — "info — a note, not for agents" on the prompt
+	// view, the checked segment on the form's bar. colMuted is the grey of
+	// secondary text, which is the claim the words make: this row is a note,
+	// not an argument for attention. The glyph itself is drawn as a chip
+	// (infoChipStyle below), not in this.
 	infoStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colMuted))
+	// The info glyph's chip: white italic on colInfoChip. Bold so the letter
+	// holds its own against a saturated field rather than thinning into it.
+	//
+	// The field is what makes the mark findable (see infoGlyph); the italic is
+	// what makes it read as "information" rather than as a stray letter i —
+	// the same convention the ℹ️ road sign and every OS info badge use.
+	infoChipStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colInfoChipFg)).
+			Background(lipgloss.Color(colInfoChip)).
+			Bold(true).Italic(true)
 )
 
 // The annotation glyphs (see annotations.go for the columns they live in).
@@ -398,12 +419,27 @@ const (
 	// wide (East Asian Ambiguous, like the triangles and the badge), so a row
 	// wearing all three marks still costs what the packing promised.
 	flagGlyph = "⚑"
-	// The info mark: the INFORMATION SOURCE letter, drawn without the emoji
-	// variation selector so it stays a one-cell text glyph that takes a
-	// foreground (a terminal that insists on the emoji form still draws it,
-	// just in its own colour). It is the "i" everyone already reads as
-	// "for your information", which is the whole of what the mark says.
-	infoGlyph = "ℹ"
+	// The info mark: a FULLWIDTH LATIN SMALL LETTER I, drawn as a chip —
+	// white, bold and italic on a solid blue field (infoChipStyle), which is
+	// the "i" everyone already reads as "for your information".
+	//
+	// It used to be the INFORMATION SOURCE letter (ℹ) in muted grey, and it
+	// vanished beside the apple and the gem: those are two-cell pictures that
+	// paint themselves, and a one-cell grey letter next to them read as a stray
+	// character rather than a mark. The chip is how a text glyph gets the same
+	// weight — the field supplies the mass an emoji gets from its own colours.
+	//
+	// Fullwidth rather than a plain "i" plus a space, because the field then
+	// covers exactly two cells with the letter centred in them: a square badge
+	// the size of the emoji beside it. "i " would have put the letter hard
+	// against the left edge of its own field. Every width in the program is
+	// measured with lipgloss.Width, which counts this rune as the two cells it
+	// is (East Asian Fullwidth), so the packing and the bar tiers need no help.
+	//
+	// The status-line refusals still spell it "ℹ Info" (infoSendWhy): they are
+	// words in a sentence, drawn in one style, where a chip has no field to sit
+	// on.
+	infoGlyph = "ｉ"
 )
 
 var (
