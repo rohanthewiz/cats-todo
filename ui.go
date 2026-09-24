@@ -1820,7 +1820,9 @@ func (m model) listActions() []listAction {
 		// which also leaves every button a tab or a hand already knows where
 		// it was. Tinted colBrown, a hue no other chip speaks, since this is
 		// the only chip that leads to another page rather than acting here.
-		{label: "» Next", hint: "ctrl+g", tint: colBrown},
+		// "Next List" rather than a bare "Next": beside Send and Export, "Next"
+		// read as a step forward through the backlog, not as the name of a page.
+		{label: "» Next List", hint: "ctrl+g", tint: colBrown},
 	}
 }
 

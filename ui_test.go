@@ -206,8 +206,8 @@ func TestActionBarRender(t *testing.T) {
 		}
 	}
 
-	// Six labelled chips (» Next joined the five) need just under sixty
-	// columns; 64 has the words but not the chords.
+	// Six labelled chips (» Next List joined the five) need exactly 64
+	// columns — the words but not the chords.
 	m.width = 64
 	narrow := m.actionBar()
 	if got := m.barTier(); got != tierLabels {

@@ -309,10 +309,14 @@ func (p *nextPage) resize(width, height int) {
 
 // rebuild turns the items into rows, each cut to the pane.
 //
-// The row is the ID and then as much of the item's text as the line holds. The
-// ID is the only badge: it is what a prompt made from the item cites, and its
-// hue carries the item's value (bright for high, pale for medium, dim for low)
-// so the eye can find the valuable ones without a column spent on the word.
+// The row is the ID, a value mark, and then as much of the item's text as the
+// line holds. The ID is the only badge: it is what a prompt made from the item
+// cites. Its hue follows the item's value (bright for high, pale for medium,
+// dim for low), but a hue alone was too quiet to read the value from — the
+// three sit close together on the warm side of the ramp — so the value also
+// gets a glyph of its own in the annotation slot after the ID (see
+// nextValueMark). Every row spends the same two cells on it, so the text column
+// stays straight and the marks line up to be scanned down the page.
 //
 // The text is cut here rather than left to the terminal: a row that wrapped
 // would push every row under it a line lower than rowAtLine believes, and hand
@@ -335,7 +339,8 @@ func (p *nextPage) rebuild() {
 		flat := collapseLines(it.Text)
 		name := flat
 		if p.width > 0 {
-			room := p.width - indentWidth - lipgloss.Width(it.ID) - 2
+			// ID + its space, then the value mark + its space.
+			room := p.width - indentWidth - lipgloss.Width(it.ID) - 1 - nextValueMarkWidth - 1
 			if overflows {
 				room -= 8 // "▾ 123" and the pad before it
 			}
@@ -345,6 +350,7 @@ func (p *nextPage) rebuild() {
 			name:       name,
 			badge:      it.ID,
 			badgeStyle: nextValueStyle(it.Value),
+			annots:     []annotMark{nextValueMark(it.Value)},
 			// The haystack is the whole item, not the cut row, so a query finds
 			// words from past the edge of the pane — plus the ID, the value and
 			// the section, so "N-014", "high" and "roadmap" all narrow the page.
@@ -368,6 +374,48 @@ func nextValueStyle(v string) lipgloss.Style {
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(colDim))
 }
+
+// nextValueMarkWidth is the cells every row's value mark takes, whatever the
+// value: the gem is two cells wide, so the one-cell diamonds are padded to
+// match it and an unrated item gets two blanks.
+const nextValueMarkWidth = 2
+
+// nextValueMark is the item's value drawn as a glyph, a descending ramp of one
+// shape:
+//
+//	💎  high     the backlog's own High value gem — the same fact, the same mark
+//	◆   medium   a solid diamond in straw: the gem's shape without its sparkle
+//	◇   low      the diamond's outline in the dim grey — present, but hollow
+//	    unrated  nothing, so an item the skill has not scored makes no claim
+//
+// The medium step is a text glyph rather than a "dimmer gem" because the gem
+// is an emoji: terminals draw it in its own colours and ignore the foreground,
+// so it cannot be faded. ◆ and ◇ are text, so the palette reaches them, and
+// the solid → hollow step keeps them apart even where colour is not seen.
+func nextValueMark(v string) annotMark {
+	var glyph string
+	st := lipgloss.NewStyle()
+	switch v {
+	case "high":
+		glyph = valueGlyph
+		st = valueStyle
+	case "medium":
+		glyph = nextMediumGlyph
+		st = st.Foreground(lipgloss.Color(colStraw))
+	case "low":
+		glyph = nextLowGlyph
+		st = st.Foreground(lipgloss.Color(colDim))
+	}
+	// Pad to the fixed width so the text starts in the same column on every
+	// row (the diamonds are East Asian Ambiguous, one cell like the triangles).
+	glyph += strings.Repeat(" ", max(nextValueMarkWidth-lipgloss.Width(glyph), 0))
+	return annotMark{text: glyph, style: st, selStyle: st}
+}
+
+const (
+	nextMediumGlyph = "◆"
+	nextLowGlyph    = "◇"
+)
 
 // counts is the heading's tally: how many items each listed section holds. An
 // empty section is left out rather than counted as "0 roadmap" — a freshly

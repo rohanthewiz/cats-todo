@@ -761,7 +761,7 @@ it, and is counted: the text is the part with the value.
 
 A project that keeps a living list of follow-ups — `ai_docs/todo/next-list.md`,
 the file the `/next-list` and `/sess-save` skills maintain — can start prompts
-straight from it. `ctrl+g`, or the list bar's **» Next** chip, opens it as a
+straight from it. `ctrl+g`, or the list bar's **» Next List** chip, opens it as a
 page of its own:
 
 ```
@@ -772,10 +772,11 @@ Next list  ai_docs/todo/next-list.md · 24 open · 3 roadmap
   ✚ New prompt enter   ↻ Refresh ctrl+r   ← Back esc
 
 Open
-❯ N-001 Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions run inside Cats.app, where GUI au…
-  N-003 A plugin started by hand from a shell (e.g. `cats-todo` typed at a prompt) has no `CATS_PLUG…
+❯ N-001 ◆  Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions run inside Cats.app, where G…
+  N-003 ◇  A plugin started by hand from a shell (e.g. `cats-todo` typed at a prompt) has no `CATS_P…
+  N-017 💎 …
 Roadmap
-  N-019 …
+  N-019 ◇  …
 ```
 
 Only **Open** and **Roadmap** are listed. Non-goals and Closed hold items too,
@@ -785,8 +786,22 @@ A row here is laid out differently from a backlog row. It is **not** split
 into a title and a dimmer body, because a next-list item has no title: its
 first sentence is just the start of a paragraph. Instead the row is the item's
 ID followed by its own text, flattened onto one line and cut only where the
-pane ends. The ID's colour shows the item's value: yellow for high, straw for
-medium, grey for low. Typing filters across the whole item, including text
+pane ends. Between the ID and the text is a mark for the item's value:
+
+| Mark | Value | |
+|---|---|---|
+| 💎 | high | the backlog's own **High value** gem, since it is the same fact |
+| ◆ | medium | a solid diamond in straw: the gem's shape without its sparkle |
+| ◇ | low | the diamond's outline in grey: there, but hollow |
+| (blank) | unrated | an item nobody has scored makes no claim |
+
+Medium could not be a dimmed gem. The gem is an emoji, and terminals draw emoji
+in their own colours whatever foreground they are given. The diamonds are text,
+so the palette reaches them, and the step from solid to hollow keeps them apart
+even where the colour is not seen. Each mark takes the same two cells, so the
+text starts in the same column on every row. The ID's colour follows the value
+too (yellow, straw, grey), but that alone was too subtle to read the value from.
+Typing filters across the whole item, including text
 past the edge of the row, as well as the ID, the value and the section name,
 so `N-014`, `high` and `roadmap` all work as queries.
 

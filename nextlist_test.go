@@ -249,13 +249,56 @@ func TestNextListMissingFileSaysSo(t *testing.T) {
 	}
 }
 
-// TestNextListChipOnTheBar: the list's » Next chip opens the page.
+// TestNextListChipOnTheBar: the list's » Next List chip opens the page.
 func TestNextListChipOnTheBar(t *testing.T) {
 	m, _ := nextModel(t, sampleNextList)
 	m.rebuildList()
 	chip := m.actionChips()[actionNext]
 	next, _ := m.Update(tea.MouseClickMsg{X: chip.start + 1, Y: actionBarRow, Button: tea.MouseLeft})
 	if m = next.(model); m.stage != stageNextList {
-		t.Fatalf("clicking » Next: stage = %v, want the Next List page", m.stage)
+		t.Fatalf("clicking » Next List: stage = %v, want the Next List page", m.stage)
+	}
+}
+
+// TestNextListValueMarks pins the value glyph each row wears after its ID. The
+// value used to ride on the ID's hue alone, and three warm hues side by side
+// were too close to read it from, so it gets a mark of its own. Every mark is
+// the same width, so the text starts in the same column on every row.
+func TestNextListValueMarks(t *testing.T) {
+	for v, want := range map[string]string{
+		"high":   valueGlyph,
+		"medium": nextMediumGlyph + " ",
+		"low":    nextLowGlyph + " ",
+		"":       "  ",
+	} {
+		mk := nextValueMark(v)
+		if mk.text != want {
+			t.Errorf("value %q: mark %q, want %q", v, mk.text, want)
+		}
+		if w := lipgloss.Width(mk.text); w != nextValueMarkWidth {
+			t.Errorf("value %q: mark is %d cells, want %d", v, w, nextValueMarkWidth)
+		}
+	}
+
+	m, _ := nextModel(t, sampleNextList)
+	m = openNext(t, m)
+	textCol := -1
+	for _, ln := range strings.Split(ansi.Strip(m.viewNextList()), "\n") {
+		i := strings.Index(ln, "N-00")
+		if i < 0 {
+			continue
+		}
+		// ID (5 cells) + space + mark (2) + space.
+		col := lipgloss.Width(ln[:i]) + 5 + 1 + nextValueMarkWidth + 1
+		if textCol < 0 {
+			textCol = col
+		}
+		body := ansi.Cut(ln, col, col+1)
+		if col != textCol || body == " " || body == "" {
+			t.Errorf("row %q: text does not start at column %d", ln, textCol)
+		}
+	}
+	if textCol < 0 {
+		t.Fatal("no rows rendered")
 	}
 }
