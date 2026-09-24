@@ -302,3 +302,120 @@ func TestNextListValueMarks(t *testing.T) {
 		t.Fatal("no rows rendered")
 	}
 }
+
+// TestNextListSendOpensThePicker is ✉ Send (shift+enter): the highlighted item
+// goes to the backlog's own target picker as a prompt citing its ID, with
+// nothing written to either backlog, and esc from the picker comes back to this
+// page rather than to the list.
+func TestNextListSendOpensThePicker(t *testing.T) {
+	m, root := nextModel(t, sampleNextList)
+	m.client = &catsClient{socket: "/nonexistent/cats.sock"} // clears the socket guard
+	m = openNext(t, m)
+	m = pressNext(t, m, "down") // N-002
+
+	next, _ := m.Update(enterKey(tea.ModShift))
+	m = next.(model)
+	if m.stage != stageTarget {
+		t.Fatalf("shift+enter: stage = %v, want the target picker", m.stage)
+	}
+	td, ok := m.dropSubject()
+	if !ok || !strings.HasPrefix(td.Prompt, "Next list item N-002 ") || !strings.Contains(td.Prompt, "Seeds ship stale prompts.") {
+		t.Errorf("picker is sending %q, want N-002's cited text", td.Prompt)
+	}
+	if !strings.Contains(ansi.Strip(m.viewTarget()), "N-002") {
+		t.Errorf("picker heading does not name the item:\n%s", ansi.Strip(m.viewTarget()))
+	}
+	if len(m.targets) == 0 {
+		t.Fatal("picker has no targets, want at least the new-session row")
+	}
+
+	m = pressNext(t, m, "esc")
+	if m.stage != stageNextList || m.nextDrop != nil {
+		t.Errorf("esc from the picker: stage=%v nextDrop=%v, want the Next List page and nothing pending", m.stage, m.nextDrop)
+	}
+	if it, _ := m.next.highlighted(); it.ID != "N-002" {
+		t.Errorf("back on the page, highlight is on %q, want N-002 still", it.ID)
+	}
+
+	// alt+enter, the legacy spelling, and the chip do the same thing.
+	next, _ = m.Update(enterKey(tea.ModAlt))
+	if got := next.(model); got.stage != stageTarget {
+		t.Errorf("alt+enter: stage = %v, want the target picker", got.stage)
+	}
+	chip := m.nextChips()[nextActionSend]
+	next, _ = m.Update(tea.MouseClickMsg{X: chip.start + 1, Y: nextBarRow, Button: tea.MouseLeft})
+	if got := next.(model); got.stage != stageTarget {
+		t.Errorf("clicking ✉ Send: stage = %v, want the target picker", got.stage)
+	}
+
+	if _, err := os.Stat(projectTodosPath(root)); !os.IsNotExist(err) {
+		t.Errorf("sending wrote a backlog (%v), want the item kept out of it", err)
+	}
+}
+
+// TestNextListSendDispatches follows a send through the picker: the model is
+// back on the page at once with the send in flight, and the result lands on
+// the page's heading — failure in red — without touching a backlog, since
+// there is no todo to mark done.
+func TestNextListSendDispatches(t *testing.T) {
+	m, root := nextModel(t, sampleNextList)
+	m.client = &catsClient{socket: "/nonexistent/cats.sock"}
+	m = openNext(t, m)
+	next, _ := m.Update(enterKey(tea.ModShift))
+	m = next.(model)
+
+	next, cmd := m.Update(pressKey("enter"))
+	m = next.(model)
+	if m.stage != stageNextList || !m.dropping || m.nextDrop != nil {
+		t.Fatalf("after choosing a target: stage=%v dropping=%v nextDrop=%v, want the page with a send in flight",
+			m.stage, m.dropping, m.nextDrop)
+	}
+	if !strings.Contains(m.next.note, "sending to ") {
+		t.Errorf("note = %q, want the send announced", m.next.note)
+	}
+	if cmd == nil {
+		t.Fatal("choosing a target returned no command")
+	}
+	res, ok := cmd().(dropResultMsg)
+	if !ok || res.nextID != "N-001" || res.err == nil {
+		t.Fatalf("drop result = %+v, want N-001 failing on the missing socket", res)
+	}
+
+	next, _ = m.Update(res)
+	m = next.(model)
+	if m.dropping || !m.next.noteErr || !strings.Contains(m.next.note, "send failed") {
+		t.Errorf("after the failure: dropping=%v note=%q noteErr=%v, want it said in red", m.dropping, m.next.note, m.next.noteErr)
+	}
+
+	// A success names the item and where it went.
+	next, _ = m.Update(dropResultMsg{desc: "a new claude session", mode: dropRun, nextID: "N-001"})
+	m = next.(model)
+	if m.next.noteErr || m.next.note != "N-001 dropped → a new claude session" {
+		t.Errorf("after a success: note = %q (err %v)", m.next.note, m.next.noteErr)
+	}
+	if _, err := os.Stat(projectTodosPath(root)); !os.IsNotExist(err) {
+		t.Errorf("a send wrote a backlog (%v), want nothing marked done", err)
+	}
+}
+
+// TestNextListSendRefusesInWords: with no cats socket, or nothing highlighted,
+// shift+enter stays on the page and says why on its heading.
+func TestNextListSendRefusesInWords(t *testing.T) {
+	m, _ := nextModel(t, sampleNextList)
+	m = openNext(t, m)
+	next, _ := m.Update(enterKey(tea.ModShift))
+	m = next.(model)
+	if m.stage != stageNextList || !strings.Contains(m.next.note, "socket unavailable") || !m.next.noteErr {
+		t.Errorf("no socket: stage=%v note=%q, want a refusal on the page", m.stage, m.next.note)
+	}
+
+	m.client = &catsClient{socket: "/nonexistent/cats.sock"}
+	for _, r := range "zzzqqq" {
+		m = pressNext(t, m, string(r))
+	}
+	next, _ = m.Update(enterKey(tea.ModShift))
+	m = next.(model)
+	if m.stage != stageNextList || !strings.Contains(m.next.note, "highlight an item first") {
+		t.Errorf("nothing matched: stage=%v note=%q, want a refusal on the page", m.stage, m.next.note)
+	}
+}

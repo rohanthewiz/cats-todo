@@ -18,7 +18,7 @@
 //
 //	╭ 🔍 query ───────────────────╮  15/15
 //
-//	  ✚ New prompt enter  ↻ Refresh ctrl+r  ← Back esc
+//	  ✚ New prompt enter  ✉ Send shift+enter  ↻ Refresh ctrl+r  ← Back esc
 //
 //	Open
 //	❯ N-001 Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions run insi…
@@ -28,6 +28,13 @@
 // into a title and a dimmer body. A next-list item has no title — its first
 // sentence is just the start of a paragraph — so the row is the item's own text,
 // flattened to one line and cut only where the pane runs out.
+//
+// An item can leave the page two ways. ✚ New prompt (enter) opens the add form
+// on it, to be tightened and kept in the backlog. ✉ Send (shift+enter) hands it
+// straight to an agent through the backlog's own target picker, as a one-off
+// prompt that is never written to any backlog: the item already has a home in
+// the file, and a backlog copy would be a second record of the same work for
+// someone to close. The agent is told the item's ID, so it can close it there.
 //
 // The file is re-read on open and on ↻ Refresh, never watched: it is edited in
 // another pane (by a session wrapping up, usually), and a refresh the user asks
@@ -232,9 +239,13 @@ type nextPage struct {
 	path  string
 	items []nextItem
 	err   string // why there is nothing to list; "" when items were read
-	note  string // the last refresh's outcome
-	list  fuzzyList
-	width int // the pane width the rows were cut to; see rebuild
+	note  string // the last action's outcome: a refresh, a refusal, a send
+	// noteErr draws the note as a failure: a send that failed, or one refused
+	// for want of a cats socket. Refusals the user can fix with a keystroke
+	// (nothing highlighted) stay in the ordinary colour.
+	noteErr bool
+	list    fuzzyList
+	width   int // the pane width the rows were cut to; see rebuild
 }
 
 // newNextPage reads the list under root and builds the page over it.
@@ -260,10 +271,16 @@ func (p *nextPage) reload(width, height int) {
 		}
 	}
 	if p.err != "" {
-		p.note = ""
+		p.say("", false)
 		return
 	}
-	p.note = fmt.Sprintf("refreshed · %d items", len(p.items))
+	p.say(fmt.Sprintf("refreshed · %d items", len(p.items)), false)
+}
+
+// say sets the heading's feedback line. The two fields change together so a
+// failed send's red cannot outlive it onto the next, unrelated note.
+func (p *nextPage) say(note string, isErr bool) {
+	p.note, p.noteErr = note, isErr
 }
 
 // highlighted is the item under the cursor.
@@ -440,6 +457,7 @@ func (p nextPage) counts() string {
 // Indexes into nextActions.
 const (
 	nextActionPrompt = iota
+	nextActionSend
 	nextActionRefresh
 	nextActionBack
 )
@@ -451,9 +469,15 @@ const (
 // ctrl+r means Refresh here, where on the list it is Import. The two never
 // meet — this page has nothing to import into, and the list has nothing to
 // refresh — and ctrl+r is the reload chord everywhere else a page is reloaded.
-func nextActions() []listAction {
+//
+// ✉ Send wears the list's own Send chip — label, tint and chord — because it
+// is the same act: shift+enter hands the highlighted thing to an agent on both
+// screens. It is a method only for the chord, which is spelled the way this
+// terminal can send it (modEnter).
+func (m model) nextActions() []listAction {
 	return []listAction{
 		{label: "✚ New prompt", hint: "enter", tint: colInfo, needsSel: true},
+		{label: "✉ Send", hint: m.modEnter(), tint: colAccent, needsSel: true},
 		{label: "↻ Refresh", hint: "ctrl+r", tint: colCyan},
 		{label: "← Back", hint: "esc", tint: colStraw},
 	}
@@ -461,7 +485,7 @@ func nextActions() []listAction {
 
 // nextBarTier is how much of each chip the bar prints at this width.
 func (m model) nextBarTier() chipTier {
-	return barTier(nextActions(), m.width, indentWidth)
+	return barTier(m.nextActions(), m.width, indentWidth)
 }
 
 // nextChips lays the bar out — actionChips' arithmetic over this page's
@@ -470,7 +494,7 @@ func (m model) nextChips() []actionChip {
 	tier := m.nextBarTier()
 	var chips []actionChip
 	x := indentWidth
-	for i, a := range nextActions() {
+	for i, a := range m.nextActions() {
 		if i > 0 {
 			x += chipGap(tier)
 		}
@@ -486,7 +510,7 @@ func (m model) nextChips() []actionChip {
 // list bar's rule: the chip answers "why did nothing happen" before it is
 // pressed.
 func (m model) nextBar() string {
-	acts := nextActions()
+	acts := m.nextActions()
 	_, hasSel := m.next.highlighted()
 	tier := m.nextBarTier()
 	gap := strings.Repeat(" ", chipGap(tier))
@@ -551,12 +575,114 @@ func (m model) promptFromNext() (tea.Model, tea.Cmd) {
 	it, ok := m.next.highlighted()
 	if !ok {
 		// Refuse in words: an empty page, or a query that matched nothing.
-		m.next.note = "highlight an item first — ↑/↓ to choose one"
+		m.next.say("highlight an item first — ↑/↓ to choose one", false)
 		return m, nil
 	}
-	title := it.ID + " " + truncate(collapseLines(it.Text), 60)
-	prompt := "Next list item " + it.ID + " (" + filepath.ToSlash(nextListRel) + "):\n\n" + it.Text
-	return m.beginAddWith(title, prompt)
+	return m.beginAddWith(nextItemTitle(it), nextItemPrompt(it))
+}
+
+// nextItemTitle and nextItemPrompt are what an item becomes as a prompt, the
+// same whether it goes through the add form or straight to an agent: the ID
+// and opening words as the title (which also names a sent item's tab, and its
+// branch on a worktree drop), and the text under a line citing where it came
+// from.
+func nextItemTitle(it nextItem) string {
+	return it.ID + " " + truncate(collapseLines(it.Text), 60)
+}
+
+func nextItemPrompt(it nextItem) string {
+	return "Next list item " + it.ID + " (" + filepath.ToSlash(nextListRel) + "):\n\n" + it.Text
+}
+
+// nextSend is a Next List item on its way to an agent: the prompt the picker
+// sends (a Todo, because every drop path speaks Todo, but one with no ID and
+// no store) and the item's own ID, which the result reports back.
+type nextSend struct {
+	id   string
+	todo Todo
+}
+
+// sendFromNext is ✉ Send (shift+enter): open the target picker on the
+// highlighted item, as a prompt that exists only for this drop.
+//
+// The item is not saved to a backlog first, which is where this parts from the
+// form's ✉ Send (save, then drop). Saving would leave a backlog row for work
+// the file already tracks, and an esc out of the picker would leave it there
+// with nothing sent. So the prompt rides in nextDrop instead of a todoRef, and
+// with no row there is nothing to mark done after the drop: the item is closed
+// in the file, by the agent that did it or by the next session wrap.
+//
+// The refusals are the list's own (startDrop's), said on this page's heading
+// rather than in the status line, which is not on this screen. A Next List
+// item is never frozen or info-marked, so those two guards have no counterpart.
+func (m model) sendFromNext() (tea.Model, tea.Cmd) {
+	it, ok := m.next.highlighted()
+	switch {
+	case !ok:
+		m.next.say("highlight an item first — ↑/↓ to choose one", false)
+		return m, nil
+	case m.dropping:
+		m.next.say("a drop is still in progress…", false)
+		return m, nil
+	case m.client == nil:
+		m.next.say("cats control socket unavailable — can't send to a session", true)
+		return m, nil
+	}
+	m.nextDrop = &nextSend{id: it.ID, todo: Todo{Title: nextItemTitle(it), Prompt: nextItemPrompt(it)}}
+	m.dropTodo = todoRef{}
+	m.pickForSchedule = false
+	m.targets, m.targetList = m.buildTargets()
+	m.stage = stageTarget
+	return m, textinput.Blink
+}
+
+// chooseNextTarget is chooseTarget's ending for a Next List item: the drop is
+// dispatched the same way, from the same pendingAction, but the model goes back
+// to the page it came from, and the result carries the item's ID instead of a
+// todoRef (see finishNextDrop).
+//
+// A new session opens in the list's project, which is the directory the item
+// was written about; the launch's own directory is the fallback, and the same
+// directory in every case but a --global launch from outside a project.
+func (m model) chooseNextTarget(target dropTarget, mode dropMode) (tea.Model, tea.Cmd) {
+	id, td := m.nextDrop.id, m.nextDrop.todo
+	m.nextDrop = nil
+	m.dropping = true
+	m.stage = stageNextList
+	m.next.resize(m.width, m.height) // the pane may have changed under the picker
+	verb := "sending to "
+	if mode == dropPaste {
+		verb = "pasting into "
+	}
+	m.next.say(verb+targetDesc(target)+"…", false)
+	act := pendingAction{
+		todo:       td,
+		target:     target,
+		mode:       mode,
+		cwd:        firstNonEmpty(m.next.root, m.ctx.projectDir()),
+		anchorPane: m.ctx.OwnPaneID,
+	}
+	client, desc := m.client, targetDesc(target)
+	return m, func() tea.Msg {
+		return dropResultMsg{desc: desc, mode: mode, nextID: id, err: performDrop(client, act)}
+	}
+}
+
+// finishNextDrop reports a Next List send. The status line gets it too, since
+// the user may have left the page by the time a slow new-session drop lands;
+// the page's heading gets it because that is the line in view while they are
+// still on it.
+func (m model) finishNextDrop(msg dropResultMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		line := "send failed: " + msg.err.Error()
+		m.setStatus(line, true)
+		m.next.say(line, true)
+		return m, nil
+	}
+	line := msg.nextID + " " + dropDoneStatus(msg)
+	m.setStatus(line, false)
+	m.next.say(line, false)
+	return m, nil
 }
 
 // updateNextList is the page's key loop: the list's keys, the bar's chords, and
@@ -595,10 +721,14 @@ func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.promptFromNext()
+	case "shift+enter", "alt+enter":
+		// The list's drop chord and its legacy alias (see modEnter), meaning
+		// the same thing here: this item, to an agent.
+		return m.sendFromNext()
 	case "ctrl+r":
 		return m.refreshNextList()
 	}
-	m.next.note = ""
+	m.next.say("", false)
 	return m, m.next.list.editQuery(msg)
 }
 
@@ -615,6 +745,8 @@ func (m model) clickNext(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			switch i {
 			case nextActionPrompt:
 				return m.promptFromNext()
+			case nextActionSend:
+				return m.sendFromNext()
 			case nextActionRefresh:
 				return m.refreshNextList()
 			case nextActionBack:
@@ -653,6 +785,9 @@ func (m model) viewNextList() string {
 	}
 	if m.next.note != "" {
 		side, style = m.next.note, okStyle
+		if m.next.noteErr {
+			style = errStyle
+		}
 	}
 	if m.width > 0 {
 		if room := m.width - lipgloss.Width(titleStyle.Render(title)) - 4; room > 1 {
@@ -667,7 +802,7 @@ func (m model) viewNextList() string {
 	segs := []string{"dbl-click new prompt", "↑/↓ choose", "type to filter"}
 	if m.nextBarTier() != tierHints {
 		// The chips stopped teaching their chords, so the footer takes over.
-		segs = append([]string{"enter new prompt", "ctrl+r refresh", "esc back"}, segs...)
+		segs = append([]string{"enter new prompt", m.modEnter() + " send", "ctrl+r refresh", "esc back"}, segs...)
 	}
 	b.WriteString(footerStyle.Render(m.fitFooter(segs)))
 	return b.String()

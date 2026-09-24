@@ -769,7 +769,7 @@ Next list  ai_docs/todo/next-list.md · 24 open · 3 roadmap
 
 │ 🔍 type to filter                  │  27/27
 
-  ✚ New prompt enter   ↻ Refresh ctrl+r   ← Back esc
+  ✚ New prompt enter   ✉ Send shift+enter   ↻ Refresh ctrl+r   ← Back esc
 
 Open
 ❯ N-001 ◆  Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions run inside Cats.app, where G…
@@ -811,6 +811,26 @@ starts with `Next list item N-014 (ai_docs/todo/next-list.md):` and is followed
 by the item's text as written, sub-bullets included, so the agent that gets it
 knows which item it is working on and can close it in the file. Nothing is
 written until you save; `esc` there throws the draft away.
+
+`shift+enter` (or `alt+enter`, or **✉ Send**) sends the item straight to an
+agent instead. It is the list's own drop chord, and it opens the same target
+picker a backlog prompt gets: a new session, a new session on a fresh
+worktree, or a running agent pane, with `enter` to run and `shift+enter` to
+paste and pause. The prompt is the same one the form would have been
+prefilled with, citation and all, and a new session opens in the project the
+list belongs to.
+
+A sent item is **not** saved to a backlog, which is where this differs from
+the form's ✉ Send (save, then drop). The item already has a home in the file,
+and a backlog copy would be a second record of the same work, marked done
+after the drop and never looked at again. It would also stay behind if you
+backed out of the picker without sending anything. Closing the item is left to
+the file: the agent that did the work, or the next session wrap-up, moves it
+to Closed. `esc` in the picker comes back to this page, with the highlight
+still on the item. The outcome (`N-014 dropped → …`, or why it failed) is shown
+on the page's heading and in the list's status line, since a slow new-session
+drop may land after you have left the page. Without a cats control socket the
+page says so and stays put.
 
 The page reads the file when it opens and again on **↻ Refresh**
 (`ctrl+r`). It does not watch the file: the list is usually edited in another

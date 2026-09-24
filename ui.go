@@ -178,6 +178,11 @@ type dropResultMsg struct {
 	// failure this copy is what gets written back — as Missed, keeping the
 	// failure on the row instead of vanishing with the status line.
 	sched *Schedule
+	// nextID is the Next List item this drop sent ("N-014"), or "" for a
+	// backlog prompt. Such a drop has no todo to mark done, and its outcome
+	// is reported on the Next List page as well as in the status line (see
+	// finishNextDrop).
+	nextID string
 }
 
 // scheduleTickMsg is the schedule loop's heartbeat (see scheduleTick).
@@ -470,7 +475,12 @@ type model struct {
 	pendingClearCount int
 
 	// Target stage.
-	dropTodo   todoRef
+	dropTodo todoRef
+	// nextDrop is set while the picker is sending a Next List item rather
+	// than a backlog prompt (see sendFromNext). The item has no row in any
+	// store, so dropTodo cannot name it; the picker reads this prompt instead
+	// (dropSubject), and esc goes back to the Next List page, not the list.
+	nextDrop   *nextSend
 	targets    []dropTarget
 	targetList fuzzyList
 	// pickForSchedule flips the picker's meaning: enter stores the choice on
@@ -667,6 +677,9 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.fireDueSchedules(time.Time(msg)), scheduleTick())
 	case dropResultMsg:
 		m.dropping = false
+		if msg.nextID != "" {
+			return m.finishNextDrop(msg)
+		}
 		if msg.err != nil {
 			if msg.sched != nil {
 				// The claim took the schedule off disk before the fire; put
@@ -682,13 +695,7 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus("drop failed: "+msg.err.Error(), true)
 			return m, nil
 		}
-		status := "dropped → " + msg.desc
-		if msg.mode == dropPaste {
-			// Paused: the prompt is delivered but nothing is running yet, and
-			// the only place that can be said is here — the agent's pane looks
-			// exactly like a session someone typed into and walked away from.
-			status = "pasted → " + msg.desc + " · press enter there to run"
-		}
+		status := dropDoneStatus(msg)
 		// Handing a prompt to an agent is what "done" means here, so any successful
 		// drop closes the todo out — paste drops included. The prompt now lives in
 		// the agent's input where the user can see it; leaving a duplicate open in
@@ -1925,6 +1932,9 @@ func (m *model) backToList() {
 	// flag may only live for one list → schedule → picker traversal, or an
 	// esc out of the picker would leave the next manual drop scheduling.
 	m.pickForSchedule = false
+	// A Next List send ends here too, if one was mid-picker: left set, the
+	// next backlog drop would send the item instead of the highlighted prompt.
+	m.nextDrop = nil
 	// The import's pending bundle can be tens of megabytes of attachment bytes
 	// held in memory; an esc out of the confirm has decided not to write it, so
 	// it goes rather than sitting there until the next import replaces it.
@@ -1984,6 +1994,17 @@ func (m *model) storeFor(s scope) *store {
 
 func (m model) resolve(ref todoRef) (Todo, bool) {
 	return m.storeFor(ref.scope).find(ref.id)
+}
+
+// dropSubject is the prompt the target picker is sending: the Next List item
+// when one is being sent, else the backlog todo dropTodo names. Everything the
+// picker shows about "this prompt" reads it through here, so a Next List item
+// gets the same rows, warnings and heading a saved prompt would.
+func (m model) dropSubject() (Todo, bool) {
+	if m.nextDrop != nil {
+		return m.nextDrop.todo, true
+	}
+	return m.resolve(m.dropTodo)
 }
 
 // toggleSelected flips the highlighted todo between open and done — and back,
@@ -4284,7 +4305,7 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 	// particular prompt's options will and won't survive on them. The warning is
 	// on the row rather than in the status line afterwards, because the point of
 	// it is to be read before the choice, not after it.
-	td, _ := m.resolve(m.dropTodo)
+	td, _ := m.dropSubject()
 	flagNote := ""
 	if td.Session.hasLaunchFlags() {
 		flagNote = " · the session's model/effort flags are claude-only and won't be passed"
@@ -4369,14 +4390,28 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 	return targets, newFuzzyList("Filter targets…", items)
 }
 
+// leaveTarget is esc out of the picker: back to the screen the drop was begun
+// from. That is the list for a backlog prompt, and the Next List page for an
+// item sent from there, which is where the user was walking and where the
+// highlight is still parked on the item.
+func (m model) leaveTarget() (tea.Model, tea.Cmd) {
+	if m.nextDrop != nil {
+		m.nextDrop = nil
+		m.stage = stageNextList
+		m.next.resize(m.width, m.height)
+		return m, nil
+	}
+	m.backToList()
+	return m, nil
+}
+
 func (m model) updateTarget(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
 	case "esc":
-		m.backToList()
-		return m, nil
+		return m.leaveTarget()
 	case "up", "ctrl+p":
 		m.targetList.moveUp()
 		return m, nil
@@ -4414,6 +4449,9 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 	if idx < 0 || idx >= len(m.targets) {
 		return m, nil
 	}
+	if m.nextDrop != nil {
+		return m.chooseNextTarget(m.targets[idx], mode)
+	}
 	td, ok := m.resolve(m.dropTodo)
 	if !ok {
 		m.setStatus("could not find that prompt", true)
@@ -4448,6 +4486,18 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 		images:     m.storeFor(m.dropTodo.scope).imagePaths(td),
 		anchorPane: m.ctx.OwnPaneID,
 	})
+}
+
+// dropDoneStatus is the line a successful drop reports, shared by backlog and
+// Next List drops so both say the same thing about the same outcome.
+func dropDoneStatus(msg dropResultMsg) string {
+	if msg.mode == dropPaste {
+		// Paused: the prompt is delivered but nothing is running yet, and
+		// the only place that can be said is here — the agent's pane looks
+		// exactly like a session someone typed into and walked away from.
+		return "pasted → " + msg.desc + " · press enter there to run"
+	}
+	return "dropped → " + msg.desc
 }
 
 // performDropCmd runs the chosen drop in a goroutine (a tea.Cmd) so cats's
@@ -6482,7 +6532,7 @@ func (m model) viewPrompt() string {
 
 func (m model) viewTarget() string {
 	var b strings.Builder
-	td, _ := m.resolve(m.dropTodo)
+	td, _ := m.dropSubject()
 	title := firstNonEmpty(td.Title, firstLine(td.Prompt, 50))
 	heading, foot := "Drop into…", "enter drop & run · "+m.modEnter()+" drop & pause (don't submit) · esc back"
 	if m.pickForSchedule {
