@@ -4807,7 +4807,11 @@ func (m model) viewHeight() int {
 // block have their ANSI resets clobbered at the wrap points — the same hazard
 // the list's badges are written verbatim to avoid.
 func (m model) viewContent(td Todo) string {
-	body := td.Prompt
+	// Code is coloured here, in the prompt's own text and before anything is
+	// appended, so the session and attachment lines below can never be taken
+	// for part of an unclosed fence. See styleCodeSpans for why styling ahead
+	// of the wrap is safe.
+	body := styleCodeSpans(td.Prompt, promptCodeSpans(td.Prompt), viewCodeStyle)
 	// The session line goes above the attachments and below the body, in the
 	// same plain text for the same reason: this is one wrapped block, and a
 	// pre-styled span inside it loses its reset at the wrap points.

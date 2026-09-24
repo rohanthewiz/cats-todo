@@ -384,9 +384,10 @@ func repeatPromptSpaces(n int) []rune { return []rune(strings.Repeat(" ", max(n,
 
 // --- Rendering ------------------------------------------------------------------
 
-// promptEditorView is the prompt editor as drawn, with the selection and the
-// spell-check marks (spell.go) painted over it. With nothing selected and
-// nothing flagged it is the textarea's own view, untouched.
+// promptEditorView is the prompt editor as drawn, with the selection, the
+// spell-check marks (spell.go) and the code spans (promptcode.go) painted over
+// it. With nothing selected, flagged or coded it is the textarea's own view,
+// untouched.
 //
 // The highlight is an overlay rather than a re-render. Only the lines the
 // selection actually touches are rebuilt, and each of those keeps the editor's
@@ -400,7 +401,8 @@ func (m model) promptEditorView() string {
 	view := m.promptArea.View()
 	lo, hi, ok := m.promptSelSpan()
 	marks := m.promptSpellSpans()
-	if !ok && len(marks) == 0 && !m.carets.on {
+	code := promptCodeSpans(m.promptArea.Value())
+	if !ok && len(marks) == 0 && !m.carets.on && len(code) == 0 {
 		return view
 	}
 
@@ -466,6 +468,14 @@ func (m model) promptEditorView() string {
 		}
 
 		paints := spellPaintsFor(marks, dl, runes, gutter, base, hasSel, a, b)
+		// Code spans (promptcode.go) join the spell marks as runs of their
+		// own. They are cut around the selection and the underlines rather
+		// than the other way round, so the two older marks draw exactly as
+		// they did before code was coloured at all.
+		if len(code) > 0 {
+			paints = append(paints, codePaintsFor(code, dl, runes, gutter, base, hasSel, a, b, paints)...)
+			sortPromptPaints(paints)
+		}
 		// The column mode's extra carets (promptcarets.go) ride the same
 		// overlay. They are merged rather than appended: a caret can land inside
 		// a spell mark, and paintPromptSpans requires its runs not to overlap —

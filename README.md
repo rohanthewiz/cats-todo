@@ -1786,6 +1786,31 @@ your own words one per line to either of:
 first opens, and the panel's add rows write to them — creating the file, with a
 header explaining what it is, the first time.
 
+## Code in a prompt
+
+Prompts are written for an agent that reads Markdown, and the code in them —
+a command to run, a flag, a file name — is what a reader most wants to pick out.
+The editor and the read-only view (`ctrl+v`) both draw it in blue:
+
+- **inline code**: a run of backticks up to the next run of the same length on
+  the same line, backticks included — `` `go test ./...` ``. A run with no
+  partner is just a character. A span never crosses a line break, so an
+  unmatched backtick typed halfway through a prompt colours nothing below it;
+- **fenced blocks**: from a line that starts with three or more backticks
+  (an info string such as ` ```go ` is fine) to the next line that starts with
+  at least as many and has nothing else on it. Both fences are coloured with the
+  block. A fence not yet closed runs to the end of the prompt, as it does in
+  Markdown, so while a block is being typed everything below it is blue until
+  the closing fence goes in.
+
+The colour is only drawn. It does not change what is saved or sent, and the
+agent gets the backticks exactly as they were typed. Blue is the one cool hue in
+the palette, so code stands apart from prose by colour alone. There is no
+background or weight change to make a line jump as a span opens and closes under
+the caret. The selection and the spell underline win the cells they share with
+code, so both look as they always have. The spell check already skips backticked
+text, so the two rarely meet.
+
 ## Session options
 
 A drop used to deliver one thing: the prompt. *How* the receiving agent ran —
