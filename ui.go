@@ -292,6 +292,12 @@ type model struct {
 	// out, so the bar's ☑ and the words beneath it can never describe different
 	// states, and a save from any stop writes what is on screen.
 	flagInput textinput.Model
+	// autosave is the form's safety net (autosave.go): live while a form is
+	// open, stopped by backToList. autosaveEvery is its delay, read from
+	// settings.json at launch; zero means the autosave is off.
+	autosave      formAutosave
+	autosaveEvery time.Duration
+
 	formFocus int // the formField* stop holding the keys (title, prompt, annotation bar, flag note)
 	formErr   string
 	// formNote is the form's one non-error message, drawn on the same line
@@ -560,6 +566,7 @@ func newModel(ctx RunContext, project, global *store, client *catsClient) model 
 	pref := loadSettings()
 	m.spellOn = pref.spellcheck
 	m.orderByPriority, m.showFrozen = pref.orderByPriority, pref.showFrozen
+	m.autosaveEvery = pref.autosave
 	m.list = newFuzzyList("Type to filter prompts…", nil)
 	m.rebuildList()
 	return m
@@ -586,7 +593,17 @@ func (m model) Init() tea.Cmd {
 // The snapshot is skipped everywhere the editor's text is not live (see
 // editsPrompt), which is most of the program — the list stage must not pay two
 // copies of a prompt for every cursor blink.
+//
+// The autosave's watch (watchAutosave) runs on the result of both paths. It
+// needs the other stages too, because the form's ⚙ and image panels are stages
+// of their own and the session options edited there are part of what it saves.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	return watchAutosave(m.recordUndo(msg))
+}
+
+// recordUndo is Update's undo half: route the message, then commit what it did
+// to the prompt (see Update).
+func (m model) recordUndo(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !m.stage.editsPrompt() {
 		return m.route(msg)
 	}
@@ -629,6 +646,11 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// naming a prompt that is no longer under it.
 		m.clearHover()
 		return m, nil
+	case autosaveTickMsg:
+		// Above the stage switch, like the schedule tick: the form may be
+		// behind one of its own panels (images, ⚙, spelling, @ files) when the
+		// minute runs out, and the prompt still needs saving.
+		return m.fireAutosave(msg)
 	case scheduleTickMsg:
 		// Handled above the stage switch, so schedules fire whatever screen is
 		// up; the status lands when the user is next on the list. The next
@@ -1390,7 +1412,10 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// The one exception is a new prompt with nothing in it. There is nothing
 		// to keep, so refusing ("the prompt can't be empty") would only block the
 		// way back; it leaves the way cancel does instead.
-		if m.formMode == formAdd && m.formIsBlank() {
+		// formIsNew rather than formMode: an autosave turns an add into an edit
+		// of the todo it created, and a prompt blanked after that still leaves
+		// by cancel, which deletes the autosaved copy (see revertAutosave).
+		if m.formIsNew() && m.formIsBlank() {
 			return m.cancelForm()
 		}
 		return m.saveForm()
@@ -1833,6 +1858,9 @@ func (m *model) moveActionFocus(delta int) tea.Cmd {
 // its own, and the box still shows a steady cursor.
 func (m *model) backToList() {
 	m.stage = stageList
+	// Whatever form was open is closed now, and a tick still in flight for it
+	// must find nothing to write into (see the generation note in autosave.go).
+	m.stopAutosave()
 	// Land on the prompt the screen being left was about, then forget it so a
 	// later return from a prompt-less screen doesn't jump back here. A ref
 	// that is no longer on screen (deleted, folded, filtered out) leaves the
@@ -2397,6 +2425,9 @@ func (m model) beginAdd() (tea.Model, tea.Cmd) {
 	// Same argument, and the same two entry points: the undo history is about
 	// one editing session (promptundo.go).
 	m.promptUndo = promptUndo{}
+	// Last, once every field holds its opening value, so the baseline the timer
+	// compares against is the form as it opened (see startAutosave).
+	m.startAutosave(nil)
 	m.stage = stageForm
 	return m, cmd
 }
@@ -2439,6 +2470,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.formErr, m.formNote = "", ""
 	m.clearPromptSel()          // see beginAdd
 	m.promptUndo = promptUndo{} // and see beginAdd
+	m.startAutosave(&td)        // and see beginAdd
 	m.stage = stageForm
 	return m, cmd
 }
@@ -3101,6 +3133,9 @@ func (m model) pasteIntoForm(text string) (tea.Model, tea.Cmd) {
 // exist only because this form was open.
 func (m model) cancelForm() (tea.Model, tea.Cmd) {
 	m.discardClipboardCaptures()
+	// Before backToList, which forgets what the autosave wrote and so what
+	// there is to take back.
+	m.revertAutosave()
 	m.backToList()
 	m.formErr = ""
 	return m, nil
@@ -3969,7 +4004,13 @@ func (m model) persistForm() (model, todoRef, bool) {
 		// Only now does the record no longer mention them.
 		st.removeImageFiles(m.editID, m.droppedRels())
 		saved.id = m.editID
-		m.setStatus("updated"+note, false)
+		// An add that the autosave turned into an edit is still an add to the
+		// user: this is the first save they asked for.
+		if m.autosave.added {
+			m.setStatus("added to "+m.formScope.String()+" backlog"+note, false)
+		} else {
+			m.setStatus("updated"+note, false)
+		}
 	}
 	// The backlog holds its own copies now, so the captures' temp files have
 	// nothing left to answer for.

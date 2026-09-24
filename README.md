@@ -87,7 +87,8 @@ Prompts list with your changes **saved**, exactly as ✔ Save would (an empty
 prompt is refused with the same message, and the editor stays open). The title
 names where you're going, not a verb, so nothing about clicking it suggests your
 typing would be thrown away. **esc** (✖ Cancel) remains the one way out that
-discards the edit. A brand-new prompt that is still completely blank just closes,
+discards the edit, including whatever the [autosave](#autosave)
+already wrote. A brand-new prompt that is still completely blank just closes,
 since there's nothing to keep.
 
 The editor's row of buttons runs across the top of the form, right under that
@@ -1552,6 +1553,59 @@ for its own menus, and iTerm2 needs the chord mapped by hand. It is the reason
 `ctrl+s` could be spent on the ⚙ panel: under cats the editor has two save
 chords that both arrive, and the letter is worth more to the one control that
 had no keyboard road of its own.
+
+
+## Autosave
+
+The editor keeps your work on disk while you write it. **45 seconds after the
+first change since the last save, the form writes itself to the backlog**, and
+the line under the editor says `autosaved 15:04`. You stay in the editor with
+the caret where it was. Nothing on screen moves, and the undo history is
+untouched. A pane that closes, a cats restart or a crash therefore costs at most
+45 seconds of typing, where before it cost everything since the form opened.
+
+It is a throttle, not an idle timer: the wait starts at the first change and
+does not restart on later ones. An "after you stop typing" timer never fires for
+someone writing steadily, and a steady writer has the most to lose. After a
+write, the next change starts the next wait. A form that has only been opened,
+or whose edits were undone back to what is already saved, has nothing to write
+and writes nothing.
+
+What it writes is the title, the prompt, the ⚙ session options and the marks,
+which is everything ✔ Save writes **except attachments**. Attaching copies files
+into the backlog and detaching deletes them. A timer should not create or delete
+files you are still deciding about, so images wait for ✔ Save as before.
+
+On a **new** prompt, the first autosave adds it to the backlog and the form
+becomes an edit of that prompt. Later autosaves and your own ✔ Save update the
+same entry, so a long session never leaves a trail of duplicates. The backlog is
+fixed from that point on: the scope tag leaves the toolbar and `ctrl+g` stops
+toggling it, because the prompt already lives in one backlog. ✔ Save still
+reports "added to … backlog", since from your side this is the first save.
+
+**esc (✖ Cancel) still means "keep nothing from this form".** Autosave is a
+safety net under the editor, not a second Save button, so cancel takes back what
+the timer wrote. An autosaved new prompt is removed from the backlog. An
+autosaved edit gets its original title, prompt, session options and marks put
+back. The only way an autosave outlives the form is if the form never reaches
+esc, which is the situation it exists for. An empty prompt is never autosaved,
+and no error is shown for that. ✔ Save explains its own refusal when you press
+it, and a warning appearing on every tick unprompted would be noise.
+
+**The wait is a setting.** Set `autosaveSeconds` in
+`~/.config/cats-todo/settings.json`:
+
+```json
+{ "autosaveSeconds": 90 }
+```
+
+A shorter wait loses less to a crash. A longer one writes `todos.json` less
+often, which matters when another pane is watching the file, or when the
+project backlog is committed and every write shows up in `git status`. `0` turns
+autosave off. Anything from 1 to 4 is raised to 5 seconds, because each
+autosave rewrites the whole backlog and doing that every second while you type
+is never what anyone wanted. The value is read when the manager starts, so
+restart it after changing the file.
 
 
 ## Undo

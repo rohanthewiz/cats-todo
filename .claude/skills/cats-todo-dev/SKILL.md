@@ -51,9 +51,10 @@ and the rest stay local.
 | `promptcarets.go` | ⌶ Caret on every line: the column mode, its goal column, and its caret paints |
 | `promptmove.go` | `alt+↑/↓` moving the caret's line or the swept block |
 | `promptundo.go` | ↶ Undo (`cmd+z`/`ctrl+z`): the per-session history, its coalescing rule, and the commit point `Update` calls (`route` is the old `Update` body) |
+| `autosave.go` | the form's timed autosave (45s default, `autosaveSeconds` in settings.json): throttle timer (generation-guarded tick), `formSig` change detection, the add→edit switch, and cancel's revert |
 | `promptlines.go` | the sweep → whole-rows arithmetic those four share |
 | `spell.go` / `spellpanel.go` / `internal/spell` | spell check + panel; embedded SCOWL list + `extra.txt` |
-| `settings.go` | `~/.config/cats-todo/settings.json` (`spellcheck`, `orderByPriority`, `showFrozen`) |
+| `settings.go` | `~/.config/cats-todo/settings.json` (`spellcheck`, `orderByPriority`, `showFrozen`, `autosaveSeconds`) |
 | `styles.go` | the palette (see lockstep below) and lipgloss styles |
 | `context.go` | where we're running from (`RunContext`, `CATS_PANE_ID`, cwd) |
 | `internal/ctlproto`, `internal/integration` | client-side copies of cats' socket envelope / env contract (the vocabulary is imported: `cats/wire`) |

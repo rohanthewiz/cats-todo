@@ -13,6 +13,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // settingsFileName is the preferences file's name inside configBaseDir.
@@ -40,6 +41,13 @@ type settings struct {
 	// declined is a standing decision about whether that record is worth the
 	// rows.
 	showFrozen bool
+	// autosave is how long a change in the prompt editor may sit unsaved
+	// before the form writes itself (see autosave.go). Zero turns the autosave
+	// off. It is a setting because the right number depends on the person: a
+	// shorter wait loses less to a crash, and a longer one writes todos.json
+	// less often, which matters when another pane is watching the file or when
+	// the project backlog is committed and shows up in `git status`.
+	autosave time.Duration
 	// peerToken is the shared secret the LAN service demands on every request
 	// (see peer.go). Empty until the first `cats-todo serve`, which generates
 	// one and prints it — the two machines have to hold the same string, and
@@ -72,7 +80,7 @@ type settingsPeer struct {
 
 // defaultSettings is what a missing or empty file means.
 func defaultSettings() settings {
-	return settings{spellcheck: true, orderByPriority: false, showFrozen: true}
+	return settings{spellcheck: true, orderByPriority: false, showFrozen: true, autosave: defaultAutosave}
 }
 
 // settingsFile is the on-disk shape. Pointers, so that "not mentioned" and
@@ -83,6 +91,11 @@ type settingsFile struct {
 	Spellcheck      *bool `json:"spellcheck,omitempty"`
 	OrderByPriority *bool `json:"orderByPriority,omitempty"`
 	ShowFrozen      *bool `json:"showFrozen,omitempty"`
+	// AutosaveSeconds is a pointer for the reason the bools are: 0 is a
+	// meaningful value here ("off"), so a missing key must read differently
+	// from a zero one. Whole seconds because this is a file people edit by
+	// hand, and "45" is easier to write correctly than "45s" or 45000000000.
+	AutosaveSeconds *int `json:"autosaveSeconds,omitempty"`
 	// The LAN service's settings. Strings and numbers rather than pointers:
 	// their zero values are already "not set" and mean the documented default,
 	// so there is nothing for a pointer to distinguish. peerInbox is spelled
@@ -135,6 +148,9 @@ func loadSettings() settings {
 	if f.ShowFrozen != nil {
 		s.showFrozen = *f.ShowFrozen
 	}
+	if f.AutosaveSeconds != nil {
+		s.autosave = autosaveFromSeconds(*f.AutosaveSeconds)
+	}
 	s.peerToken, s.peerName, s.peerPort, s.peers = f.PeerToken, f.PeerName, f.PeerPort, f.Peers
 	if f.PeerInbox == "global" {
 		s.peerInbox = scopeGlobal
@@ -161,6 +177,7 @@ func (s settings) save() error {
 		Spellcheck:      &s.spellcheck,
 		OrderByPriority: &s.orderByPriority,
 		ShowFrozen:      &s.showFrozen,
+		AutosaveSeconds: autosaveSecondsPtr(s.autosave),
 		PeerToken:       s.peerToken,
 		PeerName:        s.peerName,
 		PeerPort:        s.peerPort,
@@ -187,4 +204,26 @@ func (s settings) save() error {
 		return err
 	}
 	return nil
+}
+
+// autosaveFromSeconds turns the file's autosaveSeconds into a delay.
+//
+// Zero or a negative number turns the autosave off. Any other value is raised
+// to at least minAutosave. Every autosave reloads and rewrites the whole
+// backlog, and a value of 1 would do that every second of typing while another
+// pane redraws the list each time. The floor keeps a typo in a hand-edited file
+// from turning into that. Raising a small value is better than rejecting it,
+// because the person clearly wanted the autosave on and frequent.
+func autosaveFromSeconds(n int) time.Duration {
+	if n <= 0 {
+		return 0
+	}
+	return max(time.Duration(n)*time.Second, minAutosave)
+}
+
+// autosaveSecondsPtr is the save side of autosaveFromSeconds: the delay in whole
+// seconds, as the pointer settingsFile writes.
+func autosaveSecondsPtr(d time.Duration) *int {
+	n := int(d / time.Second)
+	return &n
 }
