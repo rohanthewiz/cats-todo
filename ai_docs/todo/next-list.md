@@ -131,11 +131,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   history of its own; if it is ever wanted, it is a second stack, not the
   prompt's. *Lapsed* in `2026-0922-0943-info-annotation`.
 
-- **N-029** · raised `2026-0915-1836-prompt-editor-undo-v0.32.0` · value low
-  The form footer is past full: its tail segments need a ~240-cell pane.
-  Worth a pass on what that line is still teaching. *Lapsed* in
-  `2026-0922-0943-info-annotation`.
-
 - **N-030** · raised `2026-0922-0943-info-annotation` · value medium
   **Send info prompts to gonotes.** Add a drop target for info-marked
   prompts that delivers them to a notes plugin (gonotes,
@@ -262,6 +257,13 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-029** · closed 2026-09-24, `2026-0924-2013-form-footer-tail` · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
+  — The form footer's tail is cut to what nothing else teaches: `ctrl+l
+  spelling · right-click menu · alt+↑/↓ move line · cmd+d dup line`. The
+  prompt library, undo and redo left it, because their right-click menu rows
+  print their chords. `cmd+d` is named only under `kbEnhanced`. The full line
+  went from 244 cells to 207 (`TestFormFooterTailFitsAWidePane`). Not yet
+  released.
 - **N-018** · closed 2026-09-24, `2026-0924-2007-redo-and-switch-confirm` · raised `2026-0913-1932-existing-pane-session-settings`
   — `/model` mid-conversation does ask. Claude Code 2.1.282 raises *Switch
   model?* / *Change effort level?* when the cache is warm and the switch
