@@ -331,7 +331,7 @@ func (p *nextPage) resize(width, height int) {
 // cites. Its hue follows the item's value (bright for high, pale for medium,
 // dim for low), but a hue alone was too quiet to read the value from — the
 // three sit close together on the warm side of the ramp — so the value also
-// gets a glyph of its own in the annotation slot after the ID (see
+// gets the backlog's value mark in the annotation slot after the ID (see
 // nextValueMark). Every row spends the same two cells on it, so the text column
 // stays straight and the marks line up to be scanned down the page.
 //
@@ -393,46 +393,34 @@ func nextValueStyle(v string) lipgloss.Style {
 }
 
 // nextValueMarkWidth is the cells every row's value mark takes, whatever the
-// value: the gem is two cells wide, so the one-cell diamonds are padded to
-// match it and an unrated item gets two blanks.
+// value: the high diamond is two cells wide, so the one-cell diamonds are
+// padded to match it and an unrated item gets two blanks.
 const nextValueMarkWidth = 2
 
-// nextValueMark is the item's value drawn as a glyph, a descending ramp of one
-// shape:
+// nextValueMark is the item's value drawn as a glyph: the backlog's own value
+// marks (valueMarkFor, value.go), since the file rates items on the same three
+// levels a prompt is rated on, and the same fact should wear the same mark on
+// both pages:
 //
-//	💎  high     the backlog's own High value gem — the same fact, the same mark
-//	◆   medium   a solid diamond in straw: the gem's shape without its sparkle
-//	◇   low      the diamond's outline in the dim grey — present, but hollow
-//	    unrated  nothing, so an item the skill has not scored makes no claim
+//	🔷  high     the blue diamond, an emoji that paints itself
+//	◆   medium   a solid diamond in straw
+//	    low      nothing — the default, drawn as the backlog draws it
 //
-// The medium step is a text glyph rather than a "dimmer gem" because the gem
-// is an emoji: terminals draw it in its own colours and ignore the foreground,
-// so it cannot be faded. ◆ and ◇ are text, so the palette reaches them, and
-// the solid → hollow step keeps them apart even where colour is not seen.
+// An unrated item is a low one, and so is a level the file spells some other
+// way, as a backlog's unknown level is. Low drawing nothing is what the
+// backlog does too: a row shows what was raised, and the default was not.
 func nextValueMark(v string) annotMark {
 	var glyph string
-	st := lipgloss.NewStyle()
-	switch v {
-	case "high":
-		glyph = valueGlyph
-		st = valueStyle
-	case "medium":
-		glyph = nextMediumGlyph
-		st = st.Foreground(lipgloss.Color(colStraw))
-	case "low":
-		glyph = nextLowGlyph
-		st = st.Foreground(lipgloss.Color(colDim))
+	var st lipgloss.Style
+	if lvl, err := normalizeValue(v); err == nil && lvl != valueLow {
+		glyph, st = valueMarkFor(lvl)
 	}
 	// Pad to the fixed width so the text starts in the same column on every
-	// row (the diamonds are East Asian Ambiguous, one cell like the triangles).
+	// row. Unlike the backlog's packed marks, this slot is reserved: every
+	// item here has a value or is meant to, so the column is worth its cells.
 	glyph += strings.Repeat(" ", max(nextValueMarkWidth-lipgloss.Width(glyph), 0))
 	return annotMark{text: glyph, style: st, selStyle: st}
 }
-
-const (
-	nextMediumGlyph = "◆"
-	nextLowGlyph    = "◇"
-)
 
 // counts is the heading's tally: how many items each listed section holds. An
 // empty section is left out rather than counted as "0 roadmap" — a freshly

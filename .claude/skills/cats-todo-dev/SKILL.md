@@ -34,8 +34,9 @@ and the rest stay local.
 | `drop.go` / `client.go` / `launch.go` | performing a drop; cats control-socket client (`pane.list`, `tab.create`, `pane.wait_for_output`, `pane.send_input`), `waitForAgentReady`, `claudeReadyProbes` |
 | `worktree.go` | "on a new worktree" drops (`todo/<slug>-<4hex>` branches via cats) |
 | `session.go` | `SessionOpts`, normalizers (`normalizeModel/Effort/Permission/Finish/Review`, `foldOption`), launch flags, prompt wrapping |
-| `annotations.go` | the `annots` set, the `annotSlot` table (priority, low-hanging fruit, the ⚑ flag and its note), `trimAnnotColumns` |
-| `annotbar.go` | the form's segmented annotation bar (Quick-win checkbox, Priority radios) between title and prompt |
+| `annotations.go` | the `annots` set, the `annotSlot` table (priority, low-hanging fruit, value, info, the ⚑ flag and its note), `trimAnnotColumns` |
+| `value.go` | the value level (low — the default, `""` — / medium / high): `valueLevel`/`setValueLevel` (high stays on the old `highValue` key, medium on `value`, low writes nothing), `normalizeValue`, `valueMarkFor` (🔷 ◆, and ◇ for the controls only — shared with the Next List) |
+| `annotbar.go` | the form's segmented annotation bar between title and prompt: Quick-win checkbox │ Value radios │ Priority radios │ Info, Flag; eight width tiers down to a bare 23-cell one |
 | `priority.go` | `normalizePriority`, labels, rank; none = `""` (levels: none/high/critical) |
 | `schedule.go` | parse `15:30` / `in 2h` / `tomorrow 9:00`; `Schedule` ⇄ dropTarget |
 | `cli.go` | `add` flags (incl. `expandSessLoad`, `optString`, `stringList`) |

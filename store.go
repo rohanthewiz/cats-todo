@@ -91,7 +91,8 @@ type Todo struct {
 	// false, so a backlog nobody has marked reads exactly as it did before the
 	// field existed, and an older binary ignores the key rather than choking.
 	Fruit bool `json:"fruit,omitempty"`
-	// HighValue marks a prompt worth a lot to whoever picks it up — the gem.
+	// HighValue marks a prompt worth a lot to whoever picks it up — once the
+	// 💎 gem, now the top step (🔷) of the value level; see Value below.
 	// It is the other half of the question Fruit asks: fruit says how
 	// cheap this is, HighValue says how much it pays, and priority says how
 	// much it matters *now*. Three independent axes, which is why this is a
@@ -99,14 +100,26 @@ type Todo struct {
 	// pays forever but can wait is high value and not critical, and a blocker
 	// that must clear today is critical without being worth much once it has.
 	//
-	// A row wearing 🍏 and 💎 together is the pair worth reading as one fact:
+	// A row wearing 🍏 and 🔷 together is the pair worth reading as one fact:
 	// cheap *and* valuable is the prompt to pick up next, and neither mark on
 	// its own says that.
 	//
 	// Same compat contract as the fields above — omitted from the JSON when
 	// false, so a backlog nobody has marked reads exactly as it did before the
 	// field existed, and an older binary ignores the key rather than choking.
+	//
+	// Value is now a level (value.go), and this key is where its top step,
+	// high, is still stored — so a gem written by any version reads the same,
+	// and an older binary keeps seeing the high-value prompts it always saw.
+	// Read and write it through valueLevel/setValueLevel, never directly.
 	HighValue bool `json:"highValue,omitempty"`
+	// Value holds the two lower value levels, "low" and "medium", and only
+	// those: high lives in HighValue above, and none is both left empty. The
+	// split keeps the old key's meaning exactly (see value.go). Same compat
+	// contract as the fields above; an older binary ignores the key, and one
+	// that saves the backlog drops it — the accepted limitation Images and
+	// Schedule already carry.
+	Value string `json:"value,omitempty"`
 	// Flag marks a prompt someone wanted to single out for a reason the other
 	// two marks cannot express — blocked on something, waiting on an answer,
 	// "ask me before doing this". Priority and fruit are closed questions with

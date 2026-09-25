@@ -65,12 +65,16 @@ func addFromCLI(args []string) {
 	// for the same reason: it is a fact about the prompt rather than one of the
 	// short flags that say where the prompt goes.
 	fruit := fs.Bool("fruit", false, "mark as low-hanging fruit — cheap for what it pays")
-	// The gem: the other half of what --fruit says. Spelled --high-value
-	// rather than --value because a bare boolean called "value" reads on a
-	// command line as a flag that wants one — `--value "fix the thing"` would
-	// look like it was swallowing the prompt that follows it, which is exactly
-	// the confusion a flag name should not create.
-	highValue := fs.Bool("high-value", false, "mark high value — a large payoff for whoever picks it up")
+	// Value: the other half of what --fruit says, as a level (value.go).
+	// --value takes its level the way --priority does, so `--value medium`
+	// reads as a flag with an argument, not as one swallowing the prompt.
+	//
+	// --high-value is the older spelling, from when value was one bit: it
+	// stays, meaning `--value high`, so scripts and shell history keep
+	// working. Given together with a different --value it is refused below
+	// rather than one silently winning.
+	value := fs.String("value", "", "how much it pays: high|medium|low|none (default none)")
+	highValue := fs.Bool("high-value", false, "mark high value (same as --value high)")
 	// The third annotation, and the only one that carries words. optString is
 	// what makes the note optional in the same breath as the mark: `--flag`
 	// raises a bare flag, `--flag="blocked on the api"` raises one with
@@ -90,7 +94,7 @@ func addFromCLI(args []string) {
 	fs.Var(&flagged, "flag", "single it out, optionally with a note (--flag, --flag=\"why\")")
 
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [--priority p] [--fruit] [--high-value] [--info] [--flag[=note]] [session options] [prompt...]")
+		fmt.Fprintln(os.Stderr, "usage: cats-todo add [-g] [-t title] [-i image]... [--priority p] [--fruit] [--value v] [--info] [--flag[=note]] [session options] [prompt...]")
 		fmt.Fprintln(os.Stderr, "  the prompt is the remaining args joined; with none it is read from a piped stdin")
 		fmt.Fprintln(os.Stderr, "  session options: --model --effort --perm --clear --sess-load[=n] --sess-use --ctx")
 		fmt.Fprintln(os.Stderr, "                   --finish --review --release")
@@ -111,7 +115,17 @@ func addFromCLI(args []string) {
 	if err != nil {
 		errExit(err)
 	}
-	ann := annots{Priority: prio, Fruit: *fruit, HighValue: *highValue, Flag: flagged.set, FlagNote: flagged.value, Info: *info}
+	val, err := normalizeValue(*value)
+	if err != nil {
+		errExit(err)
+	}
+	if *highValue {
+		if *value != "" && val != valueHigh {
+			errExit(fmt.Errorf("--high-value and --value %s disagree — give one of them", *value))
+		}
+		val = valueHigh
+	}
+	ann := annots{Priority: prio, Fruit: *fruit, Value: val, Flag: flagged.set, FlagNote: flagged.value, Info: *info}
 
 	prompt := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if prompt == "" {

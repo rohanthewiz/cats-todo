@@ -707,8 +707,8 @@ func bundleTodoNote(t Todo) string {
 	if t.Fruit {
 		parts = append(parts, "low-hanging fruit")
 	}
-	if t.HighValue {
-		parts = append(parts, "high value")
+	if l := valueLevelLabel(t.valueLevel()); l != "" {
+		parts = append(parts, l)
 	}
 	if t.Info {
 		parts = append(parts, "info (a note)")

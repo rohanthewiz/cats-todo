@@ -266,9 +266,9 @@ func TestNextListChipOnTheBar(t *testing.T) {
 // the same width, so the text starts in the same column on every row.
 func TestNextListValueMarks(t *testing.T) {
 	for v, want := range map[string]string{
-		"high":   valueGlyph,
-		"medium": nextMediumGlyph + " ",
-		"low":    nextLowGlyph + " ",
+		"high":   valueHighGlyph,
+		"medium": valueMediumGlyph + " ",
+		"low":    "  ",
 		"":       "  ",
 	} {
 		mk := nextValueMark(v)

@@ -11,7 +11,7 @@ import (
 // a todo, so a mark added to the struct and forgotten in one of them would be
 // silently dropped on every save.
 func TestAnnotsRoundTripThroughTheTodo(t *testing.T) {
-	want := annots{Priority: priorityCritical, Fruit: true, HighValue: true, Flag: true, FlagNote: "why"}
+	want := annots{Priority: priorityCritical, Fruit: true, Value: valueHigh, Flag: true, FlagNote: "why"}
 	var td Todo
 	want.applyTo(&td)
 	if got := annotsOf(td); got != want {
@@ -38,11 +38,11 @@ func TestAnnotsSummaryNamesOnlyWhatWasSaid(t *testing.T) {
 		{annots{Priority: priorityHigh}, "high"},
 		{annots{Priority: priorityCritical}, "critical"},
 		{annots{Fruit: true}, "low-hanging fruit"},
-		{annots{HighValue: true}, "high value"},
+		{annots{Value: valueHigh}, "high value"},
 		// Slot order, so the words and the columns read the same way round —
 		// and the cost/payoff pair reads as the pair it is.
 		{annots{Priority: priorityCritical, Fruit: true}, "critical · low-hanging fruit"},
-		{annots{Priority: priorityCritical, Fruit: true, HighValue: true},
+		{annots{Priority: priorityCritical, Fruit: true, Value: valueHigh},
 			"critical · low-hanging fruit · high value"},
 	}
 	for _, c := range cases {
@@ -75,7 +75,7 @@ func TestAnnotationsStayOutOfTheJSONWhenUnset(t *testing.T) {
 		}
 	}
 
-	if err := s.setAnnots("a1", annots{Fruit: true, HighValue: true}); err != nil {
+	if err := s.setAnnots("a1", annots{Fruit: true, Value: valueHigh}); err != nil {
 		t.Fatal(err)
 	}
 	reloaded := &store{scope: scopeProject, path: s.path}
@@ -86,7 +86,7 @@ func TestAnnotationsStayOutOfTheJSONWhenUnset(t *testing.T) {
 	if !td.Fruit {
 		t.Fatal("the fruit did not survive a save/load round trip")
 	}
-	if !td.HighValue {
+	if td.valueLevel() != valueHigh {
 		t.Fatal("the gem did not survive a save/load round trip")
 	}
 
@@ -113,11 +113,11 @@ func TestSetAnnotsWritesTheWholeSetAtOnce(t *testing.T) {
 	if err := s.add(Todo{ID: "a1", Prompt: "p", Priority: priorityHigh, Fruit: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.setAnnots("a1", annots{Priority: priorityCritical, HighValue: true}); err != nil {
+	if err := s.setAnnots("a1", annots{Priority: priorityCritical, Value: valueHigh}); err != nil {
 		t.Fatal(err)
 	}
 	td, _ := s.find("a1")
-	if td.Priority != priorityCritical || td.Fruit || !td.HighValue {
+	if td.Priority != priorityCritical || td.Fruit || td.valueLevel() != valueHigh {
 		t.Errorf("after the write the todo is %+v, want critical and high value with no fruit", annotsOf(td))
 	}
 	// The usual honesty about a stale pane: a mark aimed at a todo that is gone
@@ -146,7 +146,7 @@ func TestEverySlotDrawsADistinctGlyph(t *testing.T) {
 	for _, sl := range annotSlots {
 		for _, td := range []Todo{
 			{Priority: priorityCritical}, {Priority: priorityHigh}, {Fruit: true},
-			{HighValue: true}, {Flag: true}, {Info: true},
+			{HighValue: true}, {Value: valueMedium}, {Flag: true}, {Info: true},
 		} {
 			glyph, _, _ := sl.mark(td)
 			if glyph == "" {

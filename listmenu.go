@@ -16,7 +16,9 @@
 //	│ ✓ Mark done              ctrl+t │
 //	│ ❄ Freeze                 ctrl+f │
 //	│ ☐ 🍏 Quick win                  │
-//	│ ☐ 💎 High value                 │
+//	│ (•) Value: ◇ low                │
+//	│ ( ) Value: ◆ medium             │
+//	│ ( ) Value: 🔷 high              │
 //	│ (•) Priority: none              │
 //	│ ( ) Priority: △ high            │
 //	│ ( ) Priority: ▲ critical        │
@@ -28,11 +30,11 @@
 //
 // Every row that has a chord keeps it, so the menu doubles as the keyboard's own
 // reference — the action bar's five chips already work this way, and the actions
-// that never had a chip are exactly the ones nothing was teaching. The six
+// that never had a chip are exactly the ones nothing was teaching. The
 // annotation rows carry no chord because there is none to carry: this menu is
 // the list's only road to them.
 //
-// The flag is a checkbox here like the fruit and the gem, but it is the one
+// The flag is a checkbox here like the fruit, but it is the one
 // mark that is only half a thought: "there is something about this one" wants "…because"
 // straight after it. So raising it from the menu opens the note pad on the same
 // cell (listflagnote.go) — the mark is saved by the press, and the pad is an
@@ -91,15 +93,18 @@ const (
 	listMenuDone
 	listMenuFreeze
 	// The annotations sit directly after the two state rows, and in the
-	// annotation bar's own order — the fruit and the gem that qualifies it
-	// the other way, then the three priority levels as they escalate, then the
-	// flag. All six are per-row marks and are learned together, which
+	// annotation bar's own order — the fruit, the three value levels that
+	// qualify it the other way, then the three priority levels as they
+	// escalate, then info and the flag. All are per-row marks and are learned
+	// together, which
 	// is the same reason the list footer keeps done, freeze and priority
 	// adjacent; putting them between the state rows and the two that move or
 	// destroy the prompt also means the destructive end of the menu stays the
 	// destructive end.
 	listMenuFruit
-	listMenuValue
+	listMenuValueLow
+	listMenuValueMedium
+	listMenuValueHigh
 	listMenuPrioNone
 	listMenuPrioHigh
 	listMenuPrioCritical
@@ -130,6 +135,13 @@ var listMenuPrio = map[int]string{
 	listMenuPrioNone:     priorityNone,
 	listMenuPrioHigh:     priorityHigh,
 	listMenuPrioCritical: priorityCritical,
+}
+
+// listMenuValue is the same table for the three value rows (value.go).
+var listMenuValue = map[int]string{
+	listMenuValueLow:    valueLow,
+	listMenuValueMedium: valueMedium,
+	listMenuValueHigh:   valueHigh,
 }
 
 // listMenu is the open menu: the shared box, plus the todo it was opened on.
@@ -221,10 +233,6 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 	if td.Fruit {
 		box = "☑"
 	}
-	valueBox := "☐"
-	if td.HighValue {
-		valueBox = "☑"
-	}
 	infoBox := "☐"
 	if td.Info {
 		infoBox = "☑"
@@ -255,6 +263,16 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 			return "(•)"
 		}
 		return "( )"
+	}
+	// The value rows, one per level, each wearing the mark it sets — the
+	// same shapes the row draws (valueMarkFor), so the menu is a legend too.
+	valueRow := func(v string) string {
+		hole := "( )"
+		if td.valueLevel() == v {
+			hole = "(•)"
+		}
+		glyph, _ := valueMarkFor(v)
+		return hole + " Value: " + glyph + " " + valueWord(v)
 	}
 
 	// The two rows that read the selection rather than the prompt: whether this
@@ -288,8 +306,12 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		// heading over them. A heading row would be a row that cannot be pressed
 		// sitting in a list of rows that can, and the eye landing halfway down a
 		// menu should not have to look up to find out what "△ high" is high of.
+		// "Value:" is repeated for the same reason, and more so: both groups
+		// have a "high", and only the word tells them apart.
 		{act: listMenuFruit, label: box + " " + fruitGlyph + " Quick win"},
-		{act: listMenuValue, label: valueBox + " " + valueGlyph + " High value"},
+		{act: listMenuValueLow, label: valueRow(valueLow)},
+		{act: listMenuValueMedium, label: valueRow(valueMedium)},
+		{act: listMenuValueHigh, label: valueRow(valueHigh)},
 		{act: listMenuPrioNone, label: radio(priorityNone) + " Priority: none"},
 		{act: listMenuPrioHigh, label: radio(priorityHigh) + " Priority: " + prioHighGlyph + " high"},
 		{act: listMenuPrioCritical, label: radio(priorityCritical) + " Priority: " + prioCriticalGlyph + " critical"},
@@ -389,7 +411,8 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 		return m.toggleSelected()
 	case listMenuFreeze:
 		return m.freezeSelected()
-	case listMenuFruit, listMenuValue, listMenuInfo, listMenuFlag, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical:
+	case listMenuFruit, listMenuInfo, listMenuFlag, listMenuPrioNone, listMenuPrioHigh, listMenuPrioCritical,
+		listMenuValueLow, listMenuValueMedium, listMenuValueHigh:
 		return m.setMenuAnnots(ref, it.act, atX, atY)
 	case listMenuFlagNote:
 		// Deliberate rather than raised: the mark was already up when the menu
@@ -438,8 +461,8 @@ func (m model) setMenuAnnots(ref todoRef, act, atX, atY int) (tea.Model, tea.Cmd
 	switch act {
 	case listMenuFruit:
 		a.Fruit = !a.Fruit
-	case listMenuValue:
-		a.HighValue = !a.HighValue
+	case listMenuValueLow, listMenuValueMedium, listMenuValueHigh:
+		a.Value = listMenuValue[act]
 	case listMenuInfo:
 		a.Info = !a.Info
 	case listMenuFlag:
@@ -463,10 +486,10 @@ func (m model) setMenuAnnots(ref todoRef, act, atX, atY int) (tea.Model, tea.Cmd
 		m.setStatus("marked a quick win", false)
 	case act == listMenuFruit:
 		m.setStatus("no longer a quick win", false)
-	case act == listMenuValue && a.HighValue:
-		m.setStatus("marked high value", false)
-	case act == listMenuValue:
-		m.setStatus("no longer high value", false)
+	case isListMenuValue(act):
+		// A radio: pressing the level already held is answered too, with the
+		// level, so the press does not read as a dead control.
+		m.setStatus(valueNote(a.Value), false)
 	case act == listMenuInfo && a.Info:
 		// Say what the mark costs as it is paid, and that a pending schedule
 		// went with it — the ◷ vanishing from the row should not be a mystery.
@@ -492,6 +515,12 @@ func (m model) setMenuAnnots(ref todoRef, act, atX, atY int) (tea.Model, tea.Cmd
 		m.setStatus(priorityNote(a.Priority, m.orderByPriority && a.Priority != td.Priority), false)
 	}
 	return m, nil
+}
+
+// isListMenuValue reports whether act is one of the three value rows.
+func isListMenuValue(act int) bool {
+	_, ok := listMenuValue[act]
+	return ok
 }
 
 // --- Drawing --------------------------------------------------------------------

@@ -139,13 +139,13 @@ func TestAnnotBarUnderlinesTheFocusedSegment(t *testing.T) {
 	m := withForm(t, "t", "p", 100, 40)
 	segsBefore, _ := m.annotBarLayout()
 	for i := range annotSegCount {
-		if m.annotSegStyle(i).GetUnderline() {
+		if m.annotSegStyle(i, false).GetUnderline() {
 			t.Errorf("segment %d is underlined while the prompt holds the keys", i)
 		}
 	}
 	m.focusForm(formFieldAnnots) // tab in the prompt indents now (promptindent.go)
 	for i := range annotSegCount {
-		if got := m.annotSegStyle(i).GetUnderline(); got != (i == m.annotCursor) {
+		if got := m.annotSegStyle(i, false).GetUnderline(); got != (i == m.annotCursor) {
 			t.Errorf("segment %d underline = %v with the cursor on %d", i, got, m.annotCursor)
 		}
 	}

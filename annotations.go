@@ -12,7 +12,7 @@
 //
 // The row therefore reads outward from the cursor as
 //
-//	❯ ✓ ▲ 🍏 💎 fix the thing            the prompt's first line
+//	❯ ✓ ▲ 🍏 🔷 fix the thing            the prompt's first line
 //	  │ └──┴──┴── annotations: what is true about this prompt
 //	  └────────── the state badge: which of the three groups it lives in
 //
@@ -49,11 +49,11 @@ import (
 // Adding a mark is: a field on Todo, a field here, a line in each of the three
 // methods below, and an entry in annotSlots. Nothing else has to know.
 type annots struct {
-	Priority  string // priorityNone | priorityHigh | priorityCritical
-	Fruit     bool   // low-hanging fruit — a quick win
-	HighValue bool   // the gem — a large payoff, see Todo.HighValue
-	Flag      bool   // singled out — see Todo.Flag
-	Info      bool   // a note, not work — never dropped, see Todo.Info
+	Priority string // priorityNone | priorityHigh | priorityCritical
+	Fruit    bool   // low-hanging fruit — a quick win
+	Value    string // valueLow (the default, "") | valueMedium | valueHigh, see value.go
+	Flag     bool   // singled out — see Todo.Flag
+	Info     bool   // a note, not work — never dropped, see Todo.Info
 	// FlagNote is the flag's optional words. It rides in the set rather than
 	// beside it because it is not a mark of its own: it is what this mark says,
 	// and every screen that edits the flag edits the two together.
@@ -62,7 +62,7 @@ type annots struct {
 
 // annotsOf reads a todo's annotations off it.
 func annotsOf(t Todo) annots {
-	return annots{Priority: t.Priority, Fruit: t.Fruit, HighValue: t.HighValue, Flag: t.Flag, FlagNote: t.FlagNote, Info: t.Info}
+	return annots{Priority: t.Priority, Fruit: t.Fruit, Value: t.valueLevel(), Flag: t.Flag, FlagNote: t.FlagNote, Info: t.Info}
 }
 
 // applyTo writes the set back onto a todo, leaving everything else alone.
@@ -72,7 +72,7 @@ func annotsOf(t Todo) annots {
 func (a annots) applyTo(t *Todo) {
 	t.Priority = a.Priority
 	t.Fruit = a.Fruit
-	t.HighValue = a.HighValue
+	t.setValueLevel(a.Value)
 	t.Flag = a.Flag
 	t.FlagNote = ""
 	if a.Flag {
@@ -92,7 +92,7 @@ func (a annots) applyTo(t *Todo) {
 // stay silent about a prompt nobody has annotated — the CLI's echo — rather
 // than announce the defaults on every one.
 func (a annots) any() bool {
-	return a.Priority != priorityNone || a.Fruit || a.HighValue || a.Flag || a.Info
+	return a.Priority != priorityNone || a.Fruit || a.Value != valueLow || a.Flag || a.Info
 }
 
 // summary is the annotations in words, for the screens with no room to draw
@@ -142,7 +142,7 @@ type annotSlot struct {
 // are drawn — the order is fixed even though the positions are not, so a row
 // wearing several marks always reads the same way round. Priority leads because
 // it is the one that decides what happens next; the fruit qualifies it ("…and
-// it's cheap") and the gem qualifies it again ("…and it pays").
+// it's cheap") and the value mark qualifies it again ("…and it pays").
 //
 // The two qualifiers are adjacent because together they are one reading — cheap
 // *and* valuable is the prompt to pick up next, and a row that separated them
@@ -152,7 +152,7 @@ type annotSlot struct {
 var annotSlots = []annotSlot{
 	{name: "priority", mark: priorityMark, label: priorityAnnotLabel},
 	{name: "low-hanging fruit", mark: fruitMark, label: fruitAnnotLabel},
-	{name: "high value", mark: valueMark, label: valueAnnotLabel},
+	{name: "value", mark: valueMark, label: valueAnnotLabel},
 	// Info sits after the estimates and before the flag. It is a glance-fact
 	// like them — no words to stop for — but it reframes the whole row ("this
 	// is a note, not work"), so it closes the quick-read group and hands off to
@@ -195,15 +195,10 @@ func fruitAnnotLabel(t Todo) string {
 	return "low-hanging fruit"
 }
 
-// valueAnnotLabel is the gem in words. "high value" rather than "valuable" so
-// that it reads as one of a pair with "low-hanging fruit" on the screens that
-// spell both out — the two are the cost and the payoff of the same estimate,
-// and the words should say so.
+// valueAnnotLabel is the value level in words ("medium value"; see
+// valueLevelLabel for the wording).
 func valueAnnotLabel(t Todo) string {
-	if !t.HighValue {
-		return ""
-	}
-	return "high value"
+	return valueLevelLabel(t.valueLevel())
 }
 
 // priorityMark is the priority annotation. Only a raised level draws — see the
@@ -259,26 +254,33 @@ func fruitMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 	return fruitGlyph, fruitStyle, fruitStyle
 }
 
-// valueMark is the high-value annotation, and it goes quiet on a closed row
-// exactly as the fruit does — same mechanical reason (an emoji ignores a
-// foreground, so there is no grey to recede into), same reading of what the
-// mark is for. "This one pays" is an argument for picking a prompt up, and
-// there is nothing to pick up in the done and frozen tiers; a gem still drawn
-// there would be the brightest thing in the part of the list that exists to
-// stop shouting.
+// valueMark is the value annotation, one glyph per raised level
+// (valueMarkFor) and nothing for low, the default; it goes quiet on a closed
+// row exactly as the fruit does. The high step is an
+// emoji, which ignores a foreground, so it has no grey to recede into. "This
+// one pays" is an argument for picking a prompt up, and there is nothing to
+// pick up in the done and frozen tiers.
 //
-// As with the apple, nothing is lost: the fact stays on the todo, the form's
-// annotation bar still shows it ticked, and the prompt view still spells it out
-// — which is why the closed styles come back with the empty glyph rather than a
-// bare style, since that screen prints the label in them.
+// Medium is text and *could* recede to grey, the way the flag does. It goes
+// quiet with the top step instead, because a slot that drew medium on a done
+// row but not high would make the done tier look as if only its lesser
+// prompts had been rated.
+//
+// As with the apple, nothing is lost: the level stays on the todo, the form's
+// annotation bar still shows it chosen, and the prompt view still spells it
+// out — which is why the closed styles come back with the empty glyph rather
+// than a bare style, since that screen prints the label in them.
 func valueMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
-	if !t.HighValue {
+	v := t.valueLevel()
+	if v == valueLow {
+		// The default draws nothing, the way priority's none does (value.go).
 		return "", lipgloss.NewStyle(), lipgloss.NewStyle()
 	}
 	if t.closed() {
 		return "", prioClosedStyle, prioClosedSelStyle
 	}
-	return valueGlyph, valueStyle, valueStyle
+	glyph, st := valueMarkFor(v)
+	return glyph, st, st
 }
 
 // The info mark's refusals, shared by the chords (startDrop, beginSchedule)

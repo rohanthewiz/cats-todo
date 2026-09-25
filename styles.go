@@ -339,27 +339,8 @@ var (
 	// that cannot reach the glyph is not a recession, so a closed row stops
 	// drawing the apple instead (see fruitMark).
 	fruitStyle = lipgloss.NewStyle()
-	// The high-value mark, and an emoji for the same two reasons the apple is
-	// one. It carries no color because it cannot take one, and it has no closed
-	// tier to match prioClosedStyle because a grey that never reaches the glyph
-	// is not a recession — a closed row stops drawing the gem instead (see
-	// valueMark).
-	//
-	// Being an emoji is also what makes the mark affordable at all here, and by
-	// now that is the whole of the argument: this palette has three hues that
-	// mean something on a list row and all three are taken. colTodo is the
-	// high-priority triangle's yellow, colWarn is the fuzzy-match highlight's
-	// amber, and colInfo — the one cool hue — is the flag's. A fourth text
-	// glyph would have had to borrow one of them and mean something new by it.
-	// An emoji sidesteps the question: it paints itself, so it takes no hue out
-	// of the palette and none of the three meanings with it.
-	//
-	// That the gem happens to come out blue, a slot away from the blue pennant,
-	// is worth one sentence rather than a redesign. The two do not read as one
-	// family: a filled faceted solid against an outlined pennant is a shape
-	// difference before it is a colour one, and the gem's saturated cyan is the
-	// font's rather than colInfo's muted blue.
-	valueStyle = lipgloss.NewStyle()
+	// The value marks live in value.go (valueMarkFor): the level's glyph and
+	// its style are one definition there, shared with the Next List page.
 	// The flag. colInfo is the palette's one cool hue, and that is the point:
 	// the other two annotations sit on the warm ramp that runs from "ordinary
 	// work" up to "alarm", and the flag is not a point on that ramp — it says
@@ -406,13 +387,6 @@ const (
 	prioCriticalGlyph = "▲"
 	prioHighGlyph     = "△"
 	fruitGlyph        = "🍏"
-	// The gem is the high-value mark. A medal was the other candidate and says
-	// the wrong thing: a medal is awarded, so it reads as "this earned
-	// something" — merit, which is a judgement about work already done. The gem
-	// is simply worth something, which is the fact being recorded about a
-	// prompt nobody has started. Two cells wide like the apple it sits beside,
-	// and it brings its own colour (see valueStyle).
-	valueGlyph = "💎"
 	// The pennant is the flag mark. A shape with no fill and no colour twin —
 	// unlike the triangles, it has no second level to escalate to, because the
 	// flag is one bit and everything else it has to say is in its note. One cell

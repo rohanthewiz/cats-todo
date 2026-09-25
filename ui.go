@@ -3565,7 +3565,7 @@ func (m model) droppedRels() []string {
 // what it does, how it ends. The cursor is an index into this set, so the
 // numbering is the layout and nothing else; it is not stored anywhere.
 const (
-	// The prompt's own annotations (priority, quick win, high value) are not here: they
+	// The prompt's own annotations (priority, quick win, value) are not here: they
 	// describe the prompt rather than the session that will read it, and they
 	// are set on the form's annotation bar (annotbar.go), in sight of the
 	// title they qualify. Every row of this panel is about the session.
