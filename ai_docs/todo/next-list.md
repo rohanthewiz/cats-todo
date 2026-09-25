@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-053
+**Next ID:** N-056
 
 ## Open
 
@@ -228,15 +228,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   columns or more, and narrower), Next List items becoming backlog prompts,
   and ⧉ Duplicate after a partial failure. Only the tests have exercised it.
 
-- **N-049** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
-  Batches phase 2, scheduling (`ai_docs/plans/multi-drop-batches.md`):
-  - The composer's **When** row (`now` or `at`, parsed by
-    `parseScheduleTime`) and ◷ Schedule (`ctrl+s`).
-  - `fireDueBatches` on the schedule tick, with grace, *missed* marking and
-    a `claimBatch` modelled on `claimSchedule`.
-  - Editing a scheduled batch in the composer, and ✕ Unschedule on the page.
-  - A ⧉ badge on list rows whose prompt sits in a pending batch.
-
 - **N-050** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
   Batches phase 3, the loop:
   - Send the prompts in order, the next when the pane's `AgentState` goes
@@ -253,15 +244,39 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
     only `Where`).
 
 - **N-051** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
-  Release v0.39.0 for the batch composer: bump `main.go` and
-  `cats-plugin.toml`, commit `chore(release): v0.39.0`, tag it, and push the
-  code and the tag. The feature is committed but unreleased, and the title
-  chip still says 0.38.0.
+  Release v0.39.0 for the batch composer and batch scheduling (phases 1 and
+  2): bump `main.go` and `cats-plugin.toml`, commit
+  `chore(release): v0.39.0`, tag it, and push the code and the tag. Both are
+  committed but unreleased, and the title chip still says 0.38.0.
 
 - **N-052** · raised `2026-0925-1315-multi-drop-batches-phase1` · value low
   `gofmt -l` lists `promptcode.go` and `ui.go` on a clean HEAD (in `ui.go`,
   the form-stage field block's alignment). One `gofmt -w` commit on its own
   would keep that noise out of feature diffs.
+
+- **N-053** · raised `2026-0925-1344-batch-scheduling-phase2` · value medium
+  Live-test scheduled batches in cats. Schedule one `in 2m` onto new
+  worktrees and watch it fire (the status line, each prompt marked done, the
+  record's Scheduled and Dropped times). Check the `⧉ HH:MM` mark on the list
+  rows and that it goes on ✕ Unschedule. Close the manager past a batch's
+  time and reopen it: the batch should read *missed* with the reason, and
+  enter on it should open the composer. Also schedule into a running pane,
+  close that pane, and let it fire: each step should fail with "the
+  scheduled pane is gone". Only the tests have exercised it.
+
+- **N-054** · raised `2026-0925-1344-batch-scheduling-phase2` · value low
+  The Batches page has no right-click menu (the plan's §5 asks for one on
+  `menuBox`, with the page's actions). Everything it would hold is on the
+  chips and chords today; add it if reaching for the mouse there turns out
+  to be common.
+
+- **N-055** · raised `2026-0925-1344-batch-scheduling-phase2` · value low
+  The composer's footer loses its tail below about 110 columns, and at 80
+  the bar has gone to bare chips (`◷ Schedule`, `☰ Batches`, `✕ Cancel`
+  without chords) while the footer no longer names `ctrl+s`, `ctrl+k` or
+  `esc`. Contract 6 says the footer should then name what the chips stopped
+  teaching. `batchFooterSegs` could put the button chords ahead of the
+  region's keys once `batchBarTier` drops the hints.
 
 ## Roadmap
 
@@ -305,6 +320,17 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-049** · closed 2026-09-25, `2026-0925-1344-batch-scheduling-phase2` · raised `2026-0925-1315-multi-drop-batches-phase1`
+  — Batches phase 2, scheduling. The composer's When row (empty = now,
+  otherwise `parseScheduleTime`, with the time it comes to shown beside it)
+  and ◷ Schedule (`ctrl+s`), the one that doesn't apply greyed and refusing in
+  words. `fireDueBatches` on the schedule tick, after `fireDueSchedules`:
+  grace, *missed* with a reason, claim by compare-and-swap (`swapBatch`), the
+  backlogs re-read at fire time, a running-pane target re-checked. Enter on a
+  scheduled, missed or unscheduled batch edits it in the composer, saved back
+  under the same swap; ✕ Unschedule (`ctrl+u`) keeps it as a plan. List rows
+  wear `⧉ HH:MM` while their prompt sits in a scheduled batch. The plan's
+  "Phase 2 as built" section lists where it departs from the design.
 - **N-042** · closed 2026-09-24 · raised `2026-0924-1939-nextlist-hover-card`
   — Released v0.37.0 (tag `v0.37.0`). It ships the notes drop target, redo,
   the Next List hover card, the switch-confirm fix, the footer's trimmed
