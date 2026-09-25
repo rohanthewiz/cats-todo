@@ -471,9 +471,24 @@ func (m *model) replacePromptRunes(start, end int, with string) {
 // The offset is turned into a logical row and a column within it, and the caret
 // is then walked down to that row. It has to be walked: the library exposes
 // SetCursorColumn but nothing that sets the row, and CursorDown steps one
-// *display* line, so a soft-wrapped row takes several steps to cross. The loop
-// therefore watches the row the caret reports rather than counting steps, and
-// stops when a step moves nothing — which is what the last display line does.
+// *display* line, so a soft-wrapped row takes several steps to cross.
+//
+// The walk hops a whole logical row per step: CursorEnd first puts the caret
+// on the row's last display line, from which one CursorDown crosses into the
+// next row (the library's setCursorLineRelative moves to the next row exactly
+// when the caret is on its row's last display line). Stepping display line by
+// display line instead was quadratic on a long one-line prompt. Every step asks
+// the library for LineInfo, which looks the row's wrap up in a memo keyed by
+// the row's runes, and so hashes the whole row each time. A 20k-rune paste is
+// ~250 display lines of ~20k runes each. That made one enter after it cost
+// ~140ms, and undo, indent and line moves went through the same walk (N-024).
+// Hopping costs one step per logical row, whatever the rows' lengths.
+//
+//	row 0  ┌───────────────────┐   old: ↓ ↓ ↓ … one step per display line
+//	       │ … soft-wrapped …  │
+//	       │ …            end ●│   new: CursorEnd, then one ↓
+//	row 1  │● target row       │
+//	       └───────────────────┘
 func setPromptCaretOffset(ta *textarea.Model, off int) {
 	rows := strings.Split(ta.Value(), "\n")
 	row, col := 0, max(off, 0)
@@ -482,9 +497,23 @@ func setPromptCaretOffset(ta *textarea.Model, off int) {
 		row++
 	}
 	ta.MoveToBegin()
-	// The bound is the backstop promptLines uses, and for the same reason: it is
-	// a guard against a walk that neither advances nor repeats, not a limit any
-	// real prompt reaches.
+	// Each hop must leave the row it started on. One that does not would mean
+	// the library's end-of-row rule has changed; the hops stop there, and the
+	// display-line walk below finishes the job the old, slow, sure way.
+	for ta.Line() < row {
+		at := ta.Line()
+		ta.CursorEnd()
+		ta.CursorDown()
+		if ta.Line() <= at {
+			break
+		}
+	}
+	// The display-line walk is the backstop and is normally reached already on
+	// the row, so it exits at once. Its bound is the one promptLines uses, and
+	// for the same reason: it guards against a walk that neither advances nor
+	// repeats, not a limit any real prompt reaches. The loop watches the row
+	// the caret reports rather than counting steps, and stops when a step moves
+	// nothing, which is what the last display line does.
 	for range 20000 {
 		if ta.Line() >= row {
 			break

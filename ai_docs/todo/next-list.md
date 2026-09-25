@@ -84,12 +84,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   scroll, click and sweep. Watch whether the caret stays in view on the long
   prompt. *Lapsed* in `2026-0915-1836-prompt-editor-undo-v0.32.0`.
 
-- **N-024** · raised `2026-0915-1637-prompt-editor-paste-line-cap` · value low
-  Enter on a 20k-char single line took about 147ms (`replacePromptRunes` does
-  a `SetValue` on the whole prompt). If big one-line pastes are common,
-  consider a cheaper edit path there. *Lapsed* in
-  `2026-0915-1836-prompt-editor-undo-v0.32.0`.
-
 - **N-025** · raised `2026-0915-1637-prompt-editor-paste-line-cap` · value low
   Pastes past the library's 10000-line `maxLines` are still truncated
   silently (bubbles `textarea.go` `maxLines = 10000`). Contract 4 ("refuse in
@@ -266,8 +260,9 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - **N-059** · raised `2026-0925-1739-batches-menu-and-loop-default` · value medium
   Release v0.40.0: the Batches page's right-click menu (a new capability, so
   minor), loop as the composer's default Deliver, and the loop's one-hour
-  resume window (N-057), and the fire-time agent check on a scheduled pane
-  drop (N-020). Bump `main.go` and
+  resume window (N-057), the fire-time agent check on a scheduled pane
+  drop (N-020), and the caret walk that made enter on a long one-line
+  prompt slow (N-024). Bump `main.go` and
   `cats-plugin.toml`, commit `chore(release): v0.40.0`, tag it, and push the
   code and the tag.
 
@@ -313,6 +308,15 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-024** · closed 2026-09-25, `2026-0925-1802-long-line-caret-hop` · raised `2026-0915-1637-prompt-editor-paste-line-cap`
+  — The premise was off: `SetValue` was cheap. The time went to
+  `setPromptCaretOffset`, which walked to the caret's row one *display* line
+  at a time. Each step re-hashed the whole row in the library's wrap memo, so
+  the cost was quadratic in a long row's length. It now hops a logical row
+  per step (`CursorEnd`, then `CursorDown`), keeping the display-line walk as
+  a backstop. Enter on a 20k-rune line went from ~140ms to ~1.5ms. Undo/redo,
+  indent, line moves and the column mode use the same walk and got faster
+  too.
 - **N-020** · closed 2026-09-25, `2026-0925-1757-scheduled-drop-agent-gate` · raised `2026-0913-1932-existing-pane-session-settings`
   — A scheduled existing-pane drop now checks, when it fires, that the pane
   still runs an agent and not just that it still exists

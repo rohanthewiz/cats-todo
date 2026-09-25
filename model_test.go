@@ -17,7 +17,7 @@ var errTestDrop = errors.New("drop failed")
 // by fresh files under t.TempDir(), so form saves, toggles, and deletes actually
 // persist somewhere isolated and auto-cleaned. The project store has a path, so
 // available() is true — the in-project launch where scope defaults matter.
-func newModelInTemp(t *testing.T) (model, *store, *store) {
+func newModelInTemp(t testing.TB) (model, *store, *store) {
 	t.Helper()
 	dir := t.TempDir()
 	// newModel reads the saved preferences, and two of them (priority order,

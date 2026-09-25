@@ -41,7 +41,7 @@ func TestAppTitleNeverWraps(t *testing.T) {
 
 // openAddForm is a form over real temp stores, sized for clicks, with the
 // given prompt typed in — the fixture the title-click tests share.
-func openAddForm(t *testing.T, title, prompt string) (model, *store) {
+func openAddForm(t testing.TB, title, prompt string) (model, *store) {
 	t.Helper()
 	m, project, _ := newModelInTemp(t)
 	m.width, m.height = 100, 40
