@@ -249,6 +249,44 @@ func TestCodeIsDrawnInTheView(t *testing.T) {
 	}
 }
 
+// TestViewMarksWhatItAppends (N-037): the view's own lines after the prompt
+// are styled — dim labels, the missing-file note in the error hue — now that
+// the wrap is known to carry a style across its breaks. In a narrow pane the
+// note wraps, and every line holding part of it must still be drawn as an
+// error, or the one warning that a file will not be sent fades to prose.
+func TestViewMarksWhatItAppends(t *testing.T) {
+	m, _, _ := newModelInTemp(t)
+	m.width, m.height = 30, 40
+	m.viewRef = todoRef{scope: scopeProject}
+	td := Todo{
+		ID:      "t1",
+		Prompt:  "do the thing",
+		Session: &SessionOpts{Model: "opus"},
+		Images:  []string{"images/t1/gone.png"},
+	}
+	out := m.viewContent(td)
+	dim, bad := ansiOf(descStyle), ansiOf(errStyle)
+	for _, want := range []string{dim + "⚙ session:", dim + "📎 1 attached:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q is not a dimmed label in the view:\n%q", want, out)
+		}
+	}
+	noted := 0
+	for _, ln := range strings.Split(out, "\n") {
+		plain := ansi.Strip(ln)
+		if !strings.Contains(plain, "missing") && !strings.Contains(plain, "sent)") {
+			continue
+		}
+		noted++
+		if !strings.Contains(ln, bad) {
+			t.Errorf("a line of the missing note is not in the error hue: %q", ln)
+		}
+	}
+	if noted < 2 {
+		t.Fatalf("expected the missing note to wrap at this width, found it on %d line(s):\n%q", noted, out)
+	}
+}
+
 // TestStyleCodeSpansSurvivesWrap pins the lipgloss behaviour viewContent relies
 // on: a styled span that the wrap breaks is closed at the end of each line and
 // reopened at the start of the next, so every line the viewport shows is

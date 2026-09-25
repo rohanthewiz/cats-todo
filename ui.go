@@ -5067,36 +5067,43 @@ func (m model) viewHeight() int {
 }
 
 // viewContent renders the todo's full prompt wrapped to the view's width,
-// followed by its attachments when it has any.
+// followed by its session options and attachments when it has any.
 //
-// The attachment lines are plain text rather than styled: the whole body goes
-// through one lipgloss Width() wrap, and pre-styled spans inside a wrapped
-// block have their ANSI resets clobbered at the wrap points — the same hazard
-// the list's badges are written verbatim to avoid.
+// The whole body goes through one lipgloss Width() wrap, styled spans and
+// all. That is safe: lipgloss v2 closes an open style at each break it makes
+// and opens it again on the next line, so a wrapped span stays styled on every
+// line and each line is complete on its own for the viewport to scroll to
+// (TestStyleCodeSpansSurvivesWrap pins it). The code highlighting relies on
+// this, and so do the lines appended below.
 func (m model) viewContent(td Todo) string {
 	// Code is coloured here, in the prompt's own text and before anything is
 	// appended, so the session and attachment lines below can never be taken
 	// for part of an unclosed fence. See styleCodeSpans for why styling ahead
 	// of the wrap is safe.
 	body := styleCodeSpans(td.Prompt, promptCodeSpans(td.Prompt), viewCodeStyle)
-	// The session line goes above the attachments and below the body, in the
-	// same plain text for the same reason: this is one wrapped block, and a
-	// pre-styled span inside it loses its reset at the wrap points.
+	// The session line goes above the attachments and below the body. What
+	// the view appends is told apart from the prompt by its labels, which are
+	// dimmed: everything above them is what the agent receives, and a
+	// "⚙ session:" in the prompt's own ink could be read as a line of it. The
+	// values stay in full ink, since they are what a reader came to check (and
+	// may copy out).
 	if s := td.Session.summary(); s != "" {
-		body += "\n\n⚙ session: " + s
+		body += "\n\n" + descStyle.Render("⚙ session:") + " " + s
 	}
 	if refs := m.storeFor(m.viewRef.scope).resolveImages(td); len(refs) > 0 {
 		var b strings.Builder
 		b.WriteString(body)
-		fmt.Fprintf(&b, "\n\n📎 %d attached:", len(refs))
+		b.WriteString("\n\n")
+		b.WriteString(descStyle.Render(fmt.Sprintf("📎 %d attached:", len(refs))))
 		for _, ref := range refs {
 			b.WriteString("\n  ")
 			b.WriteString(ref.rel)
 			// A missing file is dropped from the delivered prompt rather than
 			// sent for the agent to chase, so this view is the only place the
-			// user finds out it went.
+			// user finds out it went. It is drawn in the error hue for that
+			// reason: in a long attachment list, a plain note is easy to miss.
 			if ref.missing {
-				b.WriteString("   (missing — will not be sent)")
+				b.WriteString(errStyle.Render("   (missing — will not be sent)"))
 			}
 		}
 		body = b.String()

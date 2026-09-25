@@ -2080,7 +2080,9 @@ Either way the file is *copied* into the backlog
 attach a screenshot and then clear it off your Desktop. The list marks an
 attachment-carrying prompt with `📎n` — in cyan, the same hue the editor's
 **Images** chip carries, so "this one has a picture" is answered by a glance down
-the list rather than by reading each row — and `ctrl+v` lists the files. Done and
+the list rather than by reading each row — and `ctrl+v` lists the files, under a
+dimmed `📎 n attached:` so the list is not read as part of the prompt; a file
+deleted since shows `(missing — will not be sent)` in red. Done and
 frozen rows keep the count but not the color: those rows recede as a whole, and
 the cyan is there to point at prompts still waiting on a picture.
 
