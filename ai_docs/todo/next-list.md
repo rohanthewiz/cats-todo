@@ -279,7 +279,7 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
-- **N-035** · closed 2026-09-25, no session doc · raised `2026-0924-1231-prompt-editor-autosave`
+- **N-035** · closed 2026-09-25, `2026-0925-1836-gofmt-and-autosave-view-row` · raised `2026-0924-1231-prompt-editor-autosave`
   — The list's View panel (`ctrl+l`) has a third row, **Autosave**. It is a
   stepper over off, 15s, 30s, 45s, 1m, 90s, 2m and 5m that wraps at both
   ends: `→`/space/click step longer, `←` shorter. A change is written to
@@ -287,7 +287,7 @@ below were found done or overtaken while seeding.
   ctrl+d's save never overwrites a hand edit), and the next form arms with
   it. Opening the panel re-reads the file, so a hand edit shows there and
   takes effect without a restart.
-- **N-052** · closed 2026-09-25, no session doc (a `style:` commit on its own) · raised `2026-0925-1315-multi-drop-batches-phase1`
+- **N-052** · closed 2026-09-25, `2026-0925-1836-gofmt-and-autosave-view-row` · raised `2026-0925-1315-multi-drop-batches-phase1`
   — `gofmt -l .` is empty. `ui.go` was only the form-stage field block's
   alignment. `promptcode.go` could not take a plain `gofmt -w`: its doc
   comment had ``` ``a ` b`` ``` in running prose, and gofmt reads a double
