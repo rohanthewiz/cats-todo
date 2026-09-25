@@ -1,8 +1,9 @@
 // menu.go — the box every context menu in this program is drawn in.
 //
-// There are two of them: the prompt editor's (promptmenu.go), which asks what a
-// swept run of text is worth, and the list's (listmenu.go), which asks what can
-// be done to the todo under the pointer. They differ only in what their rows
+// There are three of them: the prompt editor's (promptmenu.go), which asks what
+// a swept run of text is worth, the list's (listmenu.go), which asks what can be
+// done to the todo under the pointer, and the Next List page's (nextmenu.go),
+// the same question about a follow-up item. They differ only in what their rows
 // mean; everything a menu *is* — where the box lands, how a click hits a row,
 // how the keyboard walks it, how it draws and how it is composited over the
 // screen it is asking about — is the same, and lives here.

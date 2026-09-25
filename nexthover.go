@@ -56,9 +56,15 @@ const (
 //
 // The logic is the same three-way split (same row: nothing; the row already
 // being waited for: follow the pointer; a new row: warm → card now, cold → arm
-// the dwell), and is documented there. The page has no menu, note pad or drag,
-// so there is nothing to refuse a card over except the pointer being on chrome.
+// the dwell), and is documented there. The page has no note pad or drag, so
+// its context menu (nextmenu.go) is the one surface a card is refused over.
 func (m model) nextHoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	if m.nextMenu.open {
+		// The menu has taken over the page the card floats on, so the warm
+		// window closes with it, as hoverMotion's does under the list's menu.
+		m.clearHover()
+		return m, nil
+	}
 	i, ok := m.next.list.rowAtLine(msg.Y - nextRowsRow)
 	if !ok {
 		// A section heading, a spacer, or the chrome — the pointer crossing

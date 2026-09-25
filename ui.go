@@ -298,6 +298,11 @@ type model struct {
 	formMode   formMode
 	formScope  scope
 	editID     string
+	// formNextID is the Next List item the open form was drafted from
+	// (promptFromNextItem), "" for any other form. It only renames the
+	// editor ("Next List Prompt Editor"), so a draft reached through ctrl+g
+	// says where it came from once the page it came from is out of sight.
+	formNextID string
 	titleInput textinput.Model
 	promptArea textarea.Model
 	// flagInput is the ⚑ flag's note, the form's third text field — a single
@@ -404,6 +409,11 @@ type model struct {
 	// read of the file, and re-read on ↻ Refresh, so nothing here outlives
 	// the visit.
 	next nextPage
+	// The page's context menu (nextmenu.go): right-click an item. Kept apart
+	// from listMenu rather than sharing it, unlike the hover card's state,
+	// because its rows mean different things and it carries an item rather
+	// than a todoRef; the zero value is "closed", as there.
+	nextMenu nextMenu
 
 	// Attachment editor (a sub-stage of the form, so its state lives and dies
 	// with the form's).
@@ -659,6 +669,7 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// them, since a resize can arrive on either stage.
 		m.menu = promptMenu{}
 		m.listMenu = listMenu{}
+		m.nextMenu = nextMenu{}
 		// The note pad is re-placed instead of dropped: it holds words someone
 		// is in the middle of typing, which a resize is no reason to throw
 		// away. Its anchor is a cell that may no longer exist, so placement
@@ -1080,11 +1091,16 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// exception to "the left button is the pointer" for the same reason — the
 		// actions are more numerous than any bar or chord can teach, and a menu
 		// is where every other program on the machine keeps that list.
+		//
+		// The Next List page answers it the same way, over its items
+		// (nextmenu.go), so the right button means one thing on both lists.
 		switch m.stage {
 		case stageForm:
 			return m.rightClickForm(msg)
 		case stageList:
 			return m.rightClickList(msg)
+		case stageNextList:
+			return m.rightClickNext(msg)
 		}
 		return m, nil
 	}
@@ -1909,6 +1925,9 @@ func (m *model) backToList() {
 	// Whatever form was open is closed now, and a tick still in flight for it
 	// must find nothing to write into (see the generation note in autosave.go).
 	m.stopAutosave()
+	// And it forgets where it came from, so the next edit form is not titled
+	// after a Next List item it has nothing to do with.
+	m.formNextID = ""
 	// Land on the prompt the screen being left was about, then forget it so a
 	// later return from a prompt-less screen doesn't jump back here. A ref
 	// that is no longer on screen (deleted, folded, filtered out) leaves the
@@ -1935,6 +1954,9 @@ func (m *model) backToList() {
 	// menu left standing would be composited over a list nobody is looking at
 	// and would swallow the next keystroke on arriving back.
 	m.listMenu = listMenu{}
+	// The Next List page's menu too: leaving that page is a backToList, and a
+	// box left open would greet the next ctrl+g by swallowing its first key.
+	m.nextMenu = nextMenu{}
 	// The note pad goes with it, and for the same reason: it is a box floated
 	// over the list, and one left standing would be composited over a screen
 	// nobody is on and would swallow the first keystroke back. Its words are
@@ -2471,6 +2493,8 @@ func (m model) beginAddWith(title, prompt string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.formMode = formAdd
+	// Every add starts unattached; promptFromNextItem sets it after this.
+	m.formNextID = ""
 	// Default to the project backlog when launched inside a project, else global.
 	if m.project.available() {
 		m.formScope = scopeProject
@@ -5076,7 +5100,9 @@ func (m model) renderStage() string {
 		// Its card floats over the page the way the list's does over the list,
 		// composited for the same reason: nextRowsRow is measured on the frame
 		// underneath.
-		return m.overlayHoverCard(m.viewNextList())
+		// The menu goes on top of the card, as on the list: it is the box
+		// that can be pressed.
+		return m.overlayNextMenu(m.overlayHoverCard(m.viewNextList()))
 	default:
 		// The menu floats over the list rather than replacing it, and is
 		// composited here rather than inside viewList for the reason the form's
@@ -5738,7 +5764,13 @@ func (m model) viewForm() string {
 	// The program title first, the same line the list opens with, so moving
 	// between the two screens reads as one program changing section rather than
 	// as a different tool taking over the pane.
-	b.WriteString(m.titleLine("Prompt Editor"))
+	// A draft made from a Next List item says so, since the page it came from
+	// is out of sight and the add form otherwise looks like any other.
+	section := "Prompt Editor"
+	if m.formNextID != "" {
+		section = "Next List Prompt Editor"
+	}
+	b.WriteString(m.titleLine(section))
 	b.WriteString("\n")
 	// The toolbar leads the form's own content, on the line the heading used to
 	// have. See formActions for why the buttons are worth more there than a

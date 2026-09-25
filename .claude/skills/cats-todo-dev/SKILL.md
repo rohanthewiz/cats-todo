@@ -56,6 +56,7 @@ and the rest stay local.
 | `promptundo.go` | ↶ Undo (`cmd+z`/`ctrl+z`) and ↷ Redo (`shift+cmd+z`/`ctrl+y`): the per-session history and its redo stack (cleared by the next real edit), its coalescing rule, and the commit point `Update` calls (`route` is the old `Update` body) |
 | `autosave.go` | the form's timed autosave (45s default, `autosaveSeconds` in settings.json): throttle timer (generation-guarded tick), `formSig` change detection, the add→edit switch, and cancel's revert |
 | `nextlist.go` | the Next List page (`stageNextList`): parses `ai_docs/todo/next-list.md` (Open + Roadmap), one-run-of-text rows cut to the pane, ✚ New prompt → prefilled add form (`beginAddWith`), ✉ Send → the drop picker with an unsaved prompt (`sendFromNext`, `finishNextDrop`), ↻ Refresh |
+| `nextmenu.go` | the Next List's right-click menu (`nextMenu`, on `menuBox`): it makes a backlog prompt from the item — draft form (± ⚙ Session / ◫ Images panel), ✉ Send unsaved, ◷ Schedule (add or reuse, then the list's scheduler), ⤓ Add in one press with a mark (`nextMenuAddMark`), value carried from the file; `nextBacklogCopy` (an open prompt starting with `nextItemCite`) greys the Add rows; ⧉ Copy ID / as prompt |
 | `nexthover.go` | the Next List's hover card: `nextHoverMotion`, `nextCardLines` (ID · section, ≤5 text lines, value · raised — 7 rows max); shares the list card's state (`m.hover`/`hoverPend`, whose `stage` keeps a dwell on its own page) |
 | `promptcode.go` | code in a prompt: `promptCodeSpans` (inline backtick spans + ``` fences, one span per line), the editor's code paints on the selection/spell overlay, the view's pre-wrap styling |
 | `promptlines.go` | the sweep → whole-rows arithmetic those four share |
@@ -142,7 +143,7 @@ and the rest stay local.
   `ctrl+x` delete · `ctrl+↑/↓` move · `ctrl+d` fold closed · `ctrl+l` View panel ·
   `ctrl+w` clear done · `ctrl+r` import · `ctrl+g` Next List page (there `ctrl+r` is
   refresh, `enter` drafts a prompt, `shift/alt+enter` sends the item to the drop
-  picker unsaved — `nextDrop`/`dropSubject`, esc back to the page) · `tab` button row · `esc`/`ctrl+c` quit.
+  picker unsaved — `nextDrop`/`dropSubject`, esc back to the page; right-click an item for its menu) · `tab` button row · `esc`/`ctrl+c` quit.
 - **Form:** `ctrl+s` save (also `cmd+s` as `super+s`/`meta+s`, which only a terminal
   that reports Cmd — cats does — can send; and `enter` from the title field) ·
   `enter`/`shift+enter`/`alt+enter`/`ctrl+j` newline in the prompt · `ctrl+o` (and

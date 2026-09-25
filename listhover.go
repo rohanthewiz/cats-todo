@@ -267,7 +267,12 @@ func (m model) hoverDwell(msg hoverTickMsg) (tea.Model, tea.Cmd) {
 		return m, nil // armed on the other page; its row means nothing here
 	}
 	if m.stage == stageNextList {
-		// The Next List page has none of the list's surfaces to refuse over.
+		// The Next List page's one surface to refuse over is its menu: a
+		// dwell armed just before the right-click must not land a card
+		// beside a box that has taken over the page.
+		if m.nextMenu.open {
+			return m, nil
+		}
 		if card, ok := m.nextCardFor(p.row, p.x, p.y); ok {
 			m.hover = card
 		}

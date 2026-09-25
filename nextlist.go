@@ -532,6 +532,7 @@ func (m model) nextListRoot() string {
 // than a status line on the screen being left.
 func (m model) beginNextList() (tea.Model, tea.Cmd) {
 	m.clearHover()
+	m.nextMenu = nextMenu{}
 	m.next = newNextPage(m.nextListRoot())
 	m.next.resize(m.width, m.height)
 	m.stage = stageNextList
@@ -566,7 +567,31 @@ func (m model) promptFromNext() (tea.Model, tea.Cmd) {
 		m.next.say("highlight an item first — ↑/↓ to choose one", false)
 		return m, nil
 	}
-	return m.beginAddWith(nextItemTitle(it), nextItemPrompt(it))
+	return m.promptFromNextItem(it)
+}
+
+// promptFromNextItem is ✚ New prompt on a given item — the road the context
+// menu (nextmenu.go) takes, since it acts on the item it was opened for rather
+// than on whatever is highlighted when the row is pressed.
+func (m model) promptFromNextItem(it nextItem) (tea.Model, tea.Cmd) {
+	next, cmd := m.beginAddWith(nextItemTitle(it), nextItemPrompt(it))
+	nm, ok := next.(model)
+	if !ok || nm.stage != stageForm {
+		return next, cmd // refused (no writable backlog); it said why
+	}
+	// The editor's title names where the draft came from (viewForm).
+	nm.formNextID = it.ID
+	// The item's value comes with it: the file rates items on the same three
+	// levels a prompt is rated on (value.go), so a high item drafted into a
+	// low prompt would be the form quietly contradicting the file. A level the
+	// file spells some other way is left at the default, as a backlog's is.
+	if lvl, err := normalizeValue(it.Value); err == nil {
+		nm.formAnnots.Value = lvl
+		// Re-take autosave's baseline: the carried value is part of the form
+		// as it opened, not an edit, and must not arm a save on its own.
+		nm.autosave.saved = nm.formSig()
+	}
+	return nm, cmd
 }
 
 // nextItemTitle and nextItemPrompt are what an item becomes as a prompt, the
@@ -579,7 +604,16 @@ func nextItemTitle(it nextItem) string {
 }
 
 func nextItemPrompt(it nextItem) string {
-	return "Next list item " + it.ID + " (" + filepath.ToSlash(nextListRel) + "):\n\n" + it.Text
+	return nextItemCite(it.ID) + filepath.ToSlash(nextListRel) + "):\n\n" + it.Text
+}
+
+// nextItemCite is how a prompt made from item id begins. It is its own piece
+// because the context menu reads it back (nextBacklogCopy, nextmenu.go) to
+// recognise a backlog prompt already made from the item, and the writer and
+// the reader must not spell it two ways. It stops at the parenthesis so the
+// match does not also hang on the file's path.
+func nextItemCite(id string) string {
+	return "Next list item " + id + " ("
 }
 
 // nextSend is a Next List item on its way to an agent: the prompt the picker
@@ -605,10 +639,19 @@ type nextSend struct {
 // item is never frozen or info-marked, so those two guards have no counterpart.
 func (m model) sendFromNext() (tea.Model, tea.Cmd) {
 	it, ok := m.next.highlighted()
-	switch {
-	case !ok:
+	if !ok {
 		m.next.say("highlight an item first — ↑/↓ to choose one", false)
 		return m, nil
+	}
+	return m.sendNextItem(it)
+}
+
+// sendNextItem is ✉ Send on a given item, the half of sendFromNext the context
+// menu shares (nextmenu.go). The menu greys its row on these same two guards;
+// they stay here as well because the world can change between the right-click
+// and the press.
+func (m model) sendNextItem(it nextItem) (tea.Model, tea.Cmd) {
+	switch {
 	case m.dropping:
 		m.next.say("a drop is still in progress…", false)
 		return m, nil
@@ -677,6 +720,11 @@ func (m model) finishNextDrop(msg dropResultMsg) (tea.Model, tea.Cmd) {
 // updateNextList is the page's key loop: the list's keys, the bar's chords, and
 // everything else, which is the query.
 func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// An open context menu owns every key (see updateNextMenu), the list's
+	// bargain: the page's own chords would otherwise act from behind it.
+	if m.nextMenu.open {
+		return m.updateNextMenu(msg)
+	}
 	// The hand is on the keyboard: the hover card goes before the key is read,
 	// as on the list (a card over rows the keys are walking would describe a
 	// row the highlight has left) — and every way off this page is a key or a
@@ -732,6 +780,11 @@ func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // the pointer never starts a prompt by accident.
 func (m model) clickNext(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	m.clearHover() // a click is the hand acting, not reading (see clearHover)
+	// An open menu takes the press first, wherever it landed: off the box it
+	// only dismisses, and the chip or row underneath must not also act.
+	if m.nextMenu.open {
+		return m.clickNextMenu(msg)
+	}
 	if msg.Y == nextBarRow {
 		for i, c := range m.nextChips() {
 			if msg.X < c.start || msg.X >= c.end {
@@ -794,7 +847,11 @@ func (m model) viewNextList() string {
 	empty := firstNonEmpty(m.next.err, "nothing matched")
 	b.WriteString(m.next.list.view(empty, m.nextBar(), m.width))
 	b.WriteString("\n")
-	segs := []string{"dbl-click new prompt", "↑/↓ choose", "type to filter"}
+	// "right-click menu" goes last, the list footer's rule: it is the first
+	// segment a narrow pane drops (fitFooter cuts from the tail), and the
+	// least needed, since everything on the menu is on the bar or a chord too
+	// except the two copies.
+	segs := []string{"dbl-click new prompt", "↑/↓ choose", "type to filter", "right-click menu"}
 	if m.nextBarTier() != tierHints {
 		// The chips stopped teaching their chords, so the footer takes over.
 		segs = append([]string{"enter new prompt", m.modEnter() + " send", "ctrl+r refresh", "esc back"}, segs...)

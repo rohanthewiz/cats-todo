@@ -75,7 +75,8 @@ folded, filtered out), leaves the cursor where it was.
 
 Both screens open with the same title line, directly under the pane's header:
 `CatsTodo vX.Y.Z - Prompts` on the list and `CatsTodo vX.Y.Z - Prompt Editor`
-in the editor. It names the program, the running version (the binary's own, so
+in the editor (`Next List Prompt Editor` for a draft made from a
+[Next List](#the-next-list) item). It names the program, the running version (the binary's own, so
 it can't disagree with what is installed) and which of the two screens you are
 on, so switching between them reads as one tool changing section. It is
 truncated rather than wrapped in a narrow pane: everything below it is clicked
@@ -931,6 +932,79 @@ the form. Unlike a backlog prompt's card, every item gets one, even one whose
 text fits on the row, because when it was raised and its value in words are
 things the row never shows. The page asks the terminal for all pointer motion
 for this, the same cost the list pays.
+
+**Right-click an item** for its context menu. It uses the same box and keys as
+[the list's](#the-lists-context-menu). A Next List item is not a backlog
+prompt: it is a paragraph in a file this page only reads. So everything the add
+form can set (session options, attachments, marks, a schedule) belongs to a
+backlog prompt, and none of it can be applied to the item itself. What the menu
+does instead is make that prompt from the item, with the setting already
+applied:
+
+```
+╭────────────────────────────────╮
+│ ✚ New prompt…            enter │
+│ ⚙ Session…                     │
+│ ◫ Images…                      │
+│ ✉ Send…            shift+enter │
+│ ◷ Schedule…                    │
+│ ⤓ Add to backlog               │
+│ ⤓ Add as 🍏 quick win          │
+│ ⤓ Add as △ high priority       │
+│ ⤓ Add as ▲ critical priority   │
+│ ⤓ Add as ｉ info               │
+│ ⤓ Add as ⚑ flagged             │
+│ ⧉ Copy ID: N-014               │
+│ ⧉ Copy as prompt               │
+╰────────────────────────────────╯
+```
+
+The rows run from least to most committing:
+
+- **✚ New prompt…** opens the draft form, the same as `enter`. **⚙ Session…**
+  and **◫ Images…** open the same draft with the form's session panel or
+  attachments editor already up, so `esc` from the panel lands on the draft.
+  Nothing is saved until the form is.
+- **✉ Send…** hands the item to an agent without saving it, the same as
+  `shift+enter`.
+- **◷ Schedule…** saves the item to the backlog and opens the list's scheduler
+  on it. A schedule belongs to a backlog row, so this is the one row that
+  leaves the page. Backing out of the scheduler leaves the prompt in the
+  backlog.
+- **⤓ Add to backlog** saves the item in one press, with no form, and stays on
+  the page. The rows under it save it with one mark already set. The heading
+  confirms where it went (`added N-014 as a quick win to the project backlog`).
+- **⧉ Copy ID** and **⧉ Copy as prompt** are the only rows that leave nothing
+  behind. **Copy ID** puts the bare ID on the clipboard, ready to cite in a
+  commit or a chat. **Copy as prompt** copies the exact text ✉ Send would
+  deliver, citation line included, so you can paste it into an agent this
+  manager can't reach. Both use the list's copy path (OSC 52, plus `pbcopy` on
+  a Mac).
+
+Every prompt made from an item carries the item's value, whether it comes from
+the form or from one of the Add rows. The file rates items on the same three
+levels a prompt is rated on, so a `value high` item becomes a 🔷 prompt rather
+than a low one. The form made from an item is titled **Next List Prompt
+Editor**, so you can tell where the draft came from once the page is out of
+sight.
+
+The Add rows are greyed out once the backlog already has an **open** copy of
+the item, meaning a prompt that still begins with the item's citation line.
+Pressing one then names the copy. ◷ Schedule… schedules that copy instead of
+making another. A copy that is done doesn't count: the work was closed but the
+item is still listed, so adding it again is a reasonable thing to do. Rows that
+can't act right now are greyed out too, and say why on the heading, in the
+same words the chord uses. That covers Send and Schedule without a cats socket
+(or Send while a drop is in progress), and every row that writes when there is
+no backlog to write into.
+
+↻ Refresh and ← Back are not on the menu. They act on the page, not on an
+item, so they stay on the bar, just as the list's menu leaves out Import. The
+page never writes the file, so closing or re-rating an item is still done in
+the file itself. As on the list, a right-click anywhere but an item opens
+nothing (and closes a menu that is open), a click off the box closes it
+without doing anything else, and the hover card stays down while the menu is
+up.
 
 ## Sending to a machine on the local network
 

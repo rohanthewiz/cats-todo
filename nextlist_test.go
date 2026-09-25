@@ -419,3 +419,30 @@ func TestNextListSendRefusesInWords(t *testing.T) {
 		t.Errorf("nothing matched: stage=%v note=%q, want a refusal on the page", m.stage, m.next.note)
 	}
 }
+
+// TestNextListDraftCarriesTheItem: a form drafted from an item is titled as the
+// Next List's editor and opens on the item's value, without that value counting
+// as an edit for autosave. Leaving the form forgets the item, so the next edit
+// form is a plain Prompt Editor again.
+func TestNextListDraftCarriesTheItem(t *testing.T) {
+	m, _ := nextModel(t, sampleNextList)
+	m = openNext(t, m)
+	m = pressNext(t, m, "down") // N-002, value high
+	m = pressNext(t, m, "enter")
+
+	if !strings.Contains(ansi.Strip(m.viewForm()), "Next List Prompt Editor") {
+		t.Errorf("form title does not say Next List:\n%s", ansi.Strip(m.viewForm()))
+	}
+	if m.formAnnots.Value != valueHigh {
+		t.Errorf("form value = %q, want N-002's high carried over", m.formAnnots.Value)
+	}
+	if m.autosave.saved != m.formSig() {
+		t.Error("the carried value reads as an edit, which would arm an autosave of an untouched draft")
+	}
+
+	m = pressNext(t, m, "esc")
+	m = pressList(t, m, "ctrl+a")
+	if got := ansi.Strip(m.viewForm()); strings.Contains(got, "Next List") || !strings.Contains(got, "Prompt Editor") {
+		t.Errorf("a plain add after the draft is still titled after the item:\n%s", got)
+	}
+}
