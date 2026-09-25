@@ -287,8 +287,13 @@ func valueMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 // and the list menu's dim rows so the two roads say the same words. They name
 // the way out — the mark itself — because a refusal that only said "no" would
 // leave the reader hunting for which of the row's facts was the obstacle.
+//
+// infoSendWhy is now the refusal of a SEND TO NOTES (notes.go) rather than of
+// a send: an info prompt's Send files it in the notes plugin, and this is what
+// the user reads when no notes pane is open. It names both ways out — open a
+// notes plugin, or clear the mark and treat the prompt as work after all.
 const (
-	infoSendWhy     = "that prompt is marked info — a note, not for agents; clear ℹ Info to send it"
+	infoSendWhy     = "no notes plugin open in cats — open GoNotes and send again, or clear ℹ Info to send it to an agent"
 	infoScheduleWhy = "that prompt is marked info — a note, not for agents; clear ℹ Info to schedule it"
 )
 

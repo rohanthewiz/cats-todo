@@ -43,6 +43,7 @@ and the rest stay local.
 | `cli.go` | `add` flags (incl. `expandSessLoad`, `optString`, `stringList`) |
 | `init.go` | `init [-f] [--post-install]` with the show-then-ask overwrite guard |
 | `complete.go` | `__complete` protocol for `catctl completion` |
+| `notes.go` | an info prompt's Send → the notes plugin: `pickNotesPane` (pane.list, `plugin_type == "notes_mgr"`, own workspace first), `notesEnvelope` (the `<!-- cats-note v1 -->` + JSON-quoted frontmatter contract; receiver is gonotes `tui/intake.go`), `startNotesSend` → a `dropResultMsg{toNotes}` so success marks done like a drop |
 | `export.go` | Export-to-project picker: cats workspaces (pane.list ⋈ workspace.list), other backlog, cdx recents, folder browser |
 | `images.go` / `clipboard.go` | attachments copied into `images/<id>/`; macOS pasteboard |
 | `filepick.go` | `@` file picker in the editor (borrowed from cdx, file-level) |

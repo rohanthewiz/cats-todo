@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-045
+**Next ID:** N-046
 
 ## Open
 
@@ -125,14 +125,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   history of its own; if it is ever wanted, it is a second stack, not the
   prompt's. *Lapsed* in `2026-0922-0943-info-annotation`.
 
-- **N-030** · raised `2026-0922-0943-info-annotation` · value medium
-  **Send info prompts to gonotes.** Add a drop target for info-marked
-  prompts that delivers them to a notes plugin (gonotes,
-  `~/projs/go/gonotes`) instead of an agent. Probably an Export-like
-  "➦ Send to notes" that is available only when `Info` is set, through the
-  cats control socket or a gonotes CLI or API. It could mark the prompt done
-  once it is filed. Work out gonotes' intake contract first.
-
 - **N-033** · raised `2026-0924-1146-info-mark-blue-chip` · value low
   Check the info chip by eye. Look at an info row in cats, both plain and
   highlighted, plus the bar and the menu. If the fullwidth `ｉ` looks thin or
@@ -209,6 +201,13 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   and `applyPaneSetup` doesn't watch for it. A pane that has consented once
   won't show it.
 
+- **N-045** · raised 2026-09-24, the notes-send commit (no session doc) · value low
+  `TestProgramExitsOnHangup/sighup` fails under `go test -race`: the helper
+  process exits 66, the race detector's code, so `runProgram` races with
+  itself on SIGHUP. It fails on a clean HEAD as well as with the notes send,
+  and passes without `-race`. The race report goes to the helper's pty, so
+  capturing it means teeing the drained pty bytes in the test.
+
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -251,6 +250,18 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-030** · closed 2026-09-24, the notes-send commit (no session doc) · raised `2026-0922-0943-info-annotation`
+  — An info prompt's Send (shift+enter, the form's ✉ Send, the menu row that
+  now reads ✉ Send to notes) files it in the notes plugin rather than
+  refusing. `notes.go` finds the pane by `plugin_type == "notes_mgr"` in
+  `pane.list`, preferring this workspace, and pastes a `<!-- cats-note v1 -->`
+  envelope (JSON-quoted YAML frontmatter, then the prompt) with Submit off,
+  then focuses the pane. The result rides `dropResultMsg{toNotes}`, so it is
+  marked done like a drop. With no notes pane open, the refusal names both ways
+  out. The intake contract was settled with the user: a paste into the pane
+  rather than an inbox dir or a CLI, because the pane's process already owns
+  the store. gonotes `08eb409` is the receiver (`tui/intake.go`), which opens
+  an unsaved form. Schedule still refuses info prompts. Not yet released.
 - **N-013** · closed 2026-09-24, `2026-0924-2019-bundle-done-stamp` · raised `2026-0913-1813-done-stamp-v0.31.0`
   — `bundleTodoNote` (`bundle.go`) now writes `done 2026-09-24 14:05 CDT`,
   the prompt view's full stamp with the zone, and plain `done` when there is

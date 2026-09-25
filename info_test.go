@@ -12,16 +12,16 @@ import (
 )
 
 // TestInfoPromptsRefuseToLeave pins the rule the ｉ mark exists for: a note is
-// never handed to an agent. Both keyboard roads — a drop and a schedule — are
-// refused in words that name the mark as the way out, mirroring the frozen
-// refusal (TestFrozenPromptsRefuseToLeave), with a live client so the socket
-// guard cannot be what stopped them.
+// never handed to an agent. A schedule is refused in words that name the mark
+// as the way out, mirroring the frozen refusal (TestFrozenPromptsRefuseToLeave),
+// with a live client so the socket guard cannot be what stopped it. The other
+// keyboard road, a drop, now files the note in a notes plugin instead of
+// refusing — TestInfoSendGoesToNotes (notes_test.go) pins that half.
 func TestInfoPromptsRefuseToLeave(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		key  tea.KeyPressMsg
 	}{
-		{"drop", tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}},
 		{"schedule", tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

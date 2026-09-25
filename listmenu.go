@@ -188,8 +188,15 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		sendWhy = "a drop is still in progress…"
 	case td.Frozen:
 		sendWhy = "that prompt is frozen — unfreeze it (ctrl+f) to send it"
-	case td.Info:
-		sendWhy = infoSendWhy
+	}
+	// An info prompt's Send files it in the notes plugin instead of opening
+	// the agent picker (see startDrop), so the row says where it goes. Whether
+	// a notes pane is open is not known until the press asks cats — a socket
+	// call a right-click must not make — so the row is live and a missing
+	// pane is refused then, in words.
+	sendLabel := "✉ Send…"
+	if td.Info {
+		sendLabel = "✉ Send to notes"
 	}
 
 	// Schedule's are beginSchedule's, and they are not the same set. A drop
@@ -298,7 +305,7 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		// local to the backlog, so a frozen, done or socketless prompt can still
 		// have its launch setup changed for later.
 		{act: listMenuSession, label: "⚙ Session…"},
-		{act: listMenuSend, label: "✉ Send…", hint: m.modEnter(), why: sendWhy},
+		{act: listMenuSend, label: sendLabel, hint: m.modEnter(), why: sendWhy},
 		{act: listMenuSchedule, label: "◷ Schedule…", hint: "ctrl+s", why: schedWhy},
 		{act: listMenuDone, label: doneLabel, hint: "ctrl+t"},
 		{act: listMenuFreeze, label: freezeLabel, hint: "ctrl+f"},

@@ -480,9 +480,8 @@ prompt whose row draws nothing.
 
 `ｉ` marks a prompt that is **not work at all** — a note that landed in the
 backlog because that is where the hand was: a quirk of an API, a decision and
-its reason, a link worth keeping. It belongs in a notes program eventually (a
-gonotes-style plugin is the intended destination), and until then the backlog
-holds it without mistaking it for something to do.
+its reason, a link worth keeping. It belongs in a notes program, and until it is
+sent there the backlog holds it without mistaking it for something to do.
 
 On a list row the mark is drawn as a chip — a bold italic white `ｉ` on a solid
 blue field, two cells wide like 🍏 and 💎 — so an info row is spotted at a
@@ -490,15 +489,32 @@ glance rather than read. On a done or frozen row the field drops away and the
 letter goes grey, the way the other marks recede on closed work.
 
 So the mark changes where the prompt may go. **It is never handed to an
-agent**: `shift+enter`, ✉ Send (from the editor or the context menu) and
-`ctrl+s` Schedule all refuse it in words that name the way out —
-`that prompt is marked info — a note, not for agents; clear ℹ Info to send it`
-— and the context menu dims those rows with the same sentence. An agent handed a
-note would try to *do* it, and the whole point of writing it down as a note was
-that there was nothing to do. Raising the mark on a prompt that already has a
-schedule clears the schedule, the same way freezing does, and a hand-edited
-backlog holding both is skipped by the schedule tick rather than fired or
-recorded as missed.
+agent.** An agent handed a note would try to *do* it, and the whole point of
+writing it down as a note was that there was nothing to do. Instead its Send —
+`shift+enter`, ✉ Send from the editor, or the context menu's row, which reads
+**✉ Send to notes** on an info prompt — files it in the **notes plugin** open in
+cats, and marks the prompt done the way a drop does:
+
+- The notes pane is found by what it *is*, not by name: the pane cats reports
+  with `plugin_type` `notes_mgr` (the type a plugin declares in its manifest;
+  GoNotes declares it). One in this workspace is preferred over one elsewhere.
+- The note is pasted into that pane as a small envelope — a
+  `<!-- cats-note v1 -->` marker line, YAML frontmatter with the title, a
+  `from cats-todo · <project>` description and the `cats-todo` tag, then the
+  prompt as the body — and the pane is focused. GoNotes opens it as a new,
+  **unsaved** note form; `ctrl+s` there keeps it. The receiving side of the
+  contract is `tui/intake.go` in GoNotes.
+- A note discarded unsaved leaves a done row here, and `ctrl+t` reopens it.
+- With no notes pane open the send is refused, and the refusal names both ways
+  out: `no notes plugin open in cats — open GoNotes and send again, or clear ℹ
+  Info to send it to an agent`.
+
+`ctrl+s` Schedule still refuses an info prompt, in the same shape —
+`that prompt is marked info — a note, not for agents; clear ℹ Info to schedule
+it` — and the context menu dims that row with the same sentence. Raising the
+mark on a prompt that already has a schedule clears the schedule, the same way
+freezing does, and a hand-edited backlog holding both is skipped by the schedule
+tick rather than fired or recorded as missed.
 
 It is an annotation rather than a fourth state because it sits alongside the
 states instead of replacing one: a note can be done (filed away), frozen (not

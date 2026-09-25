@@ -186,6 +186,10 @@ type dropResultMsg struct {
 	// note is what performDrop did on the user's behalf that the success line
 	// should say (a switch confirm it answered), or "".
 	note string
+	// toNotes marks an info prompt sent to a notes plugin (notes.go) rather
+	// than dropped into an agent. It rides the same message so a delivered note
+	// is marked done by the same code as a drop; only the words differ.
+	toNotes bool
 }
 
 // scheduleTickMsg is the schedule loop's heartbeat (see scheduleTick).
@@ -695,7 +699,11 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setStatus("scheduled drop failed: "+msg.err.Error(), true)
 				return m, nil
 			}
-			m.setStatus("drop failed: "+msg.err.Error(), true)
+			verb := "drop failed: "
+			if msg.toNotes {
+				verb = "send to notes failed: "
+			}
+			m.setStatus(verb+msg.err.Error(), true)
 			return m, nil
 		}
 		status := dropDoneStatus(msg)
@@ -4225,13 +4233,13 @@ func (m model) startDrop(ref todoRef) (tea.Model, tea.Cmd) {
 		m.backToList()
 		return m, nil
 	}
-	// An info prompt is a note, not work: it is waiting for a notes program,
-	// and an agent handed one would try to *do* it. The mark is the whole
-	// decision, so the refusal names the way out of it, as the frozen one does.
+	// An info prompt is a note, not work: an agent handed one would try to
+	// *do* it. So its Send goes to the notes plugin instead (notes.go) — every
+	// road to a drop arrives here, which is what makes shift+enter, the menu's
+	// row and the form's ✉ Send all agree. With no notes pane open, that send
+	// is refused in words that name both ways out (infoSendWhy).
 	if td, ok := m.resolve(ref); ok && td.Info {
-		m.setStatus(infoSendWhy, false)
-		m.backToList()
-		return m, nil
+		return m.startNotesSend(ref)
 	}
 	m.dropTodo = ref
 	m.listFocus = ref
@@ -4519,6 +4527,11 @@ func dropDoneStatus(msg dropResultMsg) string {
 	note := ""
 	if msg.note != "" {
 		note = " · " + msg.note
+	}
+	if msg.toNotes {
+		// The note sits in an unsaved form in the notes pane (the receiver's
+		// rule, not ours), so the line ends on the act that keeps it.
+		return "sent to notes → " + msg.desc + note + " · save it there"
 	}
 	if msg.mode == dropPaste {
 		// Paused: the prompt is delivered but nothing is running yet, and
