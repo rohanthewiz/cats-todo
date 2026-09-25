@@ -6101,36 +6101,45 @@ func (m model) formFooter() string {
 	if m.formMode == formAdd && m.project.available() && m.global.available() {
 		segs = append(segs, "ctrl+g scope")
 	}
+	// The tail, past the 118 cells a 120-cell pane can read. It used to name
+	// eight things and needed a 244-cell pane to show them all, which meant the
+	// segments at the end — the ones added last — were taught to nobody. So
+	// the tail now keeps only what nothing else on the screen teaches, and
+	// points at the one place that teaches the rest:
+	//
+	//	[ctrl+g scope] · ctrl+l spelling · right-click menu · alt+↑/↓ move line · [cmd+d dup line]
+	//	      133             151                170                 190                  207
+	//	(cumulative cells in add mode with both backlogs; 15 fewer without scope)
+	//
 	// The Spelling panel (spellpanel.go) is on this line as well as the chords
-	// line, for the reason "@ file" is here at all: no chip on the toolbar stands
-	// for it at all now that the ☑ Spell toggle has left the bar, so a pane wide
-	// enough to silence the chords line would otherwise leave the whole feature
-	// unadvertised outside the editor's right-click menu. After scope, because it
-	// is the one segment that is about the editor rather than about this prompt,
-	// and so among the first that can be given up when the pane narrows.
+	// line, for the reason "@ file" is here at all: no chip on the toolbar
+	// stands for it now that the ☑ Spell toggle has left the bar, and the
+	// squiggles in the prompt raise the question this answers. It leads the
+	// tail so it still fits a 160-cell pane (pinned by TestSpellFooterNamesTheChord).
 	//
-	// The two line operations ride along for the same reason — no chip stands
-	// for either — and in that order, because alt+↑/↓ (movePromptLines) always
-	// arrives and cmd+d (duplicatePromptLine) is the one segment here that a
-	// terminal may not be able to send at all. If the pane is narrow enough to
-	// cost a segment, the chord that might never arrive is the right one to lose
-	// first.
+	// "right-click menu" is the pointer to the menu that prints its own chords:
+	// ✓ Spelling (ctrl+l), ≡ Insert a prompt (ctrl+p), ↶ Undo and ↷ Redo, beside
+	// the three selection items. That is why the prompt library, undo and redo
+	// are no longer segments of their own. One pointer teaches four chords, and
+	// undo and redo needed no teaching anyway: cmd+z is the one chord every
+	// editor puts in the same place. While a run is swept, the contextual
+	// "right-click: split/sort/carets" segment above has already named the
+	// menu, much further forward, so the tail does not name it twice.
 	//
-	// The prompt library (promptpick.go) rides at the very tail, which is where
-	// the skill's rule puts a new standing segment: this line is already full at
-	// 120 cells, so a chord that is genuinely optional — the library is a
-	// convenience, and its other way in is a '/' the user was going to type
-	// anyway — goes where only a wide pane will ever read it.
-	// Undo (promptundo.go) rides at the very tail with the library, which is
-	// where the rule puts a new standing segment on a line that is already full.
-	// It can afford to: the editor's right-click menu carries a ↶ Undo row that
-	// prints the chord itself, so this line is the second teacher rather than
-	// the only one — and the chord it names follows the terminal, since cmd+z
-	// arrives only where Cmd is forwarded (see undoChord).
-	// Redo follows undo at the very tail, for the same reason and with the
-	// same second teacher (the ↷ Redo row).
-	segs = append(segs, "ctrl+l spelling", "alt+↑/↓ move line", "cmd+d dup line",
-		"ctrl+p prompt library", m.undoChord()+" undo", m.redoChord()+" redo")
+	// The two line operations follow. No chip and no menu row stands for
+	// either. alt+↑/↓ (movePromptLines) always arrives. cmd+d
+	// (duplicatePromptLine) is Cmd-only, since ctrl+d is the textarea's
+	// delete-forward, so it is named only where the terminal has said it can
+	// carry Cmd at all (kbEnhanced, the same test undoChord uses). Everywhere
+	// else the segment was teaching a key that could not arrive.
+	segs = append(segs, "ctrl+l spelling")
+	if _, _, ok := m.promptSelSpan(); !ok || m.formFocus != formFieldPrompt {
+		segs = append(segs, "right-click menu")
+	}
+	segs = append(segs, "alt+↑/↓ move line")
+	if m.kbEnhanced {
+		segs = append(segs, "cmd+d dup line")
+	}
 	lines = append(lines, m.fitFooter(segs))
 
 	for i, ln := range lines {

@@ -1257,10 +1257,17 @@ doing so, which is what a menu does everywhere else. It floats **over** the form
 rather than replacing it — a context menu that hid its own context would be
 asking about a selection you can no longer see.
 
-The footer names the menu whenever there is a run swept, and names nothing about
-it otherwise. It does not spend a second segment on `ctrl+x`: the menu prints
-that chord on its own ✂ row, so one gesture on the footer teaches every key
-behind it.
+While a run is swept, the footer names the menu near its front as
+`right-click: split/sort/carets`. It does not spend a second segment on
+`ctrl+x`: the menu prints that chord on its own ✂ row, so one gesture on the
+footer teaches every key behind it. With nothing swept the menu is still named,
+as a bare `right-click menu` at the footer's tail, because the menu is also
+where the prompt library (`ctrl+p`), undo and redo are taught. Their rows print
+their chords, so the footer points at the menu once rather than naming each
+chord. That keeps the whole footer within about 207 cells, where it used to
+need about 244. `cmd+d dup line` is named only in a terminal that can send Cmd,
+because the chord has no ctrl fallback (`ctrl+d` is the editor's
+delete-forward).
 
 ### ✂ Split into prompts
 

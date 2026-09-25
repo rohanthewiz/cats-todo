@@ -421,12 +421,17 @@ func TestSplitPromptListTakesOnlyTheSweptItems(t *testing.T) {
 //
 // It names the menu rather than ctrl+x: the menu prints that chord on its own ✂
 // row, so one gesture on the footer teaches every key behind it.
+//
+// With nothing swept the menu is still named, but only as the bare
+// "right-click menu" at the tail (see TestFormFooterTailFitsAWidePane); the
+// selection items are what the contextual segment adds, and that tail pointer
+// steps aside while it is up so the menu is not named twice.
 func TestSplitFooterTeachesTheMenuWhileSomethingIsSwept(t *testing.T) {
 	plain, _, _ := splitFormInTemp(t, "- one\n- two")
 	plain.width = 200
 	plain.focusForm(formFieldPrompt)
-	if foot := plain.formFooter(); strings.Contains(foot, "right-click") {
-		t.Errorf("footer names the menu with nothing swept:\n%s", foot)
+	if foot := plain.formFooter(); strings.Contains(foot, "right-click: split") {
+		t.Errorf("footer names the selection items with nothing swept:\n%s", foot)
 	}
 
 	swept := selectWholePrompt(t, plain)
@@ -435,5 +440,45 @@ func TestSplitFooterTeachesTheMenuWhileSomethingIsSwept(t *testing.T) {
 	}
 	if foot := swept.formFooter(); strings.Contains(foot, "ctrl+x") {
 		t.Errorf("footer spends a segment on the chord the menu already prints:\n%s", foot)
+	}
+	if foot := swept.formFooter(); strings.Count(foot, "right-click") != 1 {
+		t.Errorf("footer names the menu more than once over a sweep:\n%s", foot)
+	}
+}
+
+// TestFormFooterTailFitsAWidePane: the caret footer's tail used to name eight
+// things and needed ~244 cells to show them all, so its last segments reached
+// almost nobody. It now ends in what nothing else teaches, and the whole line
+// — scope included — fits 207 cells. The prompt library, undo and redo are
+// taught by their right-click menu rows, which print their chords, so the
+// footer names the menu once rather than each of them.
+//
+// cmd+d is named only where the terminal can carry Cmd (kbEnhanced). It has no
+// ctrl fallback, because ctrl+d is the textarea's delete-forward, so anywhere
+// else that segment was teaching a key that could not arrive.
+func TestFormFooterTailFitsAWidePane(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "body")
+	m.width = 207
+	m.focusForm(formFieldPrompt)
+
+	m.kbEnhanced = true
+	foot := m.formFooter()
+	if !strings.HasSuffix(strings.TrimSuffix(foot, "\x1b[m"), "cmd+d dup line") {
+		t.Errorf("a 207-cell pane does not reach the end of the tail:\n%s", foot)
+	}
+	for _, seg := range []string{"right-click menu", "ctrl+l spelling", "alt+↑/↓ move line"} {
+		if !strings.Contains(foot, seg) {
+			t.Errorf("footer lost %q:\n%s", seg, foot)
+		}
+	}
+	for _, seg := range []string{"prompt library", " undo", " redo"} {
+		if strings.Contains(foot, seg) {
+			t.Errorf("footer spends a segment on %q, which its menu row already teaches:\n%s", seg, foot)
+		}
+	}
+
+	m.kbEnhanced = false
+	if foot := m.formFooter(); strings.Contains(foot, "cmd+d") {
+		t.Errorf("footer teaches cmd+d to a terminal that cannot send Cmd:\n%s", foot)
 	}
 }

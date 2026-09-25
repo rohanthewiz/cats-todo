@@ -349,20 +349,22 @@ func TestUndoHistoryIsBounded(t *testing.T) {
 	}
 }
 
-// TestUndoFooterNamesTheChordTheTerminalCanSend, the way the save chord's footer
-// segment does: cmd+z where Cmd can arrive at all, ctrl+z where it cannot.
+// TestUndoMenuRowNamesTheChordTheTerminalCanSend, the way the save chord's
+// footer segment does: cmd+z where Cmd can arrive at all, ctrl+z where it
+// cannot.
 //
-// The pane is deliberately very wide. This segment rides at the tail of a line
-// that is already full at 120 cells, so only a wide pane ever reads it — which
-// is affordable precisely because the editor's ↶ Undo row prints the chord too.
-func TestUndoFooterNamesTheChordTheTerminalCanSend(t *testing.T) {
-	m := withForm(t, "", "body", 260, 40)
-	if foot := m.formFooter(); !strings.Contains(foot, "ctrl+z undo") {
-		t.Errorf("footer does not teach ctrl+z without the kitty protocol:\n%s", foot)
+// The ↶ Undo row is where the chord is taught. It used to be a segment at the
+// tail of the caret footer as well, which only a pane of ~240 cells ever read.
+// The footer now points at the menu ("right-click menu") instead of repeating
+// the chords its rows print, so the row's hint is the one to pin.
+func TestUndoMenuRowNamesTheChordTheTerminalCanSend(t *testing.T) {
+	m := withForm(t, "", "body", 100, 40)
+	if hint := rightClickAt(t, m, 1, 0).menu.items[menuUndo].hint; hint != "ctrl+z" {
+		t.Errorf("↶ Undo hint = %q without the kitty protocol, want ctrl+z", hint)
 	}
 	m.kbEnhanced = true
-	if foot := m.formFooter(); !strings.Contains(foot, "cmd+z undo") {
-		t.Errorf("footer does not teach cmd+z under the kitty protocol:\n%s", foot)
+	if hint := rightClickAt(t, m, 1, 0).menu.items[menuUndo].hint; hint != "cmd+z" {
+		t.Errorf("↶ Undo hint = %q under the kitty protocol, want cmd+z", hint)
 	}
 }
 
@@ -503,14 +505,14 @@ func TestRedoMenuRow(t *testing.T) {
 	}
 }
 
-// TestRedoFooterNamesTheChordTheTerminalCanSend, beside undo's.
-func TestRedoFooterNamesTheChordTheTerminalCanSend(t *testing.T) {
-	m := withForm(t, "", "body", 280, 40)
-	if foot := m.formFooter(); !strings.Contains(foot, "ctrl+y redo") {
-		t.Errorf("footer does not teach ctrl+y without the kitty protocol:\n%s", foot)
+// TestRedoMenuRowNamesTheChordTheTerminalCanSend, beside undo's.
+func TestRedoMenuRowNamesTheChordTheTerminalCanSend(t *testing.T) {
+	m := withForm(t, "", "body", 100, 40)
+	if hint := rightClickAt(t, m, 1, 0).menu.items[menuRedo].hint; hint != "ctrl+y" {
+		t.Errorf("↷ Redo hint = %q without the kitty protocol, want ctrl+y", hint)
 	}
 	m.kbEnhanced = true
-	if foot := m.formFooter(); !strings.Contains(foot, "shift+cmd+z redo") {
-		t.Errorf("footer does not teach shift+cmd+z under the kitty protocol:\n%s", foot)
+	if hint := rightClickAt(t, m, 1, 0).menu.items[menuRedo].hint; hint != "shift+cmd+z" {
+		t.Errorf("↷ Redo hint = %q under the kitty protocol, want shift+cmd+z", hint)
 	}
 }

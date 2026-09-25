@@ -186,7 +186,11 @@ and the rest stay local.
   cells, which is what keeps the tab segment (`tab switch field` off the prompt,
   the shorter `tab indents` on it) in a 120-cell pane (and
   `ctrl+l spelling` at 160 — both are pinned by tests). A new segment has to be
-  contextual, or go at the tail past `ctrl+l spelling`.
+  contextual, or go at the tail past `ctrl+l spelling`. The tail is kept to
+  what nothing else teaches (`ctrl+l spelling · right-click menu · alt+↑/↓ move
+  line · cmd+d dup line`, the last only when `kbEnhanced`; the full line is 207
+  cells, pinned by `TestFormFooterTailFitsAWidePane`). A chord that a menu row
+  already prints belongs on the menu, not in the footer's tail.
 
 ## Tests
 
