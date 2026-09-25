@@ -72,12 +72,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   2026-09-24). Not asked for; raise it with the user before doing it. *Lapsed* in
   `2026-0922-0943-info-annotation`.
 
-- **N-013** · raised `2026-0913-1813-done-stamp-v0.31.0` · value low
-  The markdown export of a bundle (`bundle.go`, around the `Created.Format`
-  line) does not show when a done prompt was finished. Consider adding the
-  `doneAt` stamp there too. Still missing on 2026-09-24: `bundle.go` never
-  reads `DoneAt`. *Lapsed* in `2026-0922-0943-info-annotation`.
-
 - **N-014** · raised `2026-0913-1813-done-stamp-v0.31.0` · value low
   The list hover card (`listhover.go`) shows no completion stamp. The row's
   compact form may be enough; decide whether the card should spell out the
@@ -257,6 +251,12 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-013** · closed 2026-09-24, `2026-0924-2019-bundle-done-stamp` · raised `2026-0913-1813-done-stamp-v0.31.0`
+  — `bundleTodoNote` (`bundle.go`) now writes `done 2026-09-24 14:05 CDT`,
+  the prompt view's full stamp with the zone, and plain `done` when there is
+  no stamp. It also fixes a bug found along the way: since `5e14beb` every
+  prompt without a priority rendered as "none priority", because the note
+  tested `priorityLabel`'s output rather than the level. Not yet released.
 - **N-029** · closed 2026-09-24, `2026-0924-2013-form-footer-tail` · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
   — The form footer's tail is cut to what nothing else teaches: `ctrl+l
   spelling · right-click menu · alt+↑/↓ move line · cmd+d dup line`. The
