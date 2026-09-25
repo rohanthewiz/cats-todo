@@ -16,9 +16,12 @@ import (
 // feeds the prompt. In both cases dropRun — the picker's default, since a drop
 // is a request for the work to start — submits with Enter, while dropPaste is
 // the opt-in pause that leaves the text unsubmitted for the user to review.
-func performDrop(client *catsClient, act pendingAction) error {
+//
+// The note is for the status line: something the drop did on the user's behalf
+// that they should hear about even though it succeeded (see applyPaneSetup).
+func performDrop(client *catsClient, act pendingAction) (note string, err error) {
 	if client == nil {
-		return errors.New("cats control socket unavailable")
+		return "", errors.New("cats control socket unavailable")
 	}
 	prompt := composePrompt(act.todo.Prompt, act.images, act.todo.Session)
 	switch act.target.kind {
@@ -36,28 +39,30 @@ func performDrop(client *catsClient, act pendingAction) error {
 		// The user asked for this prompt to run on a particular setup;
 		// delivering into whatever state the pane is actually in — half-cleared,
 		// on the wrong model, or a modal waiting on an answer — is the one
-		// outcome they ruled out.
-		for _, cmd := range act.todo.Session.paneSetupCommands(act.target.agent) {
-			if err := client.sendInput(act.target.pane, cmd, true); err != nil {
-				return fmt.Errorf("applying %s to the pane first: %w", strings.Fields(cmd)[0], err)
-			}
-			// The agent has to finish handling the command before it will read
-			// the next keystrokes; typing into the gap loses the head of
-			// whatever comes next.
-			time.Sleep(clearSettle)
+		// outcome they ruled out. The switch confirm Claude Code raises
+		// mid-conversation is the modal that does come up, and applyPaneSetup
+		// (panesetup.go) is what answers it.
+		//
+		// Between commands the agent has to finish handling one before it
+		// will read the next keystrokes; typing into the gap loses the head of
+		// whatever comes next. That wait is clearSettle, spent inside
+		// applyPaneSetup.
+		note, err := applyPaneSetup(client, act.target.pane, act.todo.Session.paneSetupCommands(act.target.agent), clearSettle)
+		if err != nil {
+			return "", err
 		}
 		if err := client.sendInput(act.target.pane, prompt, act.mode == dropRun); err != nil {
-			return err
+			return "", err
 		}
 		// Switch to the pane we just dropped into, mirroring how a new-session
 		// drop focuses its freshly-created tab. Best effort: the prompt is
 		// already delivered, so a focus failure must not fail the drop.
 		_ = client.focusPane(act.target.pane)
-		return nil
+		return note, nil
 	case targetNewSession:
-		return dropIntoNewSession(client, act, prompt)
+		return "", dropIntoNewSession(client, act, prompt)
 	}
-	return errors.New("unknown drop target")
+	return "", errors.New("unknown drop target")
 }
 
 // imageBlockHeader introduces the attachment paths appended to a dropped
@@ -159,17 +164,17 @@ func composePrompt(prompt string, images []string, opts *SessionOpts) string {
 // picking that pane was picking that conversation's context, and silently
 // launching an agent run on guessed context is the worse failure. The caller
 // records the error as Missed, where a manual send is one keystroke away.
-func performScheduledDrop(client *catsClient, sc Schedule, act pendingAction) error {
+func performScheduledDrop(client *catsClient, sc Schedule, act pendingAction) (string, error) {
 	if client == nil {
-		return errors.New("cats control socket unavailable")
+		return "", errors.New("cats control socket unavailable")
 	}
 	if sc.Kind == scheduleKindPane {
 		panes, err := client.paneList()
 		if err != nil {
-			return fmt.Errorf("checking the scheduled pane: %w", err)
+			return "", fmt.Errorf("checking the scheduled pane: %w", err)
 		}
 		if !paneExists(panes, sc.Pane) {
-			return errors.New("the scheduled pane is gone — send manually")
+			return "", errors.New("the scheduled pane is gone — send manually")
 		}
 	}
 	act.mode = dropRun

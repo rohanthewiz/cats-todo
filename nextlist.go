@@ -652,7 +652,8 @@ func (m model) chooseNextTarget(target dropTarget, mode dropMode) (tea.Model, te
 	}
 	client, desc := m.client, targetDesc(target)
 	return m, func() tea.Msg {
-		return dropResultMsg{desc: desc, mode: mode, nextID: id, err: performDrop(client, act)}
+		note, err := performDrop(client, act)
+		return dropResultMsg{desc: desc, mode: mode, nextID: id, err: err, note: note}
 	}
 }
 

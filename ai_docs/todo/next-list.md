@@ -91,19 +91,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   new-session path needed 2s (`newSessionSettle`). *Lapsed* in
   `2026-0922-0943-info-annotation`.
 
-- **N-018** · raised `2026-0913-1932-existing-pane-session-settings` · value medium
-  Check whether `/model <m>` on a pane *mid-conversation* (Clear off) ever
-  asks for confirmation, such as a cache or context warning. A modal there
-  would eat the prompt. *Lapsed* in `2026-0922-0943-info-annotation`.
-
-- **N-019** · raised `2026-0913-1932-existing-pane-session-settings` · value low
-  An effort level the target model doesn't accept (e.g. `xhigh`) is still
-  "delivered": `sendInput` succeeds, Claude shows an error, and the prompt
-  runs on the old effort without saying so. Consider a model-aware check, or
-  at least README wording. *Lapsed* in
-  `2026-0915-1836-prompt-editor-undo-v0.32.0`, which carried the rest of that
-  session's items but not this one.
-
 - **N-020** · raised `2026-0913-1932-existing-pane-session-settings` · value low
   Gate `/clear` on a detected agent, the way `/model` and `/effort` are gated
   (`paneSetupCommands`, `session.go`). **Premise narrowed 2026-09-24:** the
@@ -255,6 +242,19 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-018** · closed 2026-09-24 · raised `2026-0913-1932-existing-pane-session-settings`
+  — `/model` mid-conversation does ask. Claude Code 2.1.282 raises *Switch
+  model?* / *Change effort level?* when the cache is warm and the switch
+  changes something, and the next Enter answers it, so a Clear-off drop's
+  prompt was lost. `applyPaneSetup` (`panesetup.go`) now watches for the
+  dialog after each command and presses Yes. The status line says so, and a
+  PreModelSwitch hook's ask stops the drop instead. Not yet released.
+- **N-019** · closed 2026-09-24 · raised `2026-0913-1932-existing-pane-session-settings`
+  — Premise corrected: in Claude Code 2.1.282, `/effort xhigh` on a model
+  without xhigh no longer errors. It is accepted, and the request runs at high
+  (`max` likewise). A model-aware check was declined, because the capability
+  table is Claude Code's, partly served at runtime, and a copy would go
+  stale. The README's session options section says what happens.
 - **N-027** · closed 2026-09-24 · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
   — Redo. `promptUndo.redo` (`promptundo.go`): undo moves the state it
   leaves onto it, `redoPrompt` moves it back, and the next change to the text

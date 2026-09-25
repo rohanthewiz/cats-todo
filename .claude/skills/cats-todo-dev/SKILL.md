@@ -32,6 +32,7 @@ and the rest stay local.
 | `store.go` | `Todo`, `store` (load/save/add/move/setDone/setFrozen…), root resolution (`findProjectRoot`, `projectTodosPath`, `globalTodosPath`) |
 | `fuzzylist.go` | reusable fuzzy-filtered list used by the todo list *and* the drop picker; grouping, headings, priority lens |
 | `drop.go` / `client.go` / `launch.go` | performing a drop; cats control-socket client (`pane.list`, `tab.create`, `pane.wait_for_output`, `pane.send_input`), `waitForAgentReady`, `claudeReadyProbes` |
+| `panesetup.go` | `applyPaneSetup`: submits `/clear`, `/model`, `/effort` to an existing pane, watching for (and answering) Claude Code's mid-conversation *Switch model?* / *Change effort level?* confirm; a PreModelSwitch hook's ask stops the drop instead |
 | `worktree.go` | "on a new worktree" drops (`todo/<slug>-<4hex>` branches via cats) |
 | `session.go` | `SessionOpts`, normalizers (`normalizeModel/Effort/Permission/Finish/Review`, `foldOption`), launch flags, prompt wrapping |
 | `annotations.go` | the `annots` set, the `annotSlot` table (priority, low-hanging fruit, value, info, the ⚑ flag and its note), `trimAnnotColumns` |
@@ -115,6 +116,12 @@ and the rest stay local.
      stale list silently costs every new-session drop the full 12s timeout — when
      drops go slow, capture a startup and re-check this first. Keep probes
      version-agnostic (`"Claude Code v"`), with real spaces.
+   - `switchConfirmPattern`/`switchHookMarker` (`panesetup.go`) track the
+     strings of Claude Code's switch confirm (checked against 2.1.282). A
+     stale pattern fails quietly the old way: the dialog eats the prompt of a
+     Clear-off drop that sets a model or an effort. Re-check them against the
+     binary (`strings` on `~/.local/share/claude/versions/<v>`, search
+     `Switch model?`) when Claude Code changes the dialog.
 4. **Refuse in words.** Anything the UI won't do (drag while filtered or in priority
    order, drop/schedule a frozen prompt, send an empty prompt, export into the same
    backlog) says why in the status line — never silently no-op.

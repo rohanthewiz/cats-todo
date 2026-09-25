@@ -183,6 +183,9 @@ type dropResultMsg struct {
 	// is reported on the Next List page as well as in the status line (see
 	// finishNextDrop).
 	nextID string
+	// note is what performDrop did on the user's behalf that the success line
+	// should say (a switch confirm it answered), or "".
+	note string
 }
 
 // scheduleTickMsg is the schedule loop's heartbeat (see scheduleTick).
@@ -4510,13 +4513,20 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 // dropDoneStatus is the line a successful drop reports, shared by backlog and
 // Next List drops so both say the same thing about the same outcome.
 func dropDoneStatus(msg dropResultMsg) string {
+	// The note goes straight after the destination: it is about how the drop
+	// got there, and the paste mode's instruction should stay last, since it
+	// is what the user has to act on.
+	note := ""
+	if msg.note != "" {
+		note = " · " + msg.note
+	}
 	if msg.mode == dropPaste {
 		// Paused: the prompt is delivered but nothing is running yet, and
 		// the only place that can be said is here — the agent's pane looks
 		// exactly like a session someone typed into and walked away from.
-		return "pasted → " + msg.desc + " · press enter there to run"
+		return "pasted → " + msg.desc + note + " · press enter there to run"
 	}
-	return "dropped → " + msg.desc
+	return "dropped → " + msg.desc + note
 }
 
 // performDropCmd runs the chosen drop in a goroutine (a tea.Cmd) so cats's
@@ -4529,7 +4539,8 @@ func (m model) performDropCmd(ref todoRef, act pendingAction) tea.Cmd {
 	client := m.client
 	desc := targetDesc(act.target)
 	return func() tea.Msg {
-		return dropResultMsg{desc: desc, ref: ref, mode: act.mode, err: performDrop(client, act)}
+		note, err := performDrop(client, act)
+		return dropResultMsg{desc: desc, ref: ref, mode: act.mode, err: err, note: note}
 	}
 }
 
@@ -4802,7 +4813,8 @@ func (m model) performScheduledDropCmd(ref todoRef, sc Schedule, td Todo) tea.Cm
 	return func() tea.Msg {
 		// mode is stated even though act.mode already says it: a fire always
 		// runs, and the success line reads off this field.
-		return dropResultMsg{desc: desc, ref: ref, mode: dropRun, err: performScheduledDrop(client, sc, act), sched: &sc}
+		note, err := performScheduledDrop(client, sc, act)
+		return dropResultMsg{desc: desc, ref: ref, mode: dropRun, err: err, note: note, sched: &sc}
 	}
 }
 

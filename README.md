@@ -1972,6 +1972,31 @@ given — Claude Code only cycles through modes with `shift+tab`, from a startin
 point nothing on the wire reports — so the pane's row in the picker says it will
 be left as it is, before you pick it.
 
+**A switch mid-conversation asks first.** With Clear first off, `/model` and
+`/effort` land in a live conversation. When the pane's prompt cache is still
+warm and the switch would change something, Claude Code puts up a *Switch
+model?* (or *Change effort level?*) dialog, because the whole history gets
+re-read uncached on the next message. Left alone, that dialog would take the
+next Enter, and the prompt typed ahead of it would go nowhere. So after each of
+the two commands the drop watches the bottom of the pane, and if the dialog
+comes up it presses **Yes**. The prompt asked for that model, and that is the
+answer to the question. The status line then says so (`· confirmed the model
+switch`), so the cost of the uncached turn is not a surprise. Two cases are left
+to you. If a PreModelSwitch hook of yours is what asked, the drop stops with the
+dialog still up and says why, since answering your own policy for you would
+defeat it. And if the dialog's words are already on screen before `/model` is
+sent, the drop can't tell an old dialog from a new one, so it doesn't press
+anything. With Clear first on none of this comes up: `/clear` counts as
+acknowledging the switch.
+
+**An effort level the model doesn't have runs at high.** `xhigh` and `max` exist
+only on some models. On any other, Claude Code accepts `/effort xhigh` (or
+`--effort xhigh` on a new session) and reports it as set, then sends high
+instead. Nothing errors, and the ⚙ panel can't warn you ahead of time, because
+which models take which levels is Claude Code's knowledge, partly served to it
+at runtime, and a copy here would go stale. If a prompt needs the top levels, give it a
+model that has them, or leave Effort unset.
+
 Everything else is text wrapped around the prompt body, which works everywhere:
 
 ```

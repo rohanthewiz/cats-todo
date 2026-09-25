@@ -141,11 +141,20 @@ func (c *catsClient) sendInput(pane uint32, text string, submit bool) error {
 // the wait's own timeout (catctl does the same) so the transport never gives up
 // before the server answers.
 func (c *catsClient) waitForOutput(pane uint32, pattern string, regex bool, timeout time.Duration) (bool, error) {
+	return c.waitForOutputIn(pane, pattern, regex, 0, timeout)
+}
+
+// waitForOutputIn is waitForOutput with the screen seed bounded to the bottom
+// lines rows (0 = the whole buffer). A bound matters when the pattern is
+// something the conversation above might also contain: only the rows where a
+// fresh dialog would be drawn are seeded, and anything further up can't match.
+func (c *catsClient) waitForOutputIn(pane uint32, pattern string, regex bool, lines uint32, timeout time.Duration) (bool, error) {
 	p := wire.WaitForOutputParams{
 		Pane:      pane,
 		Pattern:   pattern,
 		Regex:     regex,
 		TimeoutMs: uint32(timeout / time.Millisecond),
+		Lines:     lines,
 	}
 	var out wire.WaitForOutputResult
 	if err := c.call(wire.CmdWaitForOutput, p, &out, wire.WaitTimeout(p.TimeoutMs)+10*time.Second); err != nil {
