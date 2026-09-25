@@ -6894,18 +6894,82 @@ func baseName(p string) string {
 
 // --- The View panel ---------------------------------------------------------
 //
-// Two switches about how the list is drawn, as against every other panel on the
-// list stage, which is about one prompt. That is also why it is not on the
-// action bar: every chip there acts on the highlighted row, and a panel that
-// needs no row would be the one entry whose greying-out rule differed.
+// Two switches about how the list is drawn, plus the editor's autosave delay,
+// as against every other panel on the list stage, which is about one prompt.
+// That is also why it is not on the action bar: every chip there acts on the
+// highlighted row, and a panel that needs no row would be the one entry whose
+// greying-out rule differed.
+//
+// The autosave row is not about drawing, but it is this panel's kind of
+// setting: a standing preference about the manager rather than any one prompt,
+// and one someone would otherwise have to hand-edit settings.json to change.
+// It sits here rather than on the form because the form is where the delay is
+// running. Changing it there would raise the question of what happens to a
+// wait that is already under way.
 
 // The panel's rows, in the order they are drawn. The cursor is an index into
 // this set, so the numbering is the layout and nothing else.
 const (
 	viewRowPriority   = iota // draw the list critical-first instead of by hand
 	viewRowShowFrozen        // draw the ❄ prompts at all
+	viewRowAutosave          // how long the editor waits before writing itself
 	viewRowCount
 )
+
+// autosavePresets are the delays the autosave row steps through, off first.
+// The row is a stepper rather than a text field because every useful value is
+// on this list, and ←/→ is the gesture the panel already teaches. A value
+// hand-edited into settings.json that is not on the list (37 seconds) is still
+// shown as it is, and a step moves to the nearest preset in that direction
+// (see stepAutosave). The shortest preset sits well above minAutosave: the
+// floor is there to catch typos, not as a recommended setting.
+var autosavePresets = []time.Duration{
+	0,
+	15 * time.Second,
+	30 * time.Second,
+	defaultAutosave, // 45s
+	time.Minute,
+	90 * time.Second,
+	2 * time.Minute,
+	5 * time.Minute,
+}
+
+// stepAutosave is the preset one step from cur in direction dir (+1 longer,
+// -1 shorter), wrapping at both ends. The wrap means ←, → and space never
+// no-op on this row, and off is always one press away from the longest delay.
+//
+// It searches by value rather than by index, so a cur that is not a preset
+// still moves the way the arrow points: 37s → 45s going up, 30s going down.
+func stepAutosave(cur time.Duration, dir int) time.Duration {
+	if dir > 0 {
+		for _, p := range autosavePresets {
+			if p > cur {
+				return p
+			}
+		}
+		return autosavePresets[0]
+	}
+	for i := len(autosavePresets) - 1; i >= 0; i-- {
+		if autosavePresets[i] < cur {
+			return autosavePresets[i]
+		}
+	}
+	return autosavePresets[len(autosavePresets)-1]
+}
+
+// autosaveLabel is the autosave row's value column: "off", whole minutes as
+// "2m", and anything else in seconds ("45s", "90s"). The column is five cells
+// wide and every preset fits in three, so a hand-edited value has room.
+func autosaveLabel(d time.Duration) string {
+	switch {
+	case d <= 0:
+		return "off"
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%dm", d/time.Minute)
+	default:
+		return fmt.Sprintf("%ds", d/time.Second)
+	}
+}
 
 // viewOptsRowsRow is the first line the panel's rows are drawn on: the title
 // line, then a blank. Pinned by a test, because the hit test cannot re-measure
@@ -6919,13 +6983,23 @@ const viewOptsRowsRow = 2
 var viewRowLabels = [viewRowCount]struct{ label, note string }{
 	viewRowPriority:   {"Priority order", "critical first inside each group — dragging and ctrl+↑/↓ are off while it is on"},
 	viewRowShowFrozen: {"Frozen prompts", "the ❄ rows — work decided against, kept on the record"},
+	viewRowAutosave:   {"Autosave", "how long the editor waits to write an unsaved edit"},
 }
 
 // beginViewOpts opens the panel. Unlike every other panel reachable from the
 // list it needs no highlighted prompt, because it is about the list itself.
+//
+// The autosave delay is re-read from settings.json here. The list's switches
+// are only ever changed by this program, so what the model holds is what the
+// file says. The delay is also documented as hand-editable, and without a
+// fresh read the row would show the launch-time value beside a file that now
+// says something else, and a step would start from the wrong number. Reading
+// here also means a hand edit takes effect when the panel is next opened,
+// without a restart.
 func (m model) beginViewOpts() (tea.Model, tea.Cmd) {
 	m.viewOptsCursor = 0
 	m.viewOptsNote = ""
+	m.autosaveEvery = loadSettings().autosave
 	m.stage = stageViewOpts
 	return m, nil
 }
@@ -6949,8 +7023,36 @@ func (m model) updateViewOpts(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "down", "ctrl+n", "tab":
 		m.viewOptsCursor = (m.viewOptsCursor + 1) % viewRowCount
 		return m, nil
-	case "left", "right", " ", "space":
+	case "left":
+		// On a switch either arrow flips it. On the autosave stepper ← is the
+		// shorter direction, which is the one thing the arrows mean differently.
+		if m.viewOptsCursor == viewRowAutosave {
+			return m.setViewAutosave(stepAutosave(m.autosaveEvery, -1))
+		}
 		return m.toggleViewOptsRow(m.viewOptsCursor)
+	case "right", " ", "space":
+		return m.toggleViewOptsRow(m.viewOptsCursor)
+	}
+	return m, nil
+}
+
+// setViewAutosave sets the editor's autosave delay and writes it.
+//
+// It has its own save rather than going through saveViewPrefs, because
+// saveViewPrefs is also called by ctrl+d on the list. A delay written there
+// would put the model's copy back over a hand edit made since the panel was
+// last opened. Each write sets only the field its own control changed.
+//
+// No form can be open while this panel is up, so there is no wait under way to
+// re-arm. The next form reads m.autosaveEvery when its first change arms the
+// timer (watchAutosave).
+func (m model) setViewAutosave(d time.Duration) (tea.Model, tea.Cmd) {
+	m.autosaveEvery = d
+	m.viewOptsNote = ""
+	s := loadSettings()
+	s.autosave = d
+	if err := s.save(); err != nil {
+		m.viewOptsNote = "not saved: " + err.Error()
 	}
 	return m, nil
 }
@@ -6965,8 +7067,15 @@ func (m model) updateViewOpts(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // The highlight is captured and re-parked around the rebuild because flipping
 // priority order resorts every group — without it the cursor would keep its
 // index and so end up on a different prompt than the one it was left on.
+//
+// On the autosave row, "toggle" means one step longer, wrapping to off after
+// the longest. That is what →, space and a click all do there.
 func (m model) toggleViewOptsRow(row int) (tea.Model, tea.Cmd) {
 	switch row {
+	case viewRowAutosave:
+		// Handled apart from the switches: nothing about the list changes, so
+		// there is no rebuild and no highlight to re-park.
+		return m.setViewAutosave(stepAutosave(m.autosaveEvery, +1))
 	case viewRowPriority:
 		m.orderByPriority = !m.orderByPriority
 	case viewRowShowFrozen:
@@ -7012,7 +7121,12 @@ func (m model) viewOptsOn(row int) bool {
 // viewOptsValue is the value column. "on"/"off" rather than the session
 // panel's "yes"/"no": those rows answer questions ("clear first?" — yes), and
 // these are switches, and a switch says on.
+//
+// The autosave row is a stepper, not a switch, so it shows its delay instead.
 func (m model) viewOptsValue(row int) string {
+	if row == viewRowAutosave {
+		return autosaveLabel(m.autosaveEvery)
+	}
 	if m.viewOptsOn(row) {
 		return "on"
 	}
@@ -7024,7 +7138,7 @@ func (m model) viewViewOpts() string {
 	heading := titleStyle.Render("View")
 	b.WriteString(heading)
 	b.WriteString("  ")
-	b.WriteString(descStyle.Render(m.fitToPane("how this list is drawn — kept between launches", lipgloss.Width(heading)+2)))
+	b.WriteString(descStyle.Render(m.fitToPane("how the list is drawn, the editor's autosave — kept between launches", lipgloss.Width(heading)+2)))
 	b.WriteString("\n\n")
 
 	const labelWidth = 16
@@ -7055,6 +7169,12 @@ func (m model) viewViewOpts() string {
 		if row == viewRowShowFrozen && m.hideDone && !m.showFrozen {
 			note = "the ctrl+d fold is hiding these and the completed ones"
 		}
+		// Off is the one autosave value whose cost is not obvious from the
+		// number: a crash or a closed pane then loses everything typed since
+		// the form opened, not just the last few seconds of it.
+		if row == viewRowAutosave && m.autosaveEvery <= 0 {
+			note = "the editor writes only on ✔ Save"
+		}
 		if note != "" {
 			line.WriteString(descStyle.Render(m.fitToPane(note, indentWidth+labelWidth+5)))
 		}
@@ -7070,11 +7190,11 @@ func (m model) viewViewOpts() string {
 
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render(m.fitFooter([]string{
-		"↑/↓ row", "←/→ or space toggle", "enter/esc back to the list",
+		"↑/↓ row", "←/→ or space change", "enter/esc back to the list",
 	})))
 	b.WriteString("\n")
 	b.WriteString(footerStyle.Render(m.fitFooter([]string{
-		"a prompt's own priority is set in its editor (ctrl+r)", "both switches are remembered between launches",
+		"a prompt's own priority is set in its editor (ctrl+r)", "all three are remembered between launches",
 	})))
 	return b.String()
 }

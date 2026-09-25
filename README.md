@@ -643,14 +643,17 @@ rearrangement of it. When you do want the rearrangement, `ctrl+l` opens the
 **View** panel:
 
 ```
-View  how this list is drawn — kept between launches
+View  how the list is drawn, the editor's autosave — kept between launches
 
 ❯ Priority order  off  critical first inside each group — dragging and ctrl+↑/↓ are off while it is on
   Frozen prompts  on   the ❄ rows — work decided against, kept on the record
+  Autosave        45s  how long the editor waits to write an unsaved edit
 ```
 
-`←`/`→` or `space` flips the switch under the cursor, and both switches are
-remembered between launches. **Priority order** lifts the critical prompts to the
+`←`/`→` or `space` flips the switch under the cursor, and all three rows are
+remembered between launches. The third row, **Autosave**, is a stepper rather
+than a switch; see [the editor's autosave](#autosave) below for what it
+controls. **Priority order** lifts the critical prompts to the
 top of each group, then the high ones, keeping the hand-set order among prompts
 of equal level — it
 is a lens over the file and never a rewrite of it, so turning it off gives back
@@ -2257,8 +2260,12 @@ esc, which is the situation it exists for. An empty prompt is never autosaved,
 and no error is shown for that. ✔ Save explains its own refusal when you press
 it, and a warning appearing on every tick unprompted would be noise.
 
-**The wait is a setting.** Set `autosaveSeconds` in
-`~/.config/cats-todo/settings.json`:
+**The wait is a setting.** The **Autosave** row of the list's View panel
+(`ctrl+l`) steps through off, 15s, 30s, 45s, 1m, 90s, 2m and 5m. `→`, `space`
+or a click goes one step longer, `←` one step shorter, and both ends wrap, so
+off is one press from 5m. The choice is written to settings.json at once, and
+the next form you open uses it. You can also set `autosaveSeconds` in
+`~/.config/cats-todo/settings.json` by hand:
 
 ```json
 { "autosaveSeconds": 90 }
@@ -2269,8 +2276,11 @@ often, which matters when another pane is watching the file, or when the
 project backlog is committed and every write shows up in `git status`. `0` turns
 autosave off. Anything from 1 to 4 is raised to 5 seconds, because each
 autosave rewrites the whole backlog and doing that every second while you type
-is never what anyone wanted. The value is read when the manager starts, so
-restart it after changing the file.
+is never what anyone wanted. A value that is not one of the panel's steps (say
+37) is kept as it is, and the panel's arrows move from it to the nearest step
+in that direction. The file is read when the manager starts and again whenever
+the View panel opens, so after a hand edit either restart the manager or open
+the panel.
 
 
 ## Undo

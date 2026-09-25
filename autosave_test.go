@@ -255,3 +255,147 @@ func TestAutosaveOffNeverArms(t *testing.T) {
 		t.Error("autosave armed while turned off")
 	}
 }
+
+// TestStepAutosave pins the View panel's autosave stepper: each arrow moves one
+// preset and wraps at both ends, so a press never does nothing. A hand-edited
+// value that is not a preset still moves toward the arrow, to the nearest
+// preset past it, rather than jumping to one end.
+func TestStepAutosave(t *testing.T) {
+	last := autosavePresets[len(autosavePresets)-1]
+	cases := []struct {
+		name string
+		cur  time.Duration
+		dir  int
+		want time.Duration
+	}{
+		{"off up", 0, +1, autosavePresets[1]},
+		{"default up", defaultAutosave, +1, time.Minute},
+		{"default down", defaultAutosave, -1, 30 * time.Second},
+		{"longest wraps to off", last, +1, 0},
+		{"off wraps to longest", 0, -1, last},
+		{"between presets up", 37 * time.Second, +1, defaultAutosave},
+		{"between presets down", 37 * time.Second, -1, 30 * time.Second},
+		{"past the longest up", time.Hour, +1, 0},
+		{"past the longest down", time.Hour, -1, last},
+	}
+	for _, c := range cases {
+		if got := stepAutosave(c.cur, c.dir); got != c.want {
+			t.Errorf("%s: stepAutosave(%v, %d) = %v, want %v", c.name, c.cur, c.dir, got, c.want)
+		}
+	}
+}
+
+// TestAutosaveLabel pins the value column. Every label must fit the panel's
+// five-cell column, or the notes after it stop lining up.
+func TestAutosaveLabel(t *testing.T) {
+	cases := map[time.Duration]string{
+		0:                "off",
+		45 * time.Second: "45s",
+		90 * time.Second: "90s",
+		time.Minute:      "1m",
+		5 * time.Minute:  "5m",
+		37 * time.Second: "37s",
+	}
+	for d, want := range cases {
+		if got := autosaveLabel(d); got != want {
+			t.Errorf("autosaveLabel(%v) = %q, want %q", d, got, want)
+		}
+	}
+	for _, p := range autosavePresets {
+		if n := len(autosaveLabel(p)); n > 5 {
+			t.Errorf("preset %v is labelled %q, %d cells, wider than the column", p, autosaveLabel(p), n)
+		}
+	}
+}
+
+// TestViewOptsAutosaveRow walks the panel's autosave row by keyboard and by
+// click: → and ← step the delay, the model takes it at once (the next form
+// arms with it), and settings.json holds it for the next launch.
+func TestViewOptsAutosaveRow(t *testing.T) {
+	m, _, _ := newModelInTemp(t)
+	next, _ := m.beginViewOpts()
+	m = next.(model)
+	for range viewRowAutosave {
+		next, _ = m.updateViewOpts(pressKey("down"))
+		m = next.(model)
+	}
+	if m.viewOptsCursor != viewRowAutosave {
+		t.Fatalf("cursor = %d, want the autosave row", m.viewOptsCursor)
+	}
+	if got := m.viewOptsValue(viewRowAutosave); got != "45s" {
+		t.Errorf("the row opened on %q, want the default 45s", got)
+	}
+
+	next, _ = m.updateViewOpts(pressKey("right"))
+	m = next.(model)
+	if m.autosaveEvery != time.Minute {
+		t.Errorf("→ set %v, want 1m", m.autosaveEvery)
+	}
+	next, _ = m.updateViewOpts(pressKey("left"))
+	m = next.(model)
+	next, _ = m.updateViewOpts(pressKey("left"))
+	m = next.(model)
+	if m.autosaveEvery != 30*time.Second {
+		t.Errorf("← ← set %v, want 30s", m.autosaveEvery)
+	}
+	if m.viewOptsNote != "" {
+		t.Fatalf("saving the delay reported %q", m.viewOptsNote)
+	}
+	if got := loadSettings().autosave; got != 30*time.Second {
+		t.Errorf("settings.json holds %v, want 30s", got)
+	}
+
+	// A click steps it longer, like → and space.
+	next, _ = m.clickViewOpts(tea.MouseClickMsg{Y: viewOptsRowsRow + viewRowAutosave})
+	m = next.(model)
+	if m.autosaveEvery != defaultAutosave {
+		t.Errorf("a click set %v, want 45s", m.autosaveEvery)
+	}
+
+	// The two switches are untouched by any of it.
+	if m.orderByPriority || !m.showFrozen {
+		t.Errorf("stepping the delay changed a switch: order:%v frozen:%v", m.orderByPriority, m.showFrozen)
+	}
+
+	// The next form picks the new delay up with no restart.
+	next, _ = m.updateViewOpts(pressKey("esc"))
+	m = next.(model)
+	next, _ = m.beginAdd()
+	m = next.(model)
+	m = typeInto(t, m, "q")
+	if !m.autosave.armed {
+		t.Error("a form opened after the panel did not arm its autosave")
+	}
+}
+
+// TestViewOptsAutosaveFollowsTheFile: the delay is documented as hand-editable,
+// so a hand edit made while the manager runs must neither be hidden from the
+// panel nor overwritten by an unrelated write. Opening the panel re-reads it,
+// and ctrl+d (which saves the frozen switch) leaves it as the file says.
+func TestViewOptsAutosaveFollowsTheFile(t *testing.T) {
+	m, _, _ := newModelInTemp(t)
+	path := settingsPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"autosaveSeconds": 0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	next, _ := m.beginViewOpts()
+	m = next.(model)
+	if got := m.viewOptsValue(viewRowAutosave); got != "off" {
+		t.Errorf("the panel shows %q after a hand edit to 0, want off", got)
+	}
+	next, _ = m.updateViewOpts(pressKey("esc"))
+	m = next.(model)
+
+	if err := os.WriteFile(path, []byte(`{"autosaveSeconds": 20}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	next, _ = m.toggleClosedFold()
+	m = next.(model)
+	if got := loadSettings().autosave; got != 20*time.Second {
+		t.Errorf("after ctrl+d the file's delay is %v, want the hand-edited 20s", got)
+	}
+}

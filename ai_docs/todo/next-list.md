@@ -110,11 +110,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   typing without moving the caret, and that esc after an autosaved add
   leaves no row behind.
 
-- **N-035** · raised `2026-0924-1231-prompt-editor-autosave` · value low
-  Change the autosave delay from inside the app (optional). Today the delay
-  is read only from settings.json (`autosaveSeconds`) at launch. The list's
-  View panel could offer it if hand-editing turns out to be a nuisance.
-
 - **N-038** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value medium
   Live-test the Next List's ✉ Send (`shift+enter`, `nextlist.go`
   `sendFromNext`) in cats: a new session, a worktree session and a running
@@ -237,7 +232,8 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   minor), loop as the composer's default Deliver, and the loop's one-hour
   resume window (N-057), the fire-time agent check on a scheduled pane
   drop (N-020), the caret walk that made enter on a long one-line
-  prompt slow (N-024), and undo/redo in the title (N-028). Bump `main.go` and
+  prompt slow (N-024), undo/redo in the title (N-028), and the autosave
+  delay on the View panel (N-035). Bump `main.go` and
   `cats-plugin.toml`, commit `chore(release): v0.40.0`, tag it, and push the
   code and the tag.
 
@@ -283,6 +279,14 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-035** · closed 2026-09-25, no session doc · raised `2026-0924-1231-prompt-editor-autosave`
+  — The list's View panel (`ctrl+l`) has a third row, **Autosave**. It is a
+  stepper over off, 15s, 30s, 45s, 1m, 90s, 2m and 5m that wraps at both
+  ends: `→`/space/click step longer, `←` shorter. A change is written to
+  settings.json at once (`setViewAutosave`, which sets only that field, so
+  ctrl+d's save never overwrites a hand edit), and the next form arms with
+  it. Opening the panel re-reads the file, so a hand edit shows there and
+  takes effect without a restart.
 - **N-052** · closed 2026-09-25, no session doc (a `style:` commit on its own) · raised `2026-0925-1315-multi-drop-batches-phase1`
   — `gofmt -l .` is empty. `ui.go` was only the form-stage field block's
   alignment. `promptcode.go` could not take a plain `gofmt -w`: its doc
