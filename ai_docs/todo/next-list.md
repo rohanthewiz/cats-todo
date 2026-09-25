@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-048
+**Next ID:** N-053
 
 ## Open
 
@@ -218,6 +218,50 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   `nextBacklogCopy`) would show it at a glance. The copy is recognised by
   the citation line (`nextItemCite`), so a prompt whose first line was
   rewritten in the form isn't recognised as a copy.
+
+- **N-048** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
+  Live-test batches in cats. Check an all-at-once batch onto new worktrees
+  (the tabs open one after another, each prompt lands whole, and each is
+  marked done), a one-prompt-listed batch into a running pane, and a
+  failure part-way (the rest still go, and the record shows ✗ with the
+  error). Also check the composer's drag and clicks in both layouts (100
+  columns or more, and narrower), Next List items becoming backlog prompts,
+  and ⧉ Duplicate after a partial failure. Only the tests have exercised it.
+
+- **N-049** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
+  Batches phase 2, scheduling (`ai_docs/plans/multi-drop-batches.md`):
+  - The composer's **When** row (`now` or `at`, parsed by
+    `parseScheduleTime`) and ◷ Schedule (`ctrl+s`).
+  - `fireDueBatches` on the schedule tick, with grace, *missed* marking and
+    a `claimBatch` modelled on `claimSchedule`.
+  - Editing a scheduled batch in the composer, and ✕ Unschedule on the page.
+  - A ⧉ badge on list rows whose prompt sits in a pending batch.
+
+- **N-050** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
+  Batches phase 3, the loop:
+  - Send the prompts in order, the next when the pane's `AgentState` goes
+    working → idle (it must see *working* first).
+  - Same session, or a fresh one per prompt.
+  - A **between command** (one line, waited on like a prompt; about 2s with
+    no *working* counts as instant; optionally after the last prompt too;
+    with fresh sessions it goes to the finished one).
+  - A pause, on-fail stop or skip, and max wait.
+  - A `Next` resume index written before each send, so a restarted manager
+    resumes.
+  - Widen `performDrop` to return the pane and branch it created, so
+    `BatchRun` can record them (the plan asked for both; phase 1 records
+    only `Where`).
+
+- **N-051** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
+  Release v0.39.0 for the batch composer: bump `main.go` and
+  `cats-plugin.toml`, commit `chore(release): v0.39.0`, tag it, and push the
+  code and the tag. The feature is committed but unreleased, and the title
+  chip still says 0.38.0.
+
+- **N-052** · raised `2026-0925-1315-multi-drop-batches-phase1` · value low
+  `gofmt -l` lists `promptcode.go` and `ui.go` on a clean HEAD (in `ui.go`,
+  the form-stage field block's alignment). One `gofmt -w` commit on its own
+  would keep that noise out of feature diffs.
 
 ## Roadmap
 
