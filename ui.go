@@ -592,6 +592,13 @@ type model struct {
 	// re-parses a file only when it changes (see batchWatch). A pointer, so
 	// the model's copies share one cache; created on first use.
 	batchWatch *batchWatch
+	// loops are the batch loops this manager is driving (batchloop.go), by
+	// batch ID. A map, and so shared by the model's copies like batchWatch:
+	// several loops can run at once, since each holds the dropping guard only
+	// while it types. loopPolling says a pane.list for them is on its way, so
+	// a slow answer is not asked for again every second.
+	loops       map[string]*loopRunner
+	loopPolling bool
 	// pickForBatch and sessForBatch are the target picker and the ⚙ panel
 	// opened from the composer: enter in the picker records the row on the
 	// draft instead of dropping, and leaving the panel writes the options to
@@ -723,8 +730,17 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// dropping guard, and the other waits a tick, inside its grace: the
 		// arguments are evaluated in order, so the batch check sees the
 		// guard the schedule check may have just taken.
+		//
+		// Loops come last: their sends are the ones that can wait, since a
+		// loop's next prompt has no clock time to keep, and a schedule does.
 		now := time.Time(msg)
-		return m, tea.Batch(m.fireDueSchedules(now), m.fireDueBatches(now), scheduleTick())
+		return m, tea.Batch(m.fireDueSchedules(now), m.fireDueBatches(now), m.loopTick(now), scheduleTick())
+	case loopSentMsg:
+		// Above the stage switch, like a batch step: a loop goes on whatever
+		// screen is up.
+		return m.loopSent(msg)
+	case loopPollMsg:
+		return m.loopPolled(msg)
 	case batchStepMsg:
 		// Above the stage switch like a drop's result: the chain has to go on
 		// whatever screen the user has moved to meanwhile.
@@ -967,11 +983,9 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = m.next.list.editQuery(msg)
 	case stageBatchCompose:
 		// The blink and a paste go to whichever box holds the keys: the
-		// name on its settings row, the Pick pane's query otherwise.
-		if m.batch.focus == batchFocusSettings && m.batch.setRow == batchSetName {
-			m.batch.name, cmd = m.batch.name.Update(msg)
-		} else if m.batch.focus == batchFocusSettings && m.batch.setRow == batchSetWhen {
-			m.batch.when, cmd = m.batch.when.Update(msg)
+		// text box on its settings row, the Pick pane's query otherwise.
+		if f := m.batch.setField(); f != nil {
+			*f, cmd = f.Update(msg)
 		} else if m.batch.focus == batchFocusPick {
 			cmd = m.batch.pick.editQuery(msg)
 		}
@@ -2294,7 +2308,14 @@ func (m *model) rebuildList() {
 			// frozen one will be skipped anyway, which the batch's record
 			// says when it fires.
 			if at, ok := pending[ref]; ok && !t.closed() {
-				marks = append(marks, descMark{text: "⧉ " + formatScheduleTime(at, time.Now()), style: descStyle})
+				// The zero time is a running loop's prompt still waiting its
+				// turn: no clock time can be promised for it, since its turn
+				// comes when the prompt before it finishes.
+				when := "queued"
+				if !at.IsZero() {
+					when = formatScheduleTime(at, time.Now())
+				}
+				marks = append(marks, descMark{text: "⧉ " + when, style: descStyle})
 			}
 			// A done row takes the slot the fire time would have held (a done
 			// todo holds no schedule) for when it was finished — the compact

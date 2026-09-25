@@ -42,12 +42,10 @@ const batchesFileName = "batches.json"
 // The delivery modes. The empty string is "all at once" so that the common case
 // writes nothing, the same empty-means-default rule SessionOpts keeps. The
 // values are wire format: they are written to batches.json.
-//
-// "loop" (one prompt after another, each waiting on the last) is reserved for
-// the loop delivery; this build neither offers nor fires it.
 const (
 	deliverEach     = ""         // every prompt its own new session (or worktree)
 	deliverCombined = "combined" // one body, the prompts as numbered sections
+	deliverLoop     = "loop"     // one prompt at a time, each after the last finished (batchloop.go)
 )
 
 // The states a batch record can be in. A batch is written as running before
@@ -57,21 +55,23 @@ const (
 // The three states before "running" are the ones a batch can be edited in —
 // nothing has been sent, so the record is still a plan rather than history:
 //
-//	scheduled ──fire (claimBatch)──► running ──last step──► done
-//	    │  ▲
-//	    │  └── edit / reschedule ──┐
-//	    ├──► missed ───────────────┤   (too late to fire, or no socket)
+//	scheduled ──fire (swapBatch)──► running ──last step──► done
+//	    │  ▲                          │
+//	    │  └── edit / reschedule ──┐  └──► stopped   (a loop only: a step failed
+//	    ├──► missed ───────────────┤                  under "stop", or ■ Stop)
 //	    └──► unscheduled ──────────┘   (✕ Unschedule on the page)
 //
-// Every arrow out of scheduled is a compare-and-swap on the record's state and
-// fire time (swapBatch), because two manager panes can be looking at the same
-// batches.json, and only one of them may act on a given fire time.
+// Every arrow out of scheduled is a compare-and-swap on the record (swapBatch),
+// because two manager panes can be looking at the same batches.json, and only
+// one of them may act on a given fire time. A running loop's record is swapped
+// the same way at every step, for the same reason (see LoopProgress).
 const (
 	batchScheduled   = "scheduled"
 	batchMissed      = "missed"
 	batchUnscheduled = "unscheduled"
 	batchRunning     = "running"
 	batchDone        = "done"
+	batchStopped     = "stopped"
 )
 
 // Batch is one batch: its picks in delivery order, how and where they go, and
@@ -101,6 +101,12 @@ type Batch struct {
 	// Dropped is when delivery started; zero for a batch never sent.
 	Dropped time.Time  `json:"dropped,omitzero"`
 	Runs    []BatchRun `json:"runs,omitempty"`
+	// Loop holds a loop's options (Deliver == deliverLoop only), and Progress
+	// where a running loop stands — the resume point a manager reopened
+	// mid-loop picks up from. Both nil for the other two modes, so their
+	// records are what phases 1 and 2 wrote.
+	Loop     *LoopOpts     `json:"loop,omitempty"`
+	Progress *LoopProgress `json:"progress,omitempty"`
 
 	// scope is which batches.json the record was read from and is written back
 	// to. Not serialised: it is where the file is, not what it says.
@@ -173,11 +179,25 @@ func (bt batchTarget) dropTarget() dropTarget {
 
 // BatchRun is one delivery: which items it carried (one for all at once, every
 // item for a combined drop), when, where it landed, and why it failed if it did.
+//
+// Pane and Branch say exactly where: the pane the prompt was typed into, and
+// the branch a worktree drop cut for it — so an all-at-once batch onto
+// worktrees can be traced to its checkouts. Records written before these were
+// kept have neither, and read as before.
+//
+// Stalled is a loop's own kind of trouble: the prompt was delivered (Err is
+// empty, and it was marked done) but the loop gave up waiting for it to
+// finish — it ran past the max wait, its pane closed, or the agent never
+// started on it. Kept apart from Err because the prompt did reach its agent,
+// and "delivered" should go on meaning that.
 type BatchRun struct {
-	Items []int     `json:"items"`
-	At    time.Time `json:"at"`
-	Where string    `json:"where,omitempty"`
-	Err   string    `json:"err,omitempty"`
+	Items   []int     `json:"items"`
+	At      time.Time `json:"at"`
+	Where   string    `json:"where,omitempty"`
+	Pane    uint32    `json:"pane,omitempty"`
+	Branch  string    `json:"branch,omitempty"`
+	Err     string    `json:"err,omitempty"`
+	Stalled string    `json:"stalled,omitempty"`
 }
 
 // editable says the batch is still a plan: nothing in it has been sent, so
@@ -233,10 +253,14 @@ func (b Batch) itemRun(i int) (BatchRun, bool) {
 	return BatchRun{}, false
 }
 
-// deliverLabel names a delivery mode in the words the composer's radio uses.
+// deliverLabel names a delivery mode wherever a batch is described (the page's
+// rows, the record view).
 func deliverLabel(d string) string {
-	if d == deliverCombined {
+	switch d {
+	case deliverCombined:
 		return "one prompt, listed"
+	case deliverLoop:
+		return "loop"
 	}
 	return "all at once"
 }
@@ -383,7 +407,7 @@ func (bs *batchStore) swapBatch(orig, next Batch) (bool, error) {
 		if cur.ID != orig.ID {
 			continue
 		}
-		if cur.State != orig.State || !cur.At.Equal(orig.At) {
+		if !sameRevision(cur, orig) {
 			return false, nil
 		}
 		next.scope = bs.scope
@@ -391,6 +415,27 @@ func (bs *batchStore) swapBatch(orig, next Batch) (bool, error) {
 		return true, bs.save()
 	}
 	return false, nil
+}
+
+// sameRevision is swapBatch's test: is the record on disk still the one orig
+// was read as? For a plan that is its state and fire time — every change to a
+// plan moves one of them. A running loop moves neither while it runs, so its
+// progress is compared too: who drives it, which prompt is next, and what it
+// is waiting on. The heartbeat (Beat) is left out on purpose: it is rewritten
+// every minute without changing anything anyone else acts on, and comparing it
+// would make a stop from another pane lose to a mere heartbeat.
+func sameRevision(cur, orig Batch) bool {
+	if cur.State != orig.State || !cur.At.Equal(orig.At) {
+		return false
+	}
+	cp, op := cur.Progress, orig.Progress
+	switch {
+	case cp == nil && op == nil:
+		return true
+	case cp == nil || op == nil:
+		return false
+	}
+	return cp.Owner == op.Owner && cp.Next == op.Next && cp.Phase == op.Phase
 }
 
 // takeBatch is swapBatch's delete: it removes the record only while it is still
@@ -405,7 +450,7 @@ func (bs *batchStore) takeBatch(orig Batch) (bool, error) {
 		if cur.ID != orig.ID {
 			continue
 		}
-		if cur.State != orig.State || !cur.At.Equal(orig.At) {
+		if !sameRevision(cur, orig) {
 			return false, nil
 		}
 		bs.batches = slices.Delete(bs.batches, i, i+1)
@@ -474,9 +519,22 @@ func (w *batchWatch) read(bs *batchStore) ([]Batch, error) {
 // fire time — the earliest, if it sits in more than one — for the list's ⧉
 // mark. Only scheduled batches count: a missed or unscheduled one will not send
 // anything on its own, so its prompts are not spoken for.
+//
+// A running loop's prompts that have not gone yet are spoken for too, and more
+// urgently than any scheduled ones: they map to the zero time, which the list
+// draws as "queued" (see the ⧉ mark in rebuildList).
 func pendingRefs(batches []Batch) map[todoRef]time.Time {
 	var out map[todoRef]time.Time
 	for _, b := range batches {
+		if b.State == batchRunning && b.Deliver == deliverLoop && b.Progress != nil {
+			for _, it := range b.Items[min(b.Progress.Next, len(b.Items)):] {
+				if out == nil {
+					out = map[todoRef]time.Time{}
+				}
+				out[it.ref()] = time.Time{}
+			}
+			continue
+		}
 		if b.State != batchScheduled {
 			continue
 		}
@@ -485,7 +543,7 @@ func pendingRefs(batches []Batch) map[todoRef]time.Time {
 				out = map[todoRef]time.Time{}
 			}
 			ref := it.ref()
-			if at, ok := out[ref]; !ok || b.At.Before(at) {
+			if at, ok := out[ref]; !ok || (!at.IsZero() && b.At.Before(at)) {
 				out[ref] = b.At
 			}
 		}

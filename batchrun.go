@@ -75,6 +75,11 @@ func (m model) batchStoreForScope(s scope) *batchStore {
 // once its record is safely on disk. A record that cannot be written keeps the
 // composer open with the reason, so nothing has been sent and nothing is lost.
 func (m model) launchBatch(b Batch) (tea.Model, tea.Cmd) {
+	if b.Deliver == deliverLoop {
+		// A loop is not a chain of drops but a runner that waits on each
+		// prompt finishing (batchloop.go).
+		return m.launchLoop(b)
+	}
 	cmd, err := m.startBatch(b, false)
 	if err != nil {
 		m.batchSay(err.Error(), true)
@@ -407,6 +412,11 @@ func (m *model) fireDueBatches(now time.Time) tea.Cmd {
 
 		claimed := b
 		claimed.State = batchRunning
+		if b.Deliver == deliverLoop {
+			// A loop's claim is also its ownership: the record goes to
+			// running with this manager as its driver (see LoopProgress).
+			claimed = loopRecord(b, now)
+		}
 		won, err := bs.swapBatch(b, claimed)
 		if err != nil {
 			m.batchStatus("batch claim failed: "+err.Error(), true)
@@ -416,6 +426,12 @@ func (m *model) fireDueBatches(now time.Time) tea.Cmd {
 			// Someone else fired, edited or deleted it between the read and
 			// the claim. The next tick reads whatever they left.
 			continue
+		}
+		if b.Deliver == deliverLoop {
+			// The loop resolves each prompt as its turn comes (re-reading the
+			// backlogs then), so there is nothing to resolve here.
+			m.batchStatus("scheduled loop "+b.displayName()+": starting — "+fmt.Sprintf("%d prompt%s, one at a time", len(b.Items), plural(len(b.Items))), false)
+			return m.runLoop(claimed, false)
 		}
 		// The backlogs are re-read before the items are resolved: this pane's
 		// copy is only refreshed by its own writes, and hours may have passed

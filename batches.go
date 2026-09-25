@@ -190,10 +190,22 @@ func (b Batch) batchWhen(now time.Time) string {
 	}
 	ok, total := b.deliveredCounts()
 	s := fmt.Sprintf("%s · %d/%d", formatDoneTime(b.batchTime(), now), ok, total)
-	if b.State == batchRunning {
+	switch {
+	case b.State == batchStopped:
+		s = fmt.Sprintf("%s · stopped after %d/%d", formatDoneTime(b.batchTime(), now), progressNext(b), total)
+	case b.State == batchRunning:
 		s += " so far"
 	}
 	return s
+}
+
+// batchRowWhen is batchWhen for a row on the page, which — unlike the record —
+// knows whether a running loop has a manager driving it.
+func (m model) batchRowWhen(b Batch, now time.Time) string {
+	if b.State == batchRunning && b.Deliver == deliverLoop {
+		return formatDoneTime(b.batchTime(), now) + " · " + b.loopWord(m.loopDriven(b, now))
+	}
+	return b.batchWhen(now)
 }
 
 func (p *batchesPage) say(s string, isErr bool) { p.note, p.noteErr = s, isErr }
@@ -204,11 +216,16 @@ func (m *model) rebuildBatchRows() {
 	var items []listItem
 	for i, b := range m.batches.rows {
 		glyph, st := batchStateMark(b)
+		if b.State == batchRunning && b.Deliver == deliverLoop && !m.loopDriven(b, now) {
+			// Nobody is driving it: the next manager to open takes it over
+			// (adoptLoops), but until then it is not moving.
+			glyph, st = "‖", schedStyle
+		}
 		total := len(b.Items)
 		desc := fmt.Sprintf("%d prompt%s · %s · %s · %s",
-			total, plural(total), deliverLabel(b.Deliver),
+			total, plural(total), b.deliverDesc(),
 			strings.TrimPrefix(firstNonEmpty(b.Target.Label, targetDesc(b.Target.dropTarget())), "＋ "),
-			b.batchWhen(now))
+			m.batchRowWhen(b, now))
 		if b.scope == scopeGlobal && m.project.available() {
 			desc += " · global"
 		}
@@ -233,13 +250,20 @@ func (m *model) rebuildBatchRows() {
 	m.batches.list.setItems(items)
 }
 
-// batchStateMark is a batch's badge: ▶ running, ◷ scheduled (red once it
-// has missed — the list's own schedule badge, meaning the same), ◌ not
-// scheduled, ✓ every prompt landed, ⚠ some did, ✗ none did.
+// batchStateMark is a batch's badge: ▶ running (⟳ for a loop, which runs
+// for as long as its prompts take — and ‖ on the page when nobody is driving
+// it), ◷ scheduled (red once it has missed — the list's own schedule badge,
+// meaning the same), ◌ not scheduled, ■ a loop stopped part-way, ✓ every
+// prompt landed, ⚠ some did, ✗ none did.
 func batchStateMark(b Batch) (string, lipgloss.Style) {
 	switch b.State {
 	case batchRunning:
+		if b.Deliver == deliverLoop {
+			return "⟳", schedStyle
+		}
 		return "▶", schedStyle
+	case batchStopped:
+		return "■", errStyle
 	case batchScheduled:
 		return "◷", schedStyle
 	case batchMissed:
@@ -285,12 +309,18 @@ func (m model) highlightedBatch() (Batch, bool) {
 	return m.batches.rows[i], true
 }
 
-// batchesActions is the page's bar.
+// batchesActions is the page's bar. The third chip is ✕ Unschedule, or ■ Stop
+// when the highlighted batch is a running loop: the one chord takes the
+// highlighted batch off whatever it is about to do next.
 func (m model) batchesActions() []listAction {
+	third := listAction{label: "✕ Unschedule", hint: "ctrl+u", tint: colStraw, needsSel: true}
+	if hb, ok := m.highlightedBatch(); ok && hb.State == batchRunning && hb.Deliver == deliverLoop {
+		third = listAction{label: "■ Stop", hint: "ctrl+u", tint: colErr, needsSel: true}
+	}
 	return []listAction{
 		{label: "＋ New", hint: "ctrl+a", tint: colInfo},
 		{label: "⧉ Duplicate", hint: "ctrl+d", tint: colCyan, needsSel: true},
-		{label: "✕ Unschedule", hint: "ctrl+u", tint: colStraw, needsSel: true},
+		third,
 		{label: "✖ Delete", hint: "ctrl+x", tint: colErr, needsSel: true},
 		{label: "← Back", hint: "esc", tint: colStraw},
 	}
@@ -327,7 +357,8 @@ func (m model) batchesBar() string {
 		// Unschedule applies only to a scheduled batch; on any other row it
 		// is greyed like a chip with nothing selected, and says why if
 		// pressed anyway.
-		if (acts[i].needsSel && !hasSel) || (i == batchesBtnUnsched && hb.State != batchScheduled) {
+		stoppable := hb.State == batchRunning && hb.Deliver == deliverLoop
+		if (acts[i].needsSel && !hasSel) || (i == batchesBtnUnsched && hb.State != batchScheduled && !stoppable) {
 			st, hintFg = btnOffStyle, colFaint
 		}
 		b.WriteString(renderChipDimHint(st, hintFg, acts[i], tier, c.text))
@@ -394,6 +425,7 @@ func (m model) composerFromBatch(b Batch, edit bool) (tea.Model, tea.Cmd) {
 	}
 	nm.batch.name.SetValue(b.Name)
 	nm.batch.deliver = b.Deliver
+	nm.batch.setLoopOpts(b.loopOpts())
 	nm.batch.target = b.Target.dropTarget()
 	nm.batch.session = sessionValue(b.Session)
 	nm.rebuildBatchPick()
@@ -434,8 +466,13 @@ func (m model) unscheduleBatch() (tea.Model, tea.Cmd) {
 	case !ok:
 		m.batches.say("highlight a batch first — ↑/↓ to choose one", false)
 		return m, nil
+	case b.State == batchRunning && b.Deliver == deliverLoop:
+		line, isErr := m.stopLoop(b)
+		m.batches.say(line, isErr)
+		m.reloadBatches()
+		return m, nil
 	case b.State != batchScheduled:
-		m.batches.say("only a scheduled batch can be unscheduled — this one is "+b.State, false)
+		m.batches.say("only a scheduled batch can be unscheduled (or a running loop stopped) — this one is "+b.State, false)
 		return m, nil
 	}
 	off := b
@@ -464,6 +501,10 @@ func (m model) deleteBatch() (tea.Model, tea.Cmd) {
 	}
 	if b.State == batchRunning && m.batchRun != nil && m.batchRun.batch.ID == b.ID {
 		m.batches.say("that batch is still being dropped — delete it once it has finished", true)
+		return m, nil
+	}
+	if _, driving := m.loops[b.ID]; driving {
+		m.batches.say("that loop is still running — ■ Stop it first (ctrl+u)", true)
 		return m, nil
 	}
 	if m.batches.armDelete != b.ID {
@@ -603,6 +644,19 @@ func (m model) updateBatchView(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// runWhere is where a run landed, with the pane and the branch when the record
+// has them — the branch is what finds a worktree drop's checkout again.
+func runWhere(r BatchRun) string {
+	s := r.Where
+	if r.Pane != 0 {
+		s += fmt.Sprintf(" · pane %d", r.Pane)
+	}
+	if r.Branch != "" {
+		s += " · " + r.Branch
+	}
+	return s
+}
+
 // viewBatchView draws one batch's record: how it went out, then each prompt
 // with where it landed or why it did not.
 func (m model) viewBatchView() string {
@@ -610,6 +664,10 @@ func (m model) viewBatchView() string {
 	now := time.Now()
 	var out []string
 	glyph, st := batchStateMark(b)
+	driven := m.loopDriven(b, now)
+	if b.State == batchRunning && b.Deliver == deliverLoop && !driven {
+		glyph, st = "‖", schedStyle
+	}
 	out = append(out, titleStyle.Render("Batch")+"  "+st.Render(glyph)+" "+headerNameStyle.Render(b.displayName()), "")
 	ok, total := b.deliveredCounts()
 	field := func(label, value string) string {
@@ -625,7 +683,22 @@ func (m model) viewBatchView() string {
 	out = append(out,
 		field("Dropped", when),
 		field("Delivered", fmt.Sprintf("%d of %d", ok, total)),
-		field("Deliver", deliverLabel(b.Deliver)),
+		field("Deliver", deliverLabel(b.Deliver)))
+	if b.Deliver == deliverLoop {
+		out = append(out, field("Loop", b.Loop.summary()))
+		if b.State == batchRunning {
+			now := b.loopWord(driven)
+			if !driven {
+				now += " — no manager is driving it; the next one opened on this backlog picks it up"
+			}
+			out = append(out, field("Now", now))
+		}
+	}
+	if b.Why != "" && (b.State == batchStopped || b.State == batchDone) {
+		// A missed plan's reason is the composer's note; a record's is here.
+		out = append(out, "  "+nameStyle.Render(fmt.Sprintf("%-10s", "Why"))+errStyle.Render(b.Why))
+	}
+	out = append(out,
 		field("Target", firstNonEmpty(b.Target.Label, targetDesc(b.Target.dropTarget()))),
 		field("Session", firstNonEmpty(b.Session.summary(), "each prompt's own")),
 		"",
@@ -641,8 +714,12 @@ func (m model) viewBatchView() string {
 			out = append(out, "  "+errStyle.Render("✗ ")+nameStyle.Render(line)+descStyle.Render(" — never sent"))
 		case run.Err != "":
 			out = append(out, "  "+errStyle.Render("✗ ")+nameStyle.Render(line)+errStyle.Render(" — "+run.Err))
+		case run.Stalled != "":
+			// Delivered — so ✓-coloured words for where — but the loop gave
+			// up waiting on it, which is what the ⚠ and the red tail say.
+			out = append(out, "  "+schedStyle.Render("⚠ ")+nameStyle.Render(line)+descStyle.Render(" → "+runWhere(run)+" · "+formatDoneTime(run.At, now))+errStyle.Render(" — "+run.Stalled))
 		default:
-			out = append(out, "  "+checkStyle.Render("✓ ")+nameStyle.Render(line)+descStyle.Render(" → "+run.Where+" · "+formatDoneTime(run.At, now)))
+			out = append(out, "  "+checkStyle.Render("✓ ")+nameStyle.Render(line)+descStyle.Render(" → "+runWhere(run)+" · "+formatDoneTime(run.At, now)))
 		}
 	}
 	// The lines are styled, so they are cut by cells with the escapes kept

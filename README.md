@@ -761,7 +761,7 @@ Project                                 │
   ☑ △ Fix flaky drop test               │   order: manual · s sorts A→Z
   ☑ Rename fuzzyList headings           │
   ☐ Add worktree cleanup command        │   Name     nightly cleanup
-                                        │   Deliver  (•) all at once  ( ) one prompt, listed
+                                        │   Deliver  (•) all at once  ( ) one prompt  ( ) loop, in order
 Global                                  │   Target   ＋ New Claude Code session on a new worktree
   ☐ ｉ Blog notes · info — a note, not… │   Session  ⚙ sonnet
                                         │   When     now
@@ -805,7 +805,8 @@ turns rather than sharing the width (a switcher line says which is up, and
 `tab` or a click moves between them); side by side at that size every title
 would be cut to a stub.
 
-**The settings** are five rows under the batch:
+**The settings** are five rows under the batch (and five more under Deliver
+while it says loop — see [Looping a batch](#looping-a-batch)):
 
 - **Name** — optional. An unnamed batch is listed as its first prompt's title
   and a count (`Fix flaky drop test +2`).
@@ -816,9 +817,12 @@ would be cut to a stub.
     in parallel without any of them editing another's files. A running pane is
     one conversation, so it is refused as a target here (in words, naming the
     other two ways) once there is more than one prompt.
-  - **one prompt, listed** — the prompts joined into one body, each under a
+  - **one prompt** (listed) — the prompts joined into one body, each under a
     numbered `## 1. <title>` heading in batch order, after a line telling the
     agent they are separate tasks to take in order. One drop, into any target.
+  - **loop, in order** — one prompt at a time, each sent only when the one
+    before it has *finished*: for work that has to happen in sequence, or must
+    not run twice at once. See [Looping a batch](#looping-a-batch).
 - **Target** — `enter` opens the ordinary target picker, so a batch's target is
   chosen from exactly the rows a single drop offers (new session, new
   worktree, running panes). It starts on a new Claude Code session, so a batch
@@ -854,7 +858,8 @@ says the picks are not saved until the batch is dropped or scheduled.
 
 ### What a drop of a batch does
 
-The prompts go **one after another**, each an ordinary drop — the same prompt
+This is *all at once* and *one prompt*; a loop is
+[its own thing](#looping-a-batch). The prompts go **one after another**, each an ordinary drop — the same prompt
 composition, agent-ready wait and worktree cut a single drop does. "All at once"
 means *without waiting for any of them to finish their work*, not
 simultaneously: two drops typing into panes at the same moment is how prompts get
@@ -874,6 +879,103 @@ independent by construction, so one branch that could not be cut is no reason
 to hold back the others. Every prompt is re-read from its backlog as the batch
 goes, and one frozen, completed or deleted in another pane meanwhile is not sent;
 the record says so.
+
+### Looping a batch
+
+The other two modes are fire-and-forget: every prompt is typed in, and the batch
+is done. A **loop** waits. It sends prompt 1, watches its pane until the agent
+has finished, then sends prompt 2 — into the same conversation, or a fresh one —
+and so on to the end. It is for a sequence: each step builds on the last, or
+two of them must not be editing the tree at the same time.
+
+```
+  Deliver  ( ) all at once  ( ) one prompt  (•) loop, in order
+  Loop     (•) same session  ( ) fresh each
+❯ Between  /compact                  ☐ after the last too
+  Pause    30s           before each next prompt
+  Max wait 2h            per prompt, then it counts as failed
+  On fail  (•) stop  ( ) skip and go on
+```
+
+**"Finished" is working, then idle.** cats reads each agent pane's state off
+its screen — the `[working]` the drop picker shows — and the manager asks for it
+once a second. A prompt is finished when its pane is seen *working* and then
+*idle*. It has to be seen working first: an agent still idle a moment after the
+prompt landed hasn't started on it, and taking that for done would send the next
+prompt on top of it. An agent asking a question (*blocked*) is still working —
+it is waiting on you, not done. A prompt that is never seen working within 45
+seconds counts as failed (the likely story is that it was never submitted, and
+sending the next one would glue the two together), as does a pane that closes,
+or one whose agent has exited.
+
+- **Loop** — **same session** (the default) sends every prompt into the pane the
+  first one opened, or into the running pane chosen as the target: a sequence
+  usually builds on what came before, and one conversation keeps that context.
+  Each prompt after the first is a drop into a running pane, so its own
+  `/clear`, `/model` and `/effort` are applied there as a single drop would
+  apply them. **fresh each** opens a new session (or a new worktree) per
+  prompt, each only once the one before is idle — for steps that must not see
+  each other's context but still must not overlap. It needs a new-session
+  target, and says so otherwise.
+- **Between** — one line submitted after a prompt finishes and before the next
+  goes: a slash command (`/compact`, `/clear`, `/sess-save step`,
+  `/code-review`) or plain words ("run the tests and fix anything red"). It is
+  waited on like a prompt. Some commands make the agent work and some return at
+  once, and one rule covers both: a pane that doesn't show *working* within
+  three seconds of the command counts it as an instant one. With **fresh each**
+  it goes to the session that just finished, which is where a `/sess-save` or a
+  `/code-review` has something to act on. One line only — a second line would be
+  a second message the loop doesn't know to wait for. **☐ after the last too**
+  (`ctrl+t` on the row, or a click) runs it once more at the end; off by
+  default, since `/compact` after the final step is wasted work while
+  `/sess-save` after it is often the point.
+- **Pause** — a wait before each next prompt (`30s`, `5m`, `1h30m`).
+- **Max wait** — how long one prompt (or the between command) may run before it
+  counts as stuck, which is a failure. Empty is no limit.
+- **On fail** — **stop** (the default: a sequence usually means later steps
+  depend on earlier ones) ends the loop there, and the rest stay open on the
+  list. **skip and go on** records the failure and sends the next. Two failures
+  stop the loop either way: in the same session, a closed pane leaves nowhere
+  for the next prompt to go; and the finish message is the last thing a loop
+  sends.
+
+**The finish runs once, in the same session.** Commit, push, wrap and the
+release (the [session options](#session-options)' Finish) would otherwise be one
+commit per step of a single conversation. So in a same-session loop they are
+lifted out of every prompt and sent once, after the last prompt (and after the
+between command when it runs after the last) — the batch's Finish if it sets
+one, else the last prompt's own. With fresh sessions each prompt is its own
+conversation and keeps its own.
+
+**It holds the keyboard only while it types.** The waits can be hours, and the
+manager's one-drop-at-a-time guard is taken only for the seconds a prompt, a
+between command or the finish takes to type in. Single drops, schedules and
+other batches go on meanwhile — they just take turns at the keyboard — and
+several loops can run at once. Each prompt is re-read from its backlog as its
+turn comes, so one completed, frozen or deleted in the meantime is skipped with
+the reason. Each prompt that lands is marked done, as a single drop's is; the
+list marks the ones still waiting their turn `⧉ queued`.
+
+**It survives the manager closing.** The loop runs in the manager, like a
+schedule, so the manager has to be open for it to move — but where it stands is
+written to `batches.json` at every step: which prompt is next, what it is
+waiting on, the pane it is watching, and which manager is driving it. Close the
+manager mid-loop and the batch reads `‖ paused at 2/5`; open one on the same
+backlog and it takes the loop over and carries on from there. The prompt it was
+waiting on is looked at afresh — idle counts as finished, since nobody watched
+it in between — and the next prompt's number is written *before* the prompt is
+sent, so a manager that dies at the wrong moment can leave a prompt unsent but
+never sends one twice. A prompt that was mid-send when the manager went is
+marked on the record as unknown ("look in its pane"), not sent again.
+
+**■ Stop** (`ctrl+u` on the page, where the Unschedule chip turns into it for a
+running loop) ends a loop: nothing more is sent. What is already running in its
+pane carries on — nothing on the wire can interrupt an agent, and the pane is
+yours to stop. A loop driven by a manager in another pane is stopped through its
+record: every write the driver makes is checked against the record as it last
+wrote it, so it finds the stop at its next step and lets go before typing
+anything more. The same check is what lets only one of two managers take over
+an orphaned loop.
 
 ### Scheduling a batch
 
@@ -936,10 +1038,16 @@ picking and ordering.
 ```
 
 A row's badge is where the batch stands: `◷` scheduled (red once it has
-missed), `◌` not scheduled, `▶` still going, `✓` every prompt landed, `⚠` some
-did, `✗` none did. `enter` (or a double-click) opens a batch that hasn't gone in
-the composer, as above, and one that has gone as its record — each prompt,
-where it landed, and the error beside any that didn't. **⧉ Duplicate**
+missed), `◌` not scheduled, `▶` still going, `⟳` a loop running (`‖` when no
+manager is driving it), `■` a loop stopped part-way, `✓` every prompt landed,
+`⚠` some did, `✗` none did. A running loop's row says where it is (`on 2/5`,
+`pausing after 2/5`, `finishing`). `enter` (or a double-click) opens a batch
+that hasn't gone in the composer, as above, and one that has gone as its record
+— each prompt, where it landed (the pane, and the branch for a worktree drop, so
+an all-at-once batch can be traced to its checkouts), and the error beside any
+that didn't. A loop's record also says how it was set up, where it stands, and
+why it stopped; a prompt it gave up waiting on shows `⚠` with the reason — it
+was delivered, and stays counted as delivered. **⧉ Duplicate**
 (there or on the page) opens a composer with the batch's settings and whichever
 of its prompts are **still open**, which after a partial drop is exactly the
 ones that didn't land; the ones that did are done, and reopening them on the list

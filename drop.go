@@ -20,8 +20,28 @@ import (
 // The note is for the status line: something the drop did on the user's behalf
 // that they should hear about even though it succeeded (see applyPaneSetup).
 func performDrop(client *catsClient, act pendingAction) (note string, err error) {
+	l, err := performDropAt(client, act)
+	return l.note, err
+}
+
+// dropLanding is where a drop put its prompt: the pane that received it and,
+// for a worktree drop, the branch cut for it — plus performDrop's status note.
+//
+// Most callers need only the note, which is why performDrop keeps its old
+// shape. A batch loop needs the pane: it is the pane the loop then watches for
+// the agent going idle, and — in a same-session loop — the pane every later
+// prompt is typed into. The branch is recorded so a batch's history can say
+// which checkout each prompt ran in.
+type dropLanding struct {
+	note   string
+	pane   uint32
+	branch string
+}
+
+// performDropAt is performDrop reporting where the prompt landed.
+func performDropAt(client *catsClient, act pendingAction) (dropLanding, error) {
 	if client == nil {
-		return "", errors.New("cats control socket unavailable")
+		return dropLanding{}, errors.New("cats control socket unavailable")
 	}
 	prompt := composePrompt(act.todo.Prompt, act.images, act.todo.Session)
 	switch act.target.kind {
@@ -49,20 +69,21 @@ func performDrop(client *catsClient, act pendingAction) (note string, err error)
 		// applyPaneSetup.
 		note, err := applyPaneSetup(client, act.target.pane, act.todo.Session.paneSetupCommands(act.target.agent), clearSettle)
 		if err != nil {
-			return "", err
+			return dropLanding{}, err
 		}
 		if err := client.sendInput(act.target.pane, prompt, act.mode == dropRun); err != nil {
-			return "", err
+			return dropLanding{}, err
 		}
 		// Switch to the pane we just dropped into, mirroring how a new-session
 		// drop focuses its freshly-created tab. Best effort: the prompt is
 		// already delivered, so a focus failure must not fail the drop.
 		_ = client.focusPane(act.target.pane)
-		return note, nil
+		return dropLanding{note: note, pane: act.target.pane}, nil
 	case targetNewSession:
-		return "", dropIntoNewSession(client, act, prompt)
+		pane, branch, err := dropIntoNewSession(client, act, prompt)
+		return dropLanding{pane: pane, branch: branch}, err
 	}
-	return "", errors.New("unknown drop target")
+	return dropLanding{}, errors.New("unknown drop target")
 }
 
 // imageBlockHeader introduces the attachment paths appended to a dropped
@@ -165,20 +186,27 @@ func composePrompt(prompt string, images []string, opts *SessionOpts) string {
 // launching an agent run on guessed context is the worse failure. The caller
 // records the error as Missed, where a manual send is one keystroke away.
 func performScheduledDrop(client *catsClient, sc Schedule, act pendingAction) (string, error) {
+	l, err := performScheduledDropAt(client, sc, act)
+	return l.note, err
+}
+
+// performScheduledDropAt is performScheduledDrop reporting where the prompt
+// landed (see dropLanding).
+func performScheduledDropAt(client *catsClient, sc Schedule, act pendingAction) (dropLanding, error) {
 	if client == nil {
-		return "", errors.New("cats control socket unavailable")
+		return dropLanding{}, errors.New("cats control socket unavailable")
 	}
 	if sc.Kind == scheduleKindPane {
 		panes, err := client.paneList()
 		if err != nil {
-			return "", fmt.Errorf("checking the scheduled pane: %w", err)
+			return dropLanding{}, fmt.Errorf("checking the scheduled pane: %w", err)
 		}
 		if !paneExists(panes, sc.Pane) {
-			return "", errors.New("the scheduled pane is gone — send manually")
+			return dropLanding{}, errors.New("the scheduled pane is gone — send manually")
 		}
 	}
 	act.mode = dropRun
-	return performDrop(client, act)
+	return performDropAt(client, act)
 }
 
 // paneExists reports whether pane.list still knows the pane id — split out
@@ -214,7 +242,11 @@ func paneExists(panes []wire.PaneInfo, id uint32) bool {
 // root the tab there instead (see dropWorktree). Everything downstream is
 // unchanged, which is the point — the isolation is a property of the directory
 // the agent starts in, not of how the prompt is delivered.
-func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) error {
+//
+// It returns the new tab's root pane — the agent's pane — and the worktree's
+// branch when it cut one. The pane is returned even when the final send fails,
+// since the tab exists by then and is where the user will find the agent.
+func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) (pane uint32, branch string, err error) {
 	command := firstNonEmpty(act.target.command, "claude")
 	label := command
 	if t := firstNonEmpty(act.todo.Title, firstLine(prompt, 18)); t != "" {
@@ -223,11 +255,11 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) er
 
 	cwd := act.cwd
 	if act.target.worktree {
-		path, err := dropWorktree(client, act)
+		path, br, err := dropWorktree(client, act)
 		if err != nil {
-			return err
+			return 0, "", err
 		}
-		cwd = path
+		cwd, branch = path, br
 	}
 
 	// Fields, not a shell: the command is an agent name (possibly with flags),
@@ -239,16 +271,16 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) er
 	// one line right for every row in the picker.
 	argv := append(strings.Fields(command), act.todo.Session.launchArgs(command)...)
 	argv[0] = resolveAgentPath(argv[0])
-	_, pane, err := client.tabCreate(cwd, label, argv)
+	_, pane, err = client.tabCreate(cwd, label, argv)
 	if err != nil {
-		return err
+		return 0, branch, err
 	}
 	client.waitForAgentReady(pane, command)
 	// Unconditional, including after a probe timeout: the timeout case is the one
 	// where we know least about the agent's state, so it is the last place to
 	// start typing early.
 	time.Sleep(newSessionSettle)
-	return client.sendInput(pane, prompt, act.mode == dropRun)
+	return pane, branch, client.sendInput(pane, prompt, act.mode == dropRun)
 }
 
 // resolveAgentPath turns an agent's name into the absolute path of the binary,
@@ -301,17 +333,20 @@ func resolveAgentPath(name string) string {
 // checkout: choosing "on a new worktree" is choosing isolation, and quietly
 // starting an agent in the shared tree instead is precisely the outcome the
 // user asked to avoid.
-func dropWorktree(client *catsClient, act pendingAction) (string, error) {
-	branch := todoBranchName(act.todo, time.Now().UnixMicro())
+//
+// The branch returned is the server's resolved name (it may differ from the one
+// asked for), falling back to the one asked for when the server says nothing.
+func dropWorktree(client *catsClient, act pendingAction) (path, branch string, err error) {
+	branch = todoBranchName(act.todo, time.Now().UnixMicro())
 	res, err := client.worktreeCreate(act.anchorPane, branch)
 	if err != nil {
-		return "", fmt.Errorf("creating the worktree: %w", err)
+		return "", "", fmt.Errorf("creating the worktree: %w", err)
 	}
 	if res.Path == "" {
 		// Defensive: a server that reported success without a checkout path
 		// leaves us nothing to root the tab at, and tab.create would silently
 		// fall back to the workspace default.
-		return "", errors.New("cats created the worktree but reported no path")
+		return "", "", errors.New("cats created the worktree but reported no path")
 	}
-	return res.Path, nil
+	return res.Path, firstNonEmpty(res.Branch, branch), nil
 }

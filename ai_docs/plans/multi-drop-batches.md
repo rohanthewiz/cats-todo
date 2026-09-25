@@ -459,3 +459,61 @@ tests in `batchsched_test.go`. Where it departs from the design above:
   marks beside the prompt's own `⏰`.
 - **The Batches page has no right-click menu yet**, and no ▶ Drop now or ✎ Edit
   chip: `enter` on a plan opens it in the composer, where both are.
+
+## Phase 3 as built (2026-09-25)
+
+The loop: one prompt at a time, each sent when the one before has gone
+working → idle; same session or fresh each; the between command (and after the
+last too); pause; max wait; on fail stop or skip; resume across a closed
+manager; ■ Stop. Files: `batchloop.go` (new: `LoopOpts`, `LoopProgress`, the
+runner, `judge`, adoption, stop), `drop.go` (`performDropAt` returns a
+`dropLanding` — pane and branch), `batch.go` (`deliverLoop`, `batchStopped`,
+`BatchRun.Pane/Branch/Stalled`, `sameRevision`, queued loop prompts in
+`pendingRefs`), `batchrun.go` (launch and fire route loops to the runner),
+`batchcompose.go` (the third radio, the five loop rows via `setRows`),
+`batches.go` (⟳ / ‖ / ■, ■ Stop, the record's loop lines), `ui.go` (the
+model's `loops`, the tick, the two messages), tests in `batchloop_test.go`.
+Where it departs from the design above:
+
+- **The loop does not hold the dropping guard for its run.** The plan's
+  runner held it for a batch's whole delivery; a loop's waits can be hours, and
+  holding the guard that long would stop every other drop and schedule. It is
+  taken only while a prompt, the between command or the finish is typed, and
+  several loops can run at once (`m.loops`, by batch ID).
+- **The watch is a poll on the tick, judged by a pure function.** Each tick
+  sends one `pane.list` off the UI thread (`loopPollMsg`) for every loop
+  watching a pane; `loopRunner.judge` turns one observation into waiting /
+  finished / failed. *blocked* counts as working. Three failure cases beyond max
+  wait, none in the plan: a prompt never seen working within 45s (likely never
+  submitted — sending the next would glue the two), the pane gone, and no agent
+  in the pane for 10s.
+- **No separate *paused* state.** A loop stays *running* on disk while its
+  manager is closed; `Progress.Owner` (a pid) and `Beat` (a heartbeat every
+  minute, lease five minutes) say whether anyone drives it, and the page draws
+  `‖ paused at 2/5` when nobody does. A manager takes such a loop over with a
+  swap (`adoptLoops`) and resumes from the recorded phase, its first look at
+  the pane *relaxed* (idle counts as finished, since nobody saw it work). The
+  plan's "missed" on resume became the ordinary failure rules: a gone pane
+  fails the step, and On failure decides.
+- **The plan's *stopped* is a state; its *cancelled* for a loop is ■ Stop.**
+  `ctrl+u` on the page is Unschedule for a plan and Stop for a running loop
+  (the chip changes its label). A stop from another pane goes through the
+  record; the driver's next write loses the swap and it stands down.
+  `sameRevision` compares the progress's owner, next and phase, but not the
+  heartbeat, so a heartbeat can't beat a stop.
+- **Next is written before each send** (the plan's rule), and a prompt found
+  mid-send on a resume is recorded as unknown ("look in its pane") rather than
+  re-sent.
+- **The finish, in the same session, is its own message.** Rather than riding
+  the last prompt, it is lifted out of every prompt and sent after the last (and
+  after the between command when that runs after the last, as the plan
+  required): the batch's Finish, else the last prompt's own; the release when
+  either asks. Reviews stay on each prompt.
+- **A stuck prompt is `Stalled`, not `Err`.** It was delivered and marked done;
+  the record shows it with ⚠ and the reason, and it still counts as delivered.
+- **Loop rows are five, not three.** Loop, Between (with a ☐ after the last
+  too, `ctrl+t`), Pause, Max wait, On fail — one control per row, so the keys
+  on each are unambiguous. They are drawn only while Deliver says loop.
+- **The Deliver radios are shortened** to *all at once · one prompt · loop, in
+  order* so three fit beside the label; the page and record keep the long
+  names, and a loop row says *loop, same session* or *loop, fresh each*.

@@ -88,15 +88,65 @@ const (
 	batchFocusCount
 )
 
-// The settings rows under the Batch pane, in the order they are drawn.
+// The settings rows under the Batch pane. These are the rows' identities;
+// which are drawn, and in what order, is setRows' business, since the loop's
+// five rows are there only while Deliver says loop.
 const (
 	batchSetName = iota
 	batchSetDeliver
 	batchSetTarget
 	batchSetSession
 	batchSetWhen
+	batchSetLoop    // same session / fresh each
+	batchSetBetween // the between command, and "after the last too"
+	batchSetPause
+	batchSetMaxWait
+	batchSetOnFail
 	batchSetCount
 )
+
+// batchSetLabels are the settings rows' labels, by identity.
+var batchSetLabels = [batchSetCount]string{"Name", "Deliver", "Target", "Session", "When",
+	"Loop", "Between", "Pause", "Max wait", "On fail"}
+
+// setRows is the settings rows drawn, top to bottom. The loop's rows sit right
+// under Deliver because they are the rest of the answer to it: "loop" alone
+// says nothing about how each prompt is followed.
+func (bc batchComposer) setRows() []int {
+	rows := []int{batchSetName, batchSetDeliver}
+	if bc.deliver == deliverLoop {
+		rows = append(rows, batchSetLoop, batchSetBetween, batchSetPause, batchSetMaxWait, batchSetOnFail)
+	}
+	return append(rows, batchSetTarget, batchSetSession, batchSetWhen)
+}
+
+// setField is the text box on the settings row that holds the keys, or nil on
+// a row without one.
+func (bc *batchComposer) setField() *textinput.Model {
+	if bc.focus != batchFocusSettings {
+		return nil
+	}
+	switch bc.setRow {
+	case batchSetName:
+		return &bc.name
+	case batchSetWhen:
+		return &bc.when
+	case batchSetBetween:
+		return &bc.between
+	case batchSetPause:
+		return &bc.pause
+	case batchSetMaxWait:
+		return &bc.maxWait
+	}
+	return nil
+}
+
+// moveSetRow moves the settings highlight by delta through the rows drawn.
+func (bc *batchComposer) moveSetRow(delta int) {
+	rows := bc.setRows()
+	i := max(slices.Index(rows, bc.setRow), 0)
+	bc.setRow = rows[max(min(i+delta, len(rows)-1), 0)]
+}
 
 // The button row, in order (see batchActions).
 const (
@@ -109,7 +159,63 @@ const (
 
 // batchDeliverModes is the Deliver row's ring, in the order its radios are
 // drawn.
-var batchDeliverModes = []string{deliverEach, deliverCombined}
+var batchDeliverModes = []string{deliverEach, deliverCombined, deliverLoop}
+
+// deliverRadios are the Deliver row's radio labels, in batchDeliverModes'
+// order: shorter than deliverLabel, since three have to share the row beside
+// their label.
+func deliverRadios() []string {
+	return []string{"all at once", "one prompt", "loop, in order"}
+}
+
+// The loop rows' radios, in drawn order: the Loop row's two sessions and the
+// On fail row's two answers.
+var (
+	loopSessionRadios = []string{"same session", "fresh each"}
+	loopFailRadios    = []string{"stop", "skip and go on"}
+)
+
+// The loop's text boxes, drawn at a fixed width so what follows them on the
+// row (the checkbox, the "→ 30s" note) stands in one column and a click on it
+// can be measured.
+const (
+	loopBetweenBoxW = 24
+	loopShortBoxW   = 12
+)
+
+// radioRow draws a row of radios, the chosen one at the value style, and
+// reports where each starts (for the pointer), in cells from the row's start.
+func radioRow(labels []string, chosen int, val lipgloss.Style) (string, []int) {
+	var b strings.Builder
+	var starts []int
+	x := 0
+	for i, l := range labels {
+		if i > 0 {
+			b.WriteString("  ")
+			x += 2
+		}
+		radio, st := "( ) ", descStyle
+		if i == chosen {
+			radio, st = "(•) ", val
+		}
+		starts = append(starts, x)
+		b.WriteString(st.Render(radio + l))
+		x += lipgloss.Width(radio + l)
+	}
+	return b.String(), starts
+}
+
+// radioAt is the radio a click at col lands on: the last one starting at or
+// before it.
+func radioAt(starts []int, col int) int {
+	i := 0
+	for j, st := range starts {
+		if col >= st {
+			i = j
+		}
+	}
+	return i
+}
 
 // batchCand is one prompt the composer can pick: a backlog prompt (ref set) or
 // a Next List item (next.ID set). The Pick pane's rows and the Batch pane's
@@ -160,8 +266,17 @@ type batchComposer struct {
 	name    textinput.Model
 	when    textinput.Model
 	deliver string
-	target  dropTarget
-	session SessionOpts
+	// The loop's options (see LoopOpts), edited on the rows setRows shows
+	// only for a loop. Kept when Deliver moves off loop and back, so a look
+	// at the other modes costs nothing typed here.
+	fresh       bool
+	between     textinput.Model
+	betweenLast bool
+	pause       textinput.Model
+	maxWait     textinput.Model
+	onFailSkip  bool
+	target      dropTarget
+	session     SessionOpts
 	// sorted says the order is the A→Z sort's, so the order line can say so.
 	// Any move clears it: the order is the user's again.
 	sorted bool
@@ -197,11 +312,21 @@ func (m model) beginBatchCompose(from uiStage, source int, preset []batchCand) (
 	wi.Prompt = ""
 	wi.Placeholder = "now — or 15:30 · in 2h · tomorrow 9:00"
 	wi.CharLimit = 40
+	box := func(placeholder string, limit int) textinput.Model {
+		t := textinput.New()
+		t.Prompt = ""
+		t.Placeholder = placeholder
+		t.CharLimit = limit
+		return t
+	}
 	bc := batchComposer{
 		from:    from,
 		source:  source,
 		name:    ti,
 		when:    wi,
+		between: box("none — e.g. /compact", 200),
+		pause:   box("none — e.g. 30s", 12),
+		maxWait: box("no limit — e.g. 2h", 12),
 		deliver: deliverEach,
 		target:  defaultBatchTarget(),
 		picked:  preset,
@@ -608,6 +733,9 @@ func (m model) batchSessionNote() string {
 	if bc.deliver == deliverCombined {
 		return fmt.Sprintf("✱ %d with options of their own — one combined prompt uses only the batch's", n)
 	}
+	if bc.deliver == deliverLoop && !bc.fresh {
+		return fmt.Sprintf("✱ %d whose own options the batch overrides · the finish is sent once, after the last", n)
+	}
 	return fmt.Sprintf("✱ %d whose own options the batch overrides", n)
 }
 
@@ -638,10 +766,40 @@ func (m model) batchCommonWhy() string {
 	case bc.deliver == deliverEach && bc.target.kind == targetExistingPane && len(bc.picked) > 1:
 		// A running pane is one conversation. Handing it several prompts at
 		// once is not "a session each", and typing them in one after another
-		// without waiting would garble them — so say which two ways there are.
-		return "all at once gives each prompt its own session — pick a new-session target, or deliver as one prompt, listed"
+		// without waiting would garble them — so say which ways there are.
+		return "all at once gives each prompt its own session — pick a new-session target, or deliver as one prompt or a loop"
+	case bc.deliver == deliverLoop && bc.fresh && bc.target.kind == targetExistingPane:
+		return "a fresh session each needs a new-session target — pick one, or loop in the same session"
+	case bc.deliver == deliverLoop:
+		if _, err := normalizeLoopOpts(bc.loopOpts()); err != nil {
+			return err.Error()
+		}
 	}
 	return ""
+}
+
+// loopOpts is the loop rows as typed.
+func (bc batchComposer) loopOpts() LoopOpts {
+	o := LoopOpts{
+		Fresh:       bc.fresh,
+		Between:     bc.between.Value(),
+		BetweenLast: bc.betweenLast,
+		Pause:       bc.pause.Value(),
+		MaxWait:     bc.maxWait.Value(),
+	}
+	if bc.onFailSkip {
+		o.OnFail = loopOnFailSkip
+	}
+	return o
+}
+
+// setLoopOpts fills the loop rows from a record's options.
+func (bc *batchComposer) setLoopOpts(o LoopOpts) {
+	bc.fresh, bc.betweenLast = o.Fresh, o.BetweenLast
+	bc.between.SetValue(o.Between)
+	bc.pause.SetValue(o.Pause)
+	bc.maxWait.SetValue(o.MaxWait)
+	bc.onFailSkip = o.OnFail == loopOnFailSkip
 }
 
 // batchWhenText is the When row as typed; empty means now.
@@ -698,6 +856,16 @@ func (m *model) buildBatch() (Batch, error) {
 	}
 	if bc.edit.ID != "" {
 		b.ID, b.Created = bc.edit.ID, bc.edit.Created
+	}
+	if bc.deliver == deliverLoop {
+		// Already checked by batchCommonWhy, which every caller runs first;
+		// normalised here for what is stored (trimmed, the checkbox off
+		// with no command to run).
+		o, err := normalizeLoopOpts(bc.loopOpts())
+		if err != nil {
+			return Batch{}, err
+		}
+		b.Loop = &o
 	}
 	anyProject := false
 	for _, c := range bc.picked {
@@ -775,6 +943,12 @@ func (m model) dropBatch() (tea.Model, tea.Cmd) {
 	if err != nil {
 		m.batchSay(err.Error(), true)
 		return m, nil
+	}
+	if b.Deliver == deliverLoop {
+		// Made a running loop before the claim, so the claim carries its
+		// driver: an edited loop is never on disk as running with nobody's
+		// name on it, which another manager would take for an orphan.
+		b = loopRecord(b, time.Now())
 	}
 	if m.batch.edit.ID != "" {
 		claimed := b
@@ -854,15 +1028,19 @@ func (m *model) setBatchFocus(f int) tea.Cmd {
 	bc := &m.batch
 	bc.focus = f
 	bc.pick.input.Blur()
-	bc.name.Blur()
-	bc.when.Blur()
-	switch {
-	case f == batchFocusPick:
+	for _, t := range []*textinput.Model{&bc.name, &bc.when, &bc.between, &bc.pause, &bc.maxWait} {
+		t.Blur()
+	}
+	// A row hidden since it was last focused (Deliver moved off loop) is not
+	// somewhere the keys can be.
+	if !slices.Contains(bc.setRows(), bc.setRow) {
+		bc.setRow = batchSetDeliver
+	}
+	if f == batchFocusPick {
 		return bc.pick.input.Focus()
-	case f == batchFocusSettings && bc.setRow == batchSetName:
-		return bc.name.Focus()
-	case f == batchFocusSettings && bc.setRow == batchSetWhen:
-		return bc.when.Focus()
+	}
+	if t := bc.setField(); t != nil {
+		return t.Focus()
 	}
 	return nil
 }
@@ -971,20 +1149,16 @@ func (m model) updateBatchCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case batchFocusSettings:
 		switch s {
 		case "up", "ctrl+p":
-			if bc.setRow > 0 {
-				bc.setRow--
-			}
+			bc.moveSetRow(-1)
 			return m, m.setBatchFocus(batchFocusSettings)
 		case "down", "ctrl+n":
-			if bc.setRow < batchSetCount-1 {
-				bc.setRow++
-			}
+			bc.moveSetRow(1)
 			return m, m.setBatchFocus(batchFocusSettings)
 		}
 		switch bc.setRow {
 		case batchSetName:
 			if s == "enter" {
-				bc.setRow++
+				bc.moveSetRow(1)
 				return m, m.setBatchFocus(batchFocusSettings)
 			}
 			var cmd tea.Cmd
@@ -997,6 +1171,36 @@ func (m model) updateBatchCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			case "right", "space", " ", "enter":
 				m.cycleBatchDeliver(1)
 			}
+			// The loop's rows come and go with it, which moves the rows
+			// under them, and the Batch pane's height with them.
+			m.sizeBatchCompose()
+		case batchSetLoop:
+			switch s {
+			case "left", "right", "space", " ", "enter":
+				bc.fresh = !bc.fresh
+			}
+		case batchSetOnFail:
+			switch s {
+			case "left", "right", "space", " ", "enter":
+				bc.onFailSkip = !bc.onFailSkip
+			}
+		case batchSetBetween, batchSetPause, batchSetMaxWait:
+			switch s {
+			case "ctrl+t":
+				if bc.setRow == batchSetBetween {
+					// The checkbox beside the field. Its own chord,
+					// since space and the arrows belong to the text.
+					bc.betweenLast = !bc.betweenLast
+					return m, nil
+				}
+			case "enter":
+				bc.moveSetRow(1)
+				return m, m.setBatchFocus(batchFocusSettings)
+			}
+			var cmd tea.Cmd
+			f := bc.setField()
+			*f, cmd = f.Update(msg)
+			return m, cmd
 		case batchSetTarget:
 			if s == "enter" || s == "space" || s == " " {
 				return m.beginBatchTarget()
@@ -1132,8 +1336,10 @@ type batchGeom struct {
 const batchPaneSep = " │ "
 
 // batchSettingsLines is what the Batch pane spends under its rows: a blank, the
-// order line, a blank, the settings rows, and the note line.
-const batchSettingsLines = 1 + 1 + 1 + batchSetCount + 1
+// order line, a blank, the settings rows drawn, and the note line.
+func (bc batchComposer) batchSettingsLines() int {
+	return 1 + 1 + 1 + len(bc.setRows()) + 1
+}
 
 func (m model) batchGeom() batchGeom {
 	w, h := m.width, m.height
@@ -1165,7 +1371,7 @@ func (m model) batchGeom() batchGeom {
 	g.pickRows = max(bodyH-3, 1)
 
 	g.headY, g.batchRowY = bodyY, bodyY+1
-	g.batchRows = max(bodyH-1-batchSettingsLines, 1)
+	g.batchRows = max(bodyH-1-m.batch.batchSettingsLines(), 1)
 	g.orderY = g.batchRowY + g.batchRows + 1
 	g.setY = g.orderY + 2
 	return g
@@ -1180,6 +1386,11 @@ func (m *model) sizeBatchCompose() {
 	m.batch.pick.input.SetWidth(max(min(g.pickW-16, searchFieldWidth), 6))
 	m.batch.name.SetWidth(max(min(g.batchW-14, 50), 8))
 	m.batch.when.SetWidth(max(min(g.batchW-14, 40), 8))
+	// One cell short of the drawn box: the textinput spends a cell on the
+	// caret past the last character.
+	m.batch.between.SetWidth(loopBetweenBoxW - 1)
+	m.batch.pause.SetWidth(loopShortBoxW - 1)
+	m.batch.maxWait.SetWidth(loopShortBoxW - 1)
 	m.batch.pick.setMaxRows(max(g.pickRows-m.batch.pick.separatorLines(), 1))
 	m.ensureBatchVisible()
 }
@@ -1351,7 +1562,7 @@ func (m model) batchPaneLines(g batchGeom) []string {
 	}
 	out = append(out, descStyle.Render("  "+order), "")
 
-	for row := range batchSetCount {
+	for _, row := range bc.setRows() {
 		out = append(out, m.batchSettingLine(row))
 	}
 	out = append(out, descStyle.Render("  "+m.batchSessionNote()))
@@ -1412,8 +1623,7 @@ func (m model) batchSettingLine(row int) string {
 	} else {
 		b.WriteString("  ")
 	}
-	labels := [batchSetCount]string{"Name", "Deliver", "Target", "Session", "When"}
-	b.WriteString(nameStyle.Render(fmt.Sprintf("%-*s", batchSetLabelWidth, labels[row])))
+	b.WriteString(nameStyle.Render(fmt.Sprintf("%-*s", batchSetLabelWidth, batchSetLabels[row])))
 	val := nameStyle
 	if on {
 		val = nameSelStyle
@@ -1428,17 +1638,35 @@ func (m model) batchSettingLine(row int) string {
 			b.WriteString(descStyle.Render("optional — defaults to the first prompt's title"))
 		}
 	case batchSetDeliver:
-		for i, d := range batchDeliverModes {
-			if i > 0 {
-				b.WriteString("  ")
-			}
-			radio := "( ) "
-			st := descStyle
-			if bc.deliver == d {
-				radio, st = "(•) ", val
-			}
-			b.WriteString(st.Render(radio + deliverLabel(d)))
+		line, _ := radioRow(deliverRadios(), slices.Index(batchDeliverModes, bc.deliver), val)
+		b.WriteString(line)
+	case batchSetLoop:
+		chosen := 0
+		if bc.fresh {
+			chosen = 1
 		}
+		line, _ := radioRow(loopSessionRadios, chosen, val)
+		b.WriteString(line)
+	case batchSetOnFail:
+		chosen := 0
+		if bc.onFailSkip {
+			chosen = 1
+		}
+		line, _ := radioRow(loopFailRadios, chosen, val)
+		b.WriteString(line)
+	case batchSetBetween:
+		b.WriteString(loopBox(bc.between, on, val, loopBetweenBoxW))
+		box := "☐"
+		if bc.betweenLast {
+			box = "☑"
+		}
+		b.WriteString("  " + markStyle.Render(box) + descStyle.Render(" after the last too"))
+	case batchSetPause:
+		b.WriteString(loopBox(bc.pause, on, val, loopShortBoxW))
+		b.WriteString(loopDurationNote("pause", bc.pause.Value(), "before each next prompt"))
+	case batchSetMaxWait:
+		b.WriteString(loopBox(bc.maxWait, on, val, loopShortBoxW))
+		b.WriteString(loopDurationNote("max wait", bc.maxWait.Value(), "per prompt, then it counts as failed"))
 	case batchSetTarget:
 		b.WriteString(val.Render(firstNonEmpty(bc.target.label, targetDesc(bc.target))))
 		if on {
@@ -1471,6 +1699,31 @@ func (m model) batchSettingLine(row int) string {
 		}
 	}
 	return b.String()
+}
+
+// loopBox draws one of the loop's text boxes at exactly w cells: the live box
+// while it holds the keys, otherwise its value (or its placeholder, dimmed).
+func loopBox(t textinput.Model, on bool, val lipgloss.Style, w int) string {
+	switch v := strings.TrimSpace(t.Value()); {
+	case on:
+		return fitCells(t.View(), w)
+	case v != "":
+		return fitCells(val.Render(v), w)
+	}
+	return fitCells(descStyle.Render(t.Placeholder), w)
+}
+
+// loopDurationNote is what follows a pause or max-wait box: what the value is
+// for, or — once something unreadable is typed — that it can't be read, the
+// When row's live answer applied to a duration.
+func loopDurationNote(what, typed, purpose string) string {
+	if strings.TrimSpace(typed) == "" {
+		return ""
+	}
+	if _, err := parseLoopDuration(what, typed); err != nil {
+		return errStyle.Render("  can't read that — 30s, 5m, 1h30m")
+	}
+	return descStyle.Render("  " + purpose)
 }
 
 // batchBarTier is how much of each chip the button row prints.
@@ -1533,6 +1786,9 @@ func (m model) batchFooterSegs() []string {
 		segs = []string{"↑/↓ choose", "alt+↑/↓ move", "x remove", "s sort A→Z", "drag to reorder"}
 	case batchFocusSettings:
 		segs = []string{"↑/↓ row", "←/→ change", "enter open", "ctrl+r session"}
+		if m.batch.setRow == batchSetBetween {
+			segs = []string{"↑/↓ row", "ctrl+t after the last too", "ctrl+r session"}
+		}
 	case batchFocusButtons:
 		segs = []string{"←/→ choose", "enter press"}
 	}
@@ -1613,20 +1869,27 @@ func (m model) clickBatchCompose(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				bc.dragging, bc.dragKey, bc.dragMoved = true, bc.picked[k].key(), false
 			}
 			return m, cmd
-		case y >= g.setY && y < g.setY+batchSetCount:
-			bc.setRow = y - g.setY
+		case y >= g.setY && y < g.setY+len(bc.setRows()):
+			bc.setRow = bc.setRows()[y-g.setY]
 			cmd := m.setBatchFocus(batchFocusSettings)
+			// The value column, where the radios and the fields are drawn.
+			col := x - g.batchX - indentWidth - batchSetLabelWidth
 			switch bc.setRow {
 			case batchSetDeliver:
-				// The click picks the radio it landed on: the first option's
-				// text is the left half of the value column, the second the
-				// right — measured, since the labels are the words drawn.
-				col := x - g.batchX - indentWidth - batchSetLabelWidth
-				first := lipgloss.Width("(•) " + deliverLabel(batchDeliverModes[0]))
-				if col < first {
-					bc.deliver = batchDeliverModes[0]
-				} else {
-					bc.deliver = batchDeliverModes[1]
+				// The click picks the radio it landed on — measured from the
+				// words drawn, the same call the view makes.
+				_, starts := radioRow(deliverRadios(), 0, nameStyle)
+				bc.deliver = batchDeliverModes[radioAt(starts, col)]
+				m.sizeBatchCompose()
+			case batchSetLoop:
+				_, starts := radioRow(loopSessionRadios, 0, nameStyle)
+				bc.fresh = radioAt(starts, col) == 1
+			case batchSetOnFail:
+				_, starts := radioRow(loopFailRadios, 0, nameStyle)
+				bc.onFailSkip = radioAt(starts, col) == 1
+			case batchSetBetween:
+				if col >= loopBetweenBoxW+2 {
+					bc.betweenLast = !bc.betweenLast
 				}
 			case batchSetTarget:
 				return m.beginBatchTarget()
