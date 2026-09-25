@@ -44,6 +44,23 @@
 //	  └─────┴─────┘                 └─────┘
 //	    a real edit from C: push C onto stack, clear redo
 //
+// The title has a history of its own (titleUndo), kept by the same type and fed
+// by the same commit point, and cmd+z acts on whichever field holds the keys.
+// It is a second stack rather than a share of the prompt's, because the two
+// are edited by different hands at different moments: one stack across both
+// would have a cmd+z in the prompt reach up and take back a title typed a
+// minute ago, out of sight of the caret, which is the surprise undo is meant
+// to prevent. Per-field history is what every form on the Mac does too.
+//
+//	    title field                     prompt editor
+//	  ┌──────────────────┐            ┌──────────────────┐
+//	  │ titleUndo        │            │ promptUndo       │
+//	  │  stack │ redo    │            │  stack │ redo    │
+//	  └──────────────────┘            └──────────────────┘
+//	          ▲    cmd+z / ⇧cmd+z go to the focused one   ▲
+//	          └──────── commit point (recordUndo) ────────┘
+//	                both are compared on every message
+//
 // What it does not cover is anything that has already left the editor. ✂ Split
 // writes prompts into the backlog and then takes the bullets out of the text:
 // undo brings the text back, and the prompts it wrote stay written. That is the
@@ -57,6 +74,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -87,7 +105,8 @@ const (
 )
 
 // promptEdit is one restorable state of the editor: its whole text, and the
-// caret's absolute rune offset into it.
+// caret's absolute rune offset into it. The title's history holds the same
+// pair, the offset being the textinput's own rune position.
 //
 // The whole text rather than a diff. A diff would be smaller, but every
 // operation here can rewrite the block arbitrarily (a sort permutes lines, a
@@ -99,7 +118,8 @@ type promptEdit struct {
 	caret int
 }
 
-// promptUndo is the editor's history, in both directions. Its zero value is an empty one, which is
+// promptUndo is one field's history, in both directions: the prompt editor's
+// (model.promptUndo) or the title's (model.titleUndo). Its zero value is an empty one, which is
 // what beginAdd/beginEditRef restore when a form opens: a stack is about one
 // editing session, and offering to "undo" into the text of the todo edited
 // before this one would be the worst kind of surprise.
@@ -164,22 +184,42 @@ func (s uiStage) editsPrompt() bool {
 // hundred milliseconds, so a rule of "anything that didn't change the text ends
 // the run" would put every typed character in its own step, on a timer.
 func (m *model) commitPromptEdit(before promptEdit, msg tea.Msg) {
-	if m.promptUndo.applied {
-		m.promptUndo.applied = false
+	m.promptUndo.commit(before, m.promptArea.Value(), msg, func(msg tea.Msg) (promptEditKind, bool) {
+		return promptEditKindOf(msg, m.promptArea.KeyMap)
+	})
+}
+
+// commitTitleEdit is the same commit point for the title's own history
+// (titleUndo), called beside commitPromptEdit on every message the form sees.
+// The title changes on far fewer of them, and the comparison is of a string
+// that is at most a line long, so watching it costs nothing worth measuring.
+func (m *model) commitTitleEdit(before promptEdit, msg tea.Msg) {
+	m.titleUndo.commit(before, m.titleInput.Value(), msg, func(msg tea.Msg) (promptEditKind, bool) {
+		return titleEditKindOf(msg, m.titleInput.KeyMap)
+	})
+}
+
+// commit is the rule both fields' commit points share: now is the field's text
+// after the message was routed, and kindOf classifies the message against that
+// field's own keymap, since the prompt's textarea and the title's textinput
+// bind their deletes differently.
+func (u *promptUndo) commit(before promptEdit, now string, msg tea.Msg, kindOf func(tea.Msg) (promptEditKind, bool)) {
+	if u.applied {
+		u.applied = false
 		return
 	}
-	if m.promptArea.Value() == before.text {
+	if now == before.text {
 		switch msg.(type) {
 		case tea.KeyPressMsg, tea.MouseClickMsg:
-			m.promptUndo.kind = editNone
+			u.kind = editNone
 		}
 		return
 	}
-	kind, endsRun := promptEditKindOf(msg, m.promptArea.KeyMap)
-	m.promptUndo.push(before, kind)
-	m.promptUndo.redo = nil
+	kind, endsRun := kindOf(msg)
+	u.push(before, kind)
+	u.redo = nil
 	if endsRun {
-		m.promptUndo.kind = editNone
+		u.kind = editNone
 	}
 }
 
@@ -249,6 +289,31 @@ func promptEditKindOf(msg tea.Msg, km textarea.KeyMap) (kind promptEditKind, end
 	return editOther, true
 }
 
+// titleEditKindOf is promptEditKindOf for the title's textinput. The shape is
+// the same — typing and single deletions coalesce, a space ends a word's run —
+// with two differences the one-line field brings. There is no newline to
+// classify (enter in the title saves). And ctrl+k / ctrl+u, which take out
+// everything after or before the caret in one press, are not treated as a
+// deletion run: a press that removes half the title is an edit someone wants
+// back on its own, not folded into the backspaces around it.
+func titleEditKindOf(msg tea.Msg, km textinput.KeyMap) (kind promptEditKind, endsRun bool) {
+	press, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return editOther, true
+	}
+	switch {
+	case key.Matches(press, km.DeleteAfterCursor, km.DeleteBeforeCursor):
+		return editOther, true
+	case key.Matches(press,
+		km.DeleteCharacterBackward, km.DeleteCharacterForward,
+		km.DeleteWordBackward, km.DeleteWordForward):
+		return editDeleting, false
+	case press.Text != "":
+		return editTyping, isSpaceText(press.Text)
+	}
+	return editOther, true
+}
+
 func isSpaceText(s string) bool {
 	for _, r := range s {
 		if !unicode.IsSpace(r) {
@@ -260,8 +325,27 @@ func isSpaceText(s string) bool {
 
 // --- Taking a step back ---------------------------------------------------------
 
-// undoPrompt is cmd+z, and the ↶ Undo row of the editor's context menu: restore
-// the state on top of the history and drop it.
+// undoForm is cmd+z on the form: the focused field's own history. Only the
+// title and the prompt keep one. The annotation bar is buttons, and the flag's
+// note is a short field whose every change is already on screen, so both say
+// where undo works rather than doing nothing.
+func (m model) undoForm() (tea.Model, tea.Cmd) {
+	if m.formFocus == formFieldTitle {
+		return m.undoTitle()
+	}
+	return m.undoPrompt()
+}
+
+// redoForm is shift+cmd+z (or ctrl+y) on the form, dispatched as undoForm is.
+func (m model) redoForm() (tea.Model, tea.Cmd) {
+	if m.formFocus == formFieldTitle {
+		return m.redoTitle()
+	}
+	return m.redoPrompt()
+}
+
+// undoPrompt is cmd+z in the prompt, and the ↶ Undo row of the editor's
+// context menu: restore the state on top of the history and drop it.
 //
 // The caret goes back with the text. Restoring 200 characters and leaving the
 // cursor where it happened to be would make the next keystroke land somewhere
@@ -269,22 +353,17 @@ func isSpaceText(s string) bool {
 // was when the undone edit began.
 func (m model) undoPrompt() (tea.Model, tea.Cmd) {
 	if m.formFocus != formFieldPrompt {
-		// Refuse in words. The title is a one-line field the textinput handles on
-		// its own, and claiming to undo it here would be a lie about what the
-		// stack holds.
-		m.formNote = "undo works in the prompt"
+		// Refuse in words. undoForm sends the title to its own history, so what
+		// reaches here is a stop that keeps none (the annotation bar, the flag's
+		// note), and claiming to undo it would be a lie about what the stacks hold.
+		m.formNote = "undo works in the title and the prompt"
 		return m, nil
 	}
-	if len(m.promptUndo.stack) == 0 {
+	prev, ok := m.promptUndo.back(m.promptEditState())
+	if !ok {
 		m.formNote = "nothing to undo — this prompt has not changed since the editor opened"
 		return m, nil
 	}
-	prev := m.promptUndo.stack[len(m.promptUndo.stack)-1]
-	m.promptUndo.stack = m.promptUndo.stack[:len(m.promptUndo.stack)-1]
-	// The state being left goes onto the redo stack rather than away. The caret
-	// saved with it is where the caret is now, so a redo puts the hand back
-	// where it was when cmd+z was pressed.
-	m.promptUndo.redo = append(m.promptUndo.redo, m.promptEditState())
 	m.restorePromptEdit(prev)
 
 	m.formNote = "undone"
@@ -294,29 +373,21 @@ func (m model) undoPrompt() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// redoPrompt is shift+cmd+z (or ctrl+y), and the ↷ Redo row of the context
-// menu: re-apply the state the last undo walked away from.
-//
-// It mirrors undoPrompt exactly: pop the top of redo, push the current state
-// onto the undo stack, restore. The push goes straight onto the stack rather
-// than through push, because push would coalesce it into a typing run on top,
-// and each redo has to be one step that a single cmd+z takes back.
+// redoPrompt is shift+cmd+z (or ctrl+y) in the prompt, and the ↷ Redo row of
+// the context menu: re-apply the state the last undo walked away from.
 func (m model) redoPrompt() (tea.Model, tea.Cmd) {
 	if m.formFocus != formFieldPrompt {
-		m.formNote = "redo works in the prompt"
+		m.formNote = "redo works in the title and the prompt"
 		return m, nil
 	}
-	if len(m.promptUndo.redo) == 0 {
+	next, ok := m.promptUndo.forward(m.promptEditState())
+	if !ok {
 		// Two reasons the stack can be empty, and the note names both, because
 		// the second one surprises people: the history was there, and a
 		// keystroke after the undo let it go.
 		m.formNote = "nothing to redo — only an undo leaves something to redo, and the next edit clears it"
 		return m, nil
 	}
-	next := m.promptUndo.redo[len(m.promptUndo.redo)-1]
-	m.promptUndo.redo = m.promptUndo.redo[:len(m.promptUndo.redo)-1]
-	m.promptUndo.stack = append(m.promptUndo.stack, m.promptEditState())
-	m.promptUndo.trim()
 	m.restorePromptEdit(next)
 
 	m.formNote = "redone"
@@ -326,13 +397,82 @@ func (m model) redoPrompt() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// undoTitle is cmd+z in the title: undoPrompt's twin over the title's own
+// history. The notes name the title so a press in one field is never read as
+// news about the other.
+func (m model) undoTitle() (tea.Model, tea.Cmd) {
+	prev, ok := m.titleUndo.back(m.titleEditState())
+	if !ok {
+		m.formNote = "nothing to undo — the title has not changed since the editor opened"
+		return m, nil
+	}
+	m.restoreTitleEdit(prev)
+
+	m.formNote = "title undone"
+	if len(m.titleUndo.stack) == 0 {
+		m.formNote = "title undone · nothing left to take back"
+	}
+	return m, nil
+}
+
+// redoTitle is shift+cmd+z (or ctrl+y) in the title.
+func (m model) redoTitle() (tea.Model, tea.Cmd) {
+	next, ok := m.titleUndo.forward(m.titleEditState())
+	if !ok {
+		m.formNote = "nothing to redo in the title — only an undo leaves something to redo, and the next edit clears it"
+		return m, nil
+	}
+	m.restoreTitleEdit(next)
+
+	m.formNote = "title redone"
+	if len(m.titleUndo.redo) == 0 {
+		m.formNote = "title redone · nothing further to redo"
+	}
+	return m, nil
+}
+
+// back is one undo's move between the stacks: pop the top of the history and
+// hand it back for restoring, and put cur — the state being left — on the
+// redo stack rather than away. The caret saved with cur is where the caret is
+// now, so a redo puts the hand back where it was when cmd+z was pressed. It
+// reports false, and moves nothing, when there is nothing to take back.
+func (u *promptUndo) back(cur promptEdit) (promptEdit, bool) {
+	if len(u.stack) == 0 {
+		return promptEdit{}, false
+	}
+	prev := u.stack[len(u.stack)-1]
+	u.stack = u.stack[:len(u.stack)-1]
+	u.redo = append(u.redo, cur)
+	return prev, true
+}
+
+// forward is back's mirror for a redo: pop the top of redo, and push cur onto
+// the history. The push goes straight onto the stack rather than through push,
+// because push would coalesce it into a typing run on top, and each redo has
+// to be one step that a single cmd+z takes back.
+func (u *promptUndo) forward(cur promptEdit) (promptEdit, bool) {
+	if len(u.redo) == 0 {
+		return promptEdit{}, false
+	}
+	next := u.redo[len(u.redo)-1]
+	u.redo = u.redo[:len(u.redo)-1]
+	u.stack = append(u.stack, cur)
+	u.trim()
+	return next, true
+}
+
+// restoring marks the history as about to see its own restore at the commit
+// point, and ends the run: the state the field is moving to is not the state
+// the keys on top of the stack were typed into.
+func (u *promptUndo) restoring() {
+	u.kind = editNone
+	u.applied = true
+}
+
 // restorePromptEdit puts the editor into a recorded state. Undo and redo both
 // use it, so they agree on what a restore resets.
 func (m *model) restorePromptEdit(e promptEdit) {
-	// The run is over whatever happens next: the state the editor is moving to
-	// is not the state the keys on top of the stack were typed into.
-	m.promptUndo.kind = editNone
-	m.promptUndo.applied = true
+	m.promptUndo.restoring()
 
 	m.promptArea.SetValue(e.text)
 	setPromptCaretOffset(&m.promptArea, e.caret)
@@ -341,6 +481,21 @@ func (m *model) restorePromptEdit(e promptEdit) {
 	// operation that rewrites the value follows.
 	m.clearPromptSel()
 	m.endPromptCarets()
+}
+
+// titleEditState is the title as it stands, the commit point's "before" for
+// the title's history.
+func (m model) titleEditState() promptEdit {
+	return promptEdit{text: m.titleInput.Value(), caret: m.titleInput.Position()}
+}
+
+// restoreTitleEdit puts the title into a recorded state, caret included. The
+// textinput takes a rune position directly, so there is no walk here as there
+// is for the prompt's rows.
+func (m *model) restoreTitleEdit(e promptEdit) {
+	m.titleUndo.restoring()
+	m.titleInput.SetValue(e.text)
+	m.titleInput.SetCursor(e.caret)
 }
 
 // undoChord names the chord for the footer and the menu row, the way modEnter

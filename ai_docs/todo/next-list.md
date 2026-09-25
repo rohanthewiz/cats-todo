@@ -98,11 +98,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   arrives as one of the bound spellings, and ctrl+y where Cmd is eaten.
   *Lapsed* in `2026-0922-0943-info-annotation`.
 
-- **N-028** · raised `2026-0915-1836-prompt-editor-undo-v0.32.0` · value low
-  Undo does not cover the title field. It is a one-line `textinput` with no
-  history of its own; if it is ever wanted, it is a second stack, not the
-  prompt's. *Lapsed* in `2026-0922-0943-info-annotation`.
-
 - **N-033** · raised `2026-0924-1146-info-mark-blue-chip` · value low
   Check the info chip by eye. Look at an info row in cats, both plain and
   highlighted, plus the bar and the menu. If the fullwidth `ｉ` looks thin or
@@ -261,8 +256,8 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   Release v0.40.0: the Batches page's right-click menu (a new capability, so
   minor), loop as the composer's default Deliver, and the loop's one-hour
   resume window (N-057), the fire-time agent check on a scheduled pane
-  drop (N-020), and the caret walk that made enter on a long one-line
-  prompt slow (N-024). Bump `main.go` and
+  drop (N-020), the caret walk that made enter on a long one-line
+  prompt slow (N-024), and undo/redo in the title (N-028). Bump `main.go` and
   `cats-plugin.toml`, commit `chore(release): v0.40.0`, tag it, and push the
   code and the tag.
 
@@ -308,6 +303,13 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-028** · closed 2026-09-25, `2026-0925-1808-title-undo` · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
+  — The title has its own undo/redo history (`titleUndo`), a second
+  `promptUndo` fed by the same commit point (`recordUndo`), as the item said
+  it should be: a second stack, not a share of the prompt's. `undoForm` /
+  `redoForm` send the chords to the focused field's history. It coalesces by
+  word as the prompt does. `ctrl+u` / `ctrl+k` are each a step of their own.
+  The annotation bar and the flag's note keep none, and say where undo works.
 - **N-024** · closed 2026-09-25, `2026-0925-1802-long-line-caret-hop` · raised `2026-0915-1637-prompt-editor-paste-line-cap`
   — The premise was off: `SetValue` was cheap. The time went to
   `setPromptCaretOffset`, which walked to the caret's row one *display* line

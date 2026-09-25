@@ -1,5 +1,6 @@
 # Enter on a long one-line prompt is cheap again (N-024)
 
+Session: `42ce69e3-f1d2-48a3-9e1b-73744ab56958`
 Date: 2026-09-25
 
 ## Ask

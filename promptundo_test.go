@@ -214,15 +214,17 @@ func TestUndoRefusesInWords(t *testing.T) {
 			t.Errorf("form note = %q, want the refusal in words", m.formNote)
 		}
 	})
-	t.Run("from another field", func(t *testing.T) {
+	// The annotation bar keeps no history. The title used to be the example
+	// here, until it got a history of its own (N-028).
+	t.Run("from the annotation bar", func(t *testing.T) {
 		m, _, _ := splitFormInTemp(t, "")
 		m = typeInto(t, m, "abc")
-		m.focusForm(formFieldTitle)
+		m.focusForm(formFieldAnnots)
 		m = undoForm(t, m)
 		if got := m.promptArea.Value(); got != "abc" {
-			t.Errorf("value = %q, want the prompt untouched from the title field", got)
+			t.Errorf("value = %q, want the prompt untouched from the annotation bar", got)
 		}
-		if !strings.Contains(m.formNote, "works in the prompt") {
+		if !strings.Contains(m.formNote, "works in the title and the prompt") {
 			t.Errorf("form note = %q, want the refusal in words", m.formNote)
 		}
 	})
@@ -454,17 +456,18 @@ func TestRedoIsClearedByAnEditNotByAMotion(t *testing.T) {
 	}
 }
 
-// TestRedoRefusesFromTheTitle, like undo: the stack is about the prompt.
-func TestRedoRefusesFromTheTitle(t *testing.T) {
+// TestRedoRefusesFromTheAnnotationBar, like undo: the bar keeps no history,
+// and the prompt's redo is not reachable from it.
+func TestRedoRefusesFromTheAnnotationBar(t *testing.T) {
 	m, _, _ := splitFormInTemp(t, "")
 	m = typeInto(t, m, "abc")
 	m = undoForm(t, m)
-	m.focusForm(formFieldTitle)
+	m.focusForm(formFieldAnnots)
 	m = redoForm(t, m)
 	if got := m.promptArea.Value(); got != "" {
-		t.Errorf("value = %q, want the prompt untouched from the title field", got)
+		t.Errorf("value = %q, want the prompt untouched from the annotation bar", got)
 	}
-	if !strings.Contains(m.formNote, "redo works in the prompt") {
+	if !strings.Contains(m.formNote, "redo works in the title and the prompt") {
 		t.Errorf("form note = %q, want the refusal in words", m.formNote)
 	}
 }

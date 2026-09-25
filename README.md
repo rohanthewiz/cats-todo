@@ -2298,6 +2298,15 @@ text clears it, because once the prompt has gone somewhere new, the undone
 states no longer follow from it. This is the linear model every editor on the
 Mac uses.
 
+**The title has a history of its own.** `cmd+z` and redo act on whichever field
+holds the keys: in the title they take back what was typed in the title, word by
+word just as in the prompt, and in the prompt they never reach up into the title.
+Two stacks rather than one shared, because a shared one would let an undo in the
+prompt quietly take back a title typed a minute earlier, out of sight of the
+caret. `ctrl+u` and `ctrl+k`, which clear the title before or after the caret,
+are each a step of their own. The annotation bar and the flag's note keep no
+history, and an undo there says where undo works.
+
 The history is **per editing session**: it starts empty when a form opens and is
 gone when you leave, because offering to replace one todo's prompt with the text
 of the one you edited before it is the worst thing an undo could do. With nothing

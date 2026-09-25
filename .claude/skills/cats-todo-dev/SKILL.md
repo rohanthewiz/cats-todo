@@ -53,7 +53,7 @@ and the rest stay local.
 | `promptsort.go` | ⇅ Sort lines: items when it is a list (markers stay, bodies move), plain lines otherwise |
 | `promptcarets.go` | ⌶ Caret on every line: the column mode, its goal column, and its caret paints |
 | `promptmove.go` | `alt+↑/↓` moving the caret's line or the swept block |
-| `promptundo.go` | ↶ Undo (`cmd+z`/`ctrl+z`) and ↷ Redo (`shift+cmd+z`/`ctrl+y`): the per-session history and its redo stack (cleared by the next real edit), its coalescing rule, and the commit point `Update` calls (`route` is the old `Update` body) |
+| `promptundo.go` | ↶ Undo (`cmd+z`/`ctrl+z`) and ↷ Redo (`shift+cmd+z`/`ctrl+y`): the per-session history and its redo stack (cleared by the next real edit), its coalescing rule, and the commit point `Update` calls (`route` is the old `Update` body); the title keeps a second history of the same type (`titleUndo`), and `undoForm`/`redoForm` pick by focus |
 | `autosave.go` | the form's timed autosave (45s default, `autosaveSeconds` in settings.json): throttle timer (generation-guarded tick), `formSig` change detection, the add→edit switch, and cancel's revert |
 | `nextlist.go` | the Next List page (`stageNextList`): parses `ai_docs/todo/next-list.md` (Open + Roadmap), one-run-of-text rows cut to the pane, ✚ New prompt → prefilled add form (`beginAddWith`), ✉ Send → the drop picker with an unsaved prompt (`sendFromNext`, `finishNextDrop`), ↻ Refresh |
 | `nextmenu.go` | the Next List's right-click menu (`nextMenu`, on `menuBox`): it makes a backlog prompt from the item — draft form (± ⚙ Session / ◫ Images panel), ✉ Send unsaved, ◷ Schedule (add or reuse, then the list's scheduler), ⤓ Add in one press with a mark (`nextMenuAddMark`), value carried from the file; `nextBacklogCopy` (an open prompt starting with `nextItemCite`) greys the Add rows; ⧉ Copy ID / as prompt |
@@ -179,7 +179,8 @@ and the rest stay local.
   `@` file picker ·
   `ctrl+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
   the swept block) · `shift+alt+↑/↓` extend the selection by a line ·
-  `cmd+z` (`super+z`/`meta+z`) or `ctrl+z` undo · `shift+cmd+z`
+  `cmd+z` (`super+z`/`meta+z`) or `ctrl+z` undo (the title's own history
+  when the title has the keys) · `shift+cmd+z`
   (`shift+super+z`/`shift+meta+z`/`super+Z`), `ctrl+shift+z` or `ctrl+y` redo
   (`promptundo.go`) ·
   **right-click** the context menu (`promptmenu.go`: ✂ Split · ⇅ Sort · ⌶ Caret

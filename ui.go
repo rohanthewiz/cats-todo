@@ -355,6 +355,10 @@ type model struct {
 	// the operations themselves, and emptied when a form opens — a stack is
 	// about one editing session.
 	promptUndo promptUndo
+	// The title's own undo history, the same type fed by the same commit point
+	// (see promptundo.go for why it is a second stack and not a share of the
+	// prompt's). Emptied wherever promptUndo is.
+	titleUndo promptUndo
 	// The indent the last enter carried onto a new line (promptindent.go), so a
 	// backspace straight after it takes the whole indent back in one press. It is
 	// a snapshot that lasts exactly one key: updateForm takes it and zeroes the
@@ -650,7 +654,8 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(textinput.Blink, scheduleTick())
 }
 
-// Update routes the message and then records what it did to the prompt.
+// Update routes the message and then records what it did to the prompt and
+// the title.
 //
 // The recording is here, around the routing, rather than inside the twenty
 // operations that can change the editor's text. Those operations are spread
@@ -665,6 +670,9 @@ func (m model) Init() tea.Cmd {
 // editsPrompt), which is most of the program — the list stage must not pay two
 // copies of a prompt for every cursor blink.
 //
+// The title is watched the same way, into a history of its own (titleUndo),
+// so a title edit is recorded by the same rule whatever made it.
+//
 // The autosave's watch (watchAutosave) runs on the result of both paths. It
 // needs the other stages too, because the form's ⚙ and image panels are stages
 // of their own and the session options edited there are part of what it saves.
@@ -678,7 +686,7 @@ func (m model) recordUndo(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !m.stage.editsPrompt() {
 		return m.route(msg)
 	}
-	before := m.promptEditState()
+	before, titleBefore := m.promptEditState(), m.titleEditState()
 	next, cmd := m.route(msg)
 	// Both sides must be an editing stage: a save or an esc leaves the value
 	// standing in a textarea nobody is looking at any more, and the next form to
@@ -688,6 +696,7 @@ func (m model) recordUndo(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	nm.commitPromptEdit(before, msg)
+	nm.commitTitleEdit(titleBefore, msg)
 	return nm, cmd
 }
 
@@ -2035,6 +2044,7 @@ func (m *model) backToList() {
 	// todo's text with another's (see promptundo.go).
 	m.promptCarry = promptCarry{}
 	m.promptUndo = promptUndo{}
+	m.titleUndo = promptUndo{}
 	// The list's own menu goes too. Pressing a row already closes it, so this is
 	// for the paths that leave the list some other way — a scheduled drop firing
 	// a stage change, a form opened by a chord while the box was up — where a
@@ -2642,6 +2652,7 @@ func (m model) beginAddWith(title, prompt string) (tea.Model, tea.Cmd) {
 	// Same argument, and the same two entry points: the undo history is about
 	// one editing session (promptundo.go).
 	m.promptUndo = promptUndo{}
+	m.titleUndo = promptUndo{}
 	// Last, once every field holds its opening value, so the baseline the timer
 	// compares against is the form as it opened (see startAutosave).
 	m.startAutosave(nil)
@@ -2687,6 +2698,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.formErr, m.formNote = "", ""
 	m.clearPromptSel()          // see beginAdd
 	m.promptUndo = promptUndo{} // and see beginAdd
+	m.titleUndo = promptUndo{}  // and see beginAdd
 	m.startAutosave(&td)        // and see beginAdd
 	m.stage = stageForm
 	return m, cmd
@@ -3028,7 +3040,10 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// opposite call from cmd+d's, one line down, and for the opposite
 		// reason: ctrl+d is already the textarea's delete-forward, so a
 		// duplicate bound over it would break a key that works.)
-		return m.undoPrompt()
+		//
+		// The focused field decides whose history: the title keeps its own
+		// (undoForm).
+		return m.undoForm()
 	case "shift+super+z", "shift+meta+z", "super+Z", "meta+Z", "ctrl+shift+z", "ctrl+y":
 		// Redo (promptundo.go). shift+cmd+z is the macOS redo, in both Cmd
 		// spellings. It is written shift-first because Keystroke prints the
@@ -3042,7 +3057,7 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// textinput leave it unbound, and the pane is in raw mode, so the
 		// terminal's delayed-suspend never sees it. ctrl+shift+z is accepted
 		// too, but only a kitty-protocol terminal can send it.
-		return m.redoPrompt()
+		return m.redoForm()
 	case "super+d", "meta+d":
 		// Cmd+D duplicates the caret's line — the chord every editor on this
 		// machine puts a line copy on, and the reason it is Cmd-only is the
