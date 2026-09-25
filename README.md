@@ -770,6 +770,13 @@ a record, and dropping the finished half would make the copy a worse record than
 the original). `ctrl+a` again puts it back. The heading always says what is
 about to travel.
 
+In the markdown (the email body, and `export --markdown`), each prompt gets
+one italic line with its state and marks, and a prompt with neither gets no
+line at all. A done prompt says when it was finished, as the prompt view does:
+`done 2026-09-24 14:05 CDT`, with the zone included because the reader may be
+in a different one. A prompt finished before the stamp existed says just
+`done`.
+
 ## Importing
 
 `ctrl+r` opens **Import from…**: a bundle file on disk, or a machine on the

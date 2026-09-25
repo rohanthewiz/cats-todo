@@ -389,3 +389,29 @@ func TestRenderBundleMarkdown(t *testing.T) {
 		t.Errorf("markdown should name the file, not its storage path:\n%s", md)
 	}
 }
+
+// TestRenderBundleMarkdownStampsDone: a done prompt's note says when it was
+// finished. The JSON already carried doneAt (a Todo marshals it), but the
+// markdown, which is all an emailed reader sees, used to say only "done".
+// The stamp keeps its zone, because the reader may be in another one. A
+// prompt finished before DoneAt existed still says plain "done".
+//
+// The exact-match wants also pin a bug this test found: a prompt with no
+// priority used to add " · none priority", because priorityLabel names the
+// empty level "none" and the note tested the label rather than the level.
+func TestRenderBundleMarkdownStampsDone(t *testing.T) {
+	at := time.Date(2026, 9, 24, 14, 5, 0, 0, time.Local)
+	stamped := bundleTodoNote(Todo{Done: true, DoneAt: at})
+	if want := "done " + at.Format("2006-01-02 15:04 MST"); stamped != want {
+		t.Errorf("stamped note = %q, want %q", stamped, want)
+	}
+	if bare := bundleTodoNote(Todo{Done: true}); bare != "done" {
+		t.Errorf("unstamped note = %q, want plain \"done\"", bare)
+	}
+	if open := bundleTodoNote(Todo{Prompt: "p"}); open != "" {
+		t.Errorf("an ordinary open prompt's note = %q, want no line at all", open)
+	}
+	if crit := bundleTodoNote(Todo{Priority: priorityCritical}); crit != "critical priority" {
+		t.Errorf("critical note = %q, want \"critical priority\"", crit)
+	}
+}

@@ -697,11 +697,24 @@ func bundleTodoNote(t Todo) string {
 	var parts []string
 	switch t.group() {
 	case groupDone:
-		parts = append(parts, "done")
+		// The stamp rides with the word when there is one. It is the same
+		// full stamp the prompt view prints, zone included, since this text
+		// crosses machines: a reader in another zone needs the MST to know
+		// which day "14:05" was. A todo finished before DoneAt existed has
+		// no stamp and says just "done", as the list row does.
+		done := "done"
+		if !t.DoneAt.IsZero() {
+			done += " " + t.DoneAt.Local().Format("2006-01-02 15:04 MST")
+		}
+		parts = append(parts, done)
 	case groupFrozen:
 		parts = append(parts, "frozen")
 	}
-	if lbl := priorityLabel(t.Priority); lbl != "" {
+	// Test the level, not the label: priorityLabel names none "none" (the
+	// annotation panel shows it), so testing the label for "" let every
+	// unprioritised prompt say "none priority".
+	if t.Priority != priorityNone {
+		lbl := priorityLabel(t.Priority)
 		parts = append(parts, strings.ToLower(lbl)+" priority")
 	}
 	if t.Fruit {
