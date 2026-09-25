@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-038
+**Next ID:** N-041
 
 ## Open
 
@@ -178,18 +178,33 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   is read only from settings.json (`autosaveSeconds`) at launch. The list's
   View panel could offer it if hand-editing turns out to be a nuisance.
 
-- **N-036** · raised `2026-0924-1802-code-highlight-and-next-list-seed` · value medium
-  Release the code highlighting (backticked `inline` spans and ``` fences
-  coloured in the editor and the view, `promptcode.go`). It is committed but
-  not released. It is a new capability, so it is a minor bump: v0.36.0
-  (`main.go` + `cats-plugin.toml`, commit, annotated tag, push both).
-
 - **N-037** · raised `2026-0924-1802-code-highlight-and-next-list-seed` · value low
   The comment in `viewContent` (`ui.go`) says a pre-styled span "loses its
   reset at the wrap points". lipgloss v2.0.5 closes a style at each break and
   opens it again on the next line, which the code highlighting now relies on
   (`TestStyleCodeSpansSurvivesWrap` pins it). Correct the comment, and decide
   whether the session and attachment lines still need to stay plain.
+
+- **N-038** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value medium
+  Live-test the Next List's ✉ Send (`shift+enter`, `nextlist.go`
+  `sendFromNext`) in cats: a new session, a worktree session and a running
+  pane, in both run and paste mode. Check that esc from the picker lands back
+  on the page with the highlight kept, that the heading shows
+  `N-0xx dropped → …`, and that a new session opens in the list's project.
+  Only the tests have exercised it.
+
+- **N-039** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value low
+  Check the value marks and the annotation bar by eye in cats: that 🔷 draws
+  two cells in the cats font, that the faint `│` rules read as dividers, and
+  that the bare tier's reverse-lit radio is visible. At 100 cells the bar keeps
+  the Value/Priority labels and drops the checkbox words (the words need 104);
+  swap the two tiers if the words turn out to matter more.
+
+- **N-040** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value low
+  Decide whether a Next List send should leave a done copy in the backlog as a
+  record of what was sent and when. Today it writes nothing (the item already
+  lives in the file); the form's ✉ Send, by contrast, saves then drops. Raised
+  to the user on 2026-09-24, not yet answered.
 
 ## Roadmap
 
@@ -233,6 +248,9 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-036** · closed 2026-09-24, `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · raised `2026-0924-1802-code-highlight-and-next-list-seed`
+  — Release the code highlighting. Shipped in v0.36.0 (tag `v0.36.0`),
+  together with the Next List send and the value levels.
 - **N-032** · closed 2026-09-24 · raised `2026-0922-1601-ced-not-a-drop-target`
   — Release the ced fix. Shipped as v0.33.1 (`99b6e01`, tagged).
 - **N-031** · closed 2026-09-24 · raised `2026-0922-1601-ced-not-a-drop-target`
