@@ -90,6 +90,19 @@ const (
 	// too, and brightness is the bar's grammar for live-versus-inert.
 	colCyan  = "#6ed8d0"
 	colStraw = "#eee5c9"
+	// The Next List chip's hue. A pale periwinkle (235° 77% 80%) rather than
+	// colBrown, which it used to borrow: at 53% lightness the brown sat below
+	// the rest of the bar and read as an inert chip, not a live one. Blue for
+	// the chip that leads off to another page, and pale for contrast on the
+	// dark field.
+	//
+	// Not colInfo, even though both are blue: ✚ Add already speaks colInfo on
+	// the same row. This one is some sixteen points lighter and turned almost
+	// thirty degrees toward violet (235° against 207°), so the two separate by
+	// hue as well as brightness while still reading as one family. It started
+	// at a sky blue (215°) and was pushed toward purple to pull it further off
+	// Add's chip.
+	colSky = "#a5abf3"
 	// The row cursor. It sits outside the palette on purpose: the mark saying
 	// "here" has to be findable at a glance in a pane full of green, and a green
 	// mark on green rows is the one thing that can't be.

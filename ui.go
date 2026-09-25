@@ -1857,11 +1857,11 @@ func (m model) listActions() []listAction {
 		// Next opens a page rather than acting on a prompt, so it stands apart
 		// at the far end of the row, after the lifecycle it is not part of —
 		// which also leaves every button a tab or a hand already knows where
-		// it was. Tinted colBrown, a hue no other chip speaks, since this is
+		// it was. Tinted colSky, a hue no other chip speaks, since this is
 		// the only chip that leads to another page rather than acting here.
 		// "Next List" rather than a bare "Next": beside Send and Export, "Next"
 		// read as a step forward through the backlog, not as the name of a page.
-		{label: "» Next List", hint: "ctrl+g", tint: colBrown},
+		{label: "» Next List", hint: "ctrl+g", tint: colSky},
 	}
 }
 
