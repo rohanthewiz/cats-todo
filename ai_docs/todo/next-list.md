@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-056
+**Next ID:** N-058
 
 ## Open
 
@@ -228,26 +228,11 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   columns or more, and narrower), Next List items becoming backlog prompts,
   and ⧉ Duplicate after a partial failure. Only the tests have exercised it.
 
-- **N-050** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
-  Batches phase 3, the loop:
-  - Send the prompts in order, the next when the pane's `AgentState` goes
-    working → idle (it must see *working* first).
-  - Same session, or a fresh one per prompt.
-  - A **between command** (one line, waited on like a prompt; about 2s with
-    no *working* counts as instant; optionally after the last prompt too;
-    with fresh sessions it goes to the finished one).
-  - A pause, on-fail stop or skip, and max wait.
-  - A `Next` resume index written before each send, so a restarted manager
-    resumes.
-  - Widen `performDrop` to return the pane and branch it created, so
-    `BatchRun` can record them (the plan asked for both; phase 1 records
-    only `Where`).
-
 - **N-051** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
-  Release v0.39.0 for the batch composer and batch scheduling (phases 1 and
-  2): bump `main.go` and `cats-plugin.toml`, commit
-  `chore(release): v0.39.0`, tag it, and push the code and the tag. Both are
-  committed but unreleased, and the title chip still says 0.38.0.
+  Release v0.39.0 for batches — the composer, scheduling and the loop (phases
+  1–3): bump `main.go` and `cats-plugin.toml`, commit
+  `chore(release): v0.39.0`, tag it, and push the code and the tag. None of
+  the three is released, and the title chip still says 0.38.0.
 
 - **N-052** · raised `2026-0925-1315-multi-drop-batches-phase1` · value low
   `gofmt -l` lists `promptcode.go` and `ui.go` on a clean HEAD (in `ui.go`,
@@ -277,6 +262,29 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   `esc`. Contract 6 says the footer should then name what the chips stopped
   teaching. `batchFooterSegs` could put the button chords ahead of the
   region's keys once `batchBarTier` drops the hints.
+
+- **N-056** · raised `2026-0925-1409-batch-loop-phase3` · value medium
+  Live-test batch loops in cats. Only the tests have driven one, with made-up
+  pane states. Check:
+  - a same-session loop of three into a new session: each prompt waits for
+    the last, and the status line walks `on 1/3` → `2/3 sent`;
+  - that cats reports *working* soon enough, and for long enough, for the
+    1-second poll to see it (`loopStartWait` is 45s, the between grace 3s),
+    with a quick prompt as well as a long one;
+  - `/compact` and `/clear` as the between command;
+  - fresh each onto worktrees;
+  - a permission question mid-prompt (*blocked*) holding the loop;
+  - quitting the manager mid-loop and reopening it (`‖ paused`, then
+    resumed);
+  - ■ Stop from the page.
+
+- **N-057** · raised `2026-0925-1409-batch-loop-phase3` · value low
+  A loop orphaned by a closed manager is resumed by the next manager opened on
+  its backlog however long ago that was (`adoptLoops`), provided its pane still
+  answers. Schedules refuse to fire past a two-minute grace so that opening the
+  manager never sets off work planned for hours ago; a loop resumed days later
+  is the same surprise. Consider a resume window (say, the heartbeat older than
+  an hour → mark it stopped with the reason, ⧉ Duplicate to go on), or ask.
 
 ## Roadmap
 
@@ -319,6 +327,17 @@ declined.
 
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
+
+- **N-050** · closed 2026-09-25, `2026-0925-1409-batch-loop-phase3` · raised `2026-0925-1315-multi-drop-batches-phase1`
+  — Batches phase 3, the loop (`batchloop.go`). One prompt at a time, the next
+  when the pane goes working → idle (judged per poll by the pure
+  `loopRunner.judge`; blocked counts as working). Same session or fresh each;
+  the between command (3s with no *working* = instant; after the last too);
+  pause, max wait, on fail stop or skip. `Next` written before each send; the
+  record carries its driver (pid + heartbeat) and a manager reopened mid-loop
+  takes it over by swap and resumes. ■ Stop on the page. The dropping guard is
+  held only while typing. `performDropAt` returns the pane and branch, which
+  `BatchRun` now records. The plan's "Phase 3 as built" lists the departures.
 
 - **N-049** · closed 2026-09-25, `2026-0925-1344-batch-scheduling-phase2` · raised `2026-0925-1315-multi-drop-batches-phase1`
   — Batches phase 2, scheduling. The composer's When row (empty = now,
