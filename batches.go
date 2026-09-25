@@ -5,20 +5,26 @@
 //
 //	╭ 🔍 query ───────────────────╮  3/3
 //
-//	  ＋ New ctrl+a  ⧉ Duplicate ctrl+d  ✖ Delete ctrl+x  ← Back esc
+//	  ＋ New ctrl+a  ⧉ Duplicate ctrl+d  ✕ Unschedule ctrl+u  ✖ Delete ctrl+x  ← Back esc
 //
 //	❯ ▶ refactor trio      3 prompts · all at once · new worktree · Thu 14:02 · 1/3 so far
+//	  ◷ nightly cleanup    3 prompts · all at once · new session · fires Sat 09:00
 //	  ✓ quick wins         5 prompts · one prompt, listed · Wed 18:40 · 5/5
+//	  ◷ docs sweep         4 prompts · all at once · missed Wed 09:00  (red)
 //	  ⚠ release prep       2 prompts · all at once · Wed 09:00 · 1/2
 //
-// A batch is a record, not a queue: once dropped there is nothing left to do to
-// it but read it, run it again, or throw the record away. So the page is those
-// three, and enter opens the record (stageBatchView) — which prompt went where,
-// and why any did not.
+// A batch is two things over its life. Before it goes — scheduled, missed, or
+// unscheduled (Batch.editable) — it is a plan, and enter opens it in the
+// composer to change its time, its prompts or its settings, or to drop it now.
+// Once it has gone it is a record, and there is nothing left to do to it but
+// read it (stageBatchView: which prompt went where, and why any did not), run
+// it again (⧉ Duplicate), or throw the record away.
 //
-// The rows read both batches.json files, the project's and the global one, and
-// are drawn newest first with a running batch on top. The files themselves keep
-// creation order; the page sorts, the file is never rewritten to match it.
+// The rows read both batches.json files, the project's and the global one. A
+// running batch is on top (it is the one still changing), then the scheduled
+// ones soonest first (what happens next), then everything else newest first.
+// The files themselves keep creation order; the page sorts, the file is never
+// rewritten to match it.
 package main
 
 import (
@@ -50,6 +56,7 @@ type batchesPage struct {
 const (
 	batchesBtnNew = iota
 	batchesBtnDup
+	batchesBtnUnsched
 	batchesBtnDelete
 	batchesBtnBack
 )
@@ -131,13 +138,23 @@ func (m *model) reloadBatches() {
 		}
 		all = append(all, bs.batches...)
 	}
-	// Running first (it is the one still changing), then newest first.
-	slices.SortStableFunc(all, func(a, b Batch) int {
-		if (a.State == batchRunning) != (b.State == batchRunning) {
-			if a.State == batchRunning {
-				return -1
-			}
+	// Running, then scheduled soonest first, then the rest newest first
+	// (see the file comment).
+	tier := func(b Batch) int {
+		switch b.State {
+		case batchRunning:
+			return 0
+		case batchScheduled:
 			return 1
+		}
+		return 2
+	}
+	slices.SortStableFunc(all, func(a, b Batch) int {
+		if ta, tb := tier(a), tier(b); ta != tb {
+			return ta - tb
+		}
+		if a.State == batchScheduled {
+			return a.At.Compare(b.At)
 		}
 		return b.batchTime().Compare(a.batchTime())
 	})
@@ -149,12 +166,34 @@ func (m *model) reloadBatches() {
 }
 
 // batchTime is when a batch happened, for sorting and for its row: when it was
-// dropped, or when it was made if it never was.
+// dropped, else when it was (or is) due, else when it was made.
 func (b Batch) batchTime() time.Time {
-	if !b.Dropped.IsZero() {
+	switch {
+	case !b.Dropped.IsZero():
 		return b.Dropped
+	case !b.At.IsZero():
+		return b.At
 	}
 	return b.Created
+}
+
+// batchWhen is the row's time phrase. A plan says when it will go (or that it
+// did not); a record says when it went, and how much of it arrived.
+func (b Batch) batchWhen(now time.Time) string {
+	switch b.State {
+	case batchScheduled:
+		return "fires " + formatScheduleTime(b.At, now)
+	case batchMissed:
+		return "missed " + formatScheduleTime(b.At, now)
+	case batchUnscheduled:
+		return "not scheduled"
+	}
+	ok, total := b.deliveredCounts()
+	s := fmt.Sprintf("%s · %d/%d", formatDoneTime(b.batchTime(), now), ok, total)
+	if b.State == batchRunning {
+		s += " so far"
+	}
+	return s
 }
 
 func (p *batchesPage) say(s string, isErr bool) { p.note, p.noteErr = s, isErr }
@@ -165,14 +204,11 @@ func (m *model) rebuildBatchRows() {
 	var items []listItem
 	for i, b := range m.batches.rows {
 		glyph, st := batchStateMark(b)
-		ok, total := b.deliveredCounts()
-		desc := fmt.Sprintf("%d prompt%s · %s · %s · %s · %d/%d",
+		total := len(b.Items)
+		desc := fmt.Sprintf("%d prompt%s · %s · %s · %s",
 			total, plural(total), deliverLabel(b.Deliver),
 			strings.TrimPrefix(firstNonEmpty(b.Target.Label, targetDesc(b.Target.dropTarget())), "＋ "),
-			formatDoneTime(b.batchTime(), now), ok, total)
-		if b.State == batchRunning {
-			desc += " so far"
-		}
+			b.batchWhen(now))
 		if b.scope == scopeGlobal && m.project.available() {
 			desc += " · global"
 		}
@@ -197,11 +233,19 @@ func (m *model) rebuildBatchRows() {
 	m.batches.list.setItems(items)
 }
 
-// batchStateMark is a batch's badge: ▶ running, ✓ every prompt landed, ⚠ some
-// did, ✗ none did.
+// batchStateMark is a batch's badge: ▶ running, ◷ scheduled (red once it
+// has missed — the list's own schedule badge, meaning the same), ◌ not
+// scheduled, ✓ every prompt landed, ⚠ some did, ✗ none did.
 func batchStateMark(b Batch) (string, lipgloss.Style) {
-	if b.State == batchRunning {
+	switch b.State {
+	case batchRunning:
 		return "▶", schedStyle
+	case batchScheduled:
+		return "◷", schedStyle
+	case batchMissed:
+		return "◷", errStyle
+	case batchUnscheduled:
+		return "◌", descStyle
 	}
 	ok, total := b.deliveredCounts()
 	switch {
@@ -246,6 +290,7 @@ func (m model) batchesActions() []listAction {
 	return []listAction{
 		{label: "＋ New", hint: "ctrl+a", tint: colInfo},
 		{label: "⧉ Duplicate", hint: "ctrl+d", tint: colCyan, needsSel: true},
+		{label: "✕ Unschedule", hint: "ctrl+u", tint: colStraw, needsSel: true},
 		{label: "✖ Delete", hint: "ctrl+x", tint: colErr, needsSel: true},
 		{label: "← Back", hint: "esc", tint: colStraw},
 	}
@@ -270,7 +315,7 @@ func (m model) batchesChips() []actionChip {
 func (m model) batchesBar() string {
 	acts := m.batchesActions()
 	tier := barTier(acts, m.width, indentWidth)
-	_, hasSel := m.highlightedBatch()
+	hb, hasSel := m.highlightedBatch()
 	gap := strings.Repeat(" ", chipGap(tier))
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", indentWidth))
@@ -279,7 +324,10 @@ func (m model) batchesBar() string {
 			b.WriteString(gap)
 		}
 		st, hintFg := btnStyle.Foreground(lipgloss.Color(acts[i].tint)), colDim
-		if acts[i].needsSel && !hasSel {
+		// Unschedule applies only to a scheduled batch; on any other row it
+		// is greyed like a chip with nothing selected, and says why if
+		// pressed anyway.
+		if (acts[i].needsSel && !hasSel) || (i == batchesBtnUnsched && hb.State != batchScheduled) {
 			st, hintFg = btnOffStyle, colFaint
 		}
 		b.WriteString(renderChipDimHint(st, hintFg, acts[i], tier, c.text))
@@ -297,6 +345,8 @@ func (m model) pressBatches(i int) (tea.Model, tea.Cmd) {
 		return m.beginBatchCompose(stageBatches, batchSrcBacklog, nil)
 	case batchesBtnDup:
 		return m.duplicateBatch()
+	case batchesBtnUnsched:
+		return m.unscheduleBatch()
 	case batchesBtnDelete:
 		return m.deleteBatch()
 	case batchesBtnBack:
@@ -317,6 +367,14 @@ func (m model) duplicateBatch() (tea.Model, tea.Cmd) {
 	if m.stage == stageBatchView {
 		b = m.batches.view
 	}
+	return m.composerFromBatch(b, false)
+}
+
+// composerFromBatch opens the composer holding b's settings and whichever of
+// its prompts are still open. It is ⧉ Duplicate (edit false: a new batch that
+// happens to start from this one, When empty) and enter on a plan (edit true:
+// this batch, its time on the When row, saved back over itself).
+func (m model) composerFromBatch(b Batch, edit bool) (tea.Model, tea.Cmd) {
 	var preset []batchCand
 	for _, it := range b.Items {
 		ref := it.ref()
@@ -339,10 +397,62 @@ func (m model) duplicateBatch() (tea.Model, tea.Cmd) {
 	nm.batch.target = b.Target.dropTarget()
 	nm.batch.session = sessionValue(b.Session)
 	nm.rebuildBatchPick()
-	if len(preset) < len(b.Items) {
-		nm.batchSay(fmt.Sprintf("%d of %d prompts are still open and were picked; the rest are done or gone", len(preset), len(b.Items)), false)
+	var notes []string
+	if edit {
+		nm.batch.edit = b
+		now := time.Now()
+		switch {
+		case b.State == batchScheduled && b.At.After(now):
+			// The stamp form, which parseScheduleTime reads back as exactly
+			// this time: saving without touching the row keeps it.
+			nm.batch.when.SetValue(b.At.Format(scheduleTimeStamp))
+		case b.State == batchScheduled:
+			// Due this second, or overdue inside the grace: the tick holds
+			// off while the batch is open here, so the time has to be
+			// answered here.
+			notes = append(notes, "its time ("+formatScheduleTime(b.At, now)+") has come — set a new time, or drop it now")
+		case b.State == batchMissed:
+			notes = append(notes, "missed "+formatScheduleTime(b.At, now)+" — "+firstNonEmpty(b.Why, "it could not fire")+" · set a new time, or drop it now")
+		default:
+			notes = append(notes, "not scheduled — set a time on the When row, or drop it now")
+		}
 	}
+	if len(preset) < len(b.Items) {
+		notes = append(notes, fmt.Sprintf("%d of %d prompts are still open and were picked; the rest are done or gone", len(preset), len(b.Items)))
+	}
+	nm.batchSay(strings.Join(notes, " · "), false)
 	return nm, cmd
+}
+
+// unscheduleBatch is ✕ Unschedule: the batch stays, as a plan with no time,
+// so it can be rescheduled or dropped later from the composer. Deleting is the
+// separate, two-press button; taking a batch off the clock should not also
+// throw away the minutes spent picking and ordering it.
+func (m model) unscheduleBatch() (tea.Model, tea.Cmd) {
+	b, ok := m.highlightedBatch()
+	switch {
+	case !ok:
+		m.batches.say("highlight a batch first — ↑/↓ to choose one", false)
+		return m, nil
+	case b.State != batchScheduled:
+		m.batches.say("only a scheduled batch can be unscheduled — this one is "+b.State, false)
+		return m, nil
+	}
+	off := b
+	off.State, off.At = batchUnscheduled, time.Time{}
+	won, err := m.batchStoreForScope(b.scope).swapBatch(b, off)
+	switch {
+	case err != nil:
+		m.batches.say("unschedule failed: "+err.Error(), true)
+	case !won:
+		m.batches.say("that batch changed in another pane (it may have fired) — the rows are re-read", true)
+	default:
+		m.batches.say("unscheduled “"+truncate(b.displayName(), 40)+"” — enter to reschedule or drop it", false)
+	}
+	m.reloadBatches()
+	// Its prompts are no longer spoken for, so their ⧉ marks go.
+	m.rebuildList()
+	return m, nil
 }
 
 // deleteBatch is ✖ Delete, on the second press.
@@ -400,6 +510,8 @@ func (m model) updateBatches(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.pressBatches(batchesBtnNew)
 	case "ctrl+d":
 		return m.pressBatches(batchesBtnDup)
+	case "ctrl+u":
+		return m.pressBatches(batchesBtnUnsched)
 	case "ctrl+x":
 		return m.pressBatches(batchesBtnDelete)
 	}
@@ -455,18 +567,22 @@ func (m model) viewBatches() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.batches.list.view("no batches yet — ＋ New (ctrl+a) to make one", m.batchesBar(), m.width))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{"enter open", "↑/↓ choose", "type to filter", "dbl-click open"})))
+	b.WriteString(footerStyle.Render(m.fitFooter([]string{"enter open or edit", "↑/↓ choose", "type to filter", "dbl-click open"})))
 	return b.String()
 }
 
 // --- One batch's record ------------------------------------------------------------
 
-// beginBatchView opens the highlighted batch's record.
+// beginBatchView opens the highlighted batch: in the composer while it is
+// still a plan, as its record once it has gone.
 func (m model) beginBatchView() (tea.Model, tea.Cmd) {
 	b, ok := m.highlightedBatch()
 	if !ok {
 		m.batches.say("highlight a batch first — ↑/↓ to choose one", false)
 		return m, nil
+	}
+	if b.editable() {
+		return m.composerFromBatch(b, true)
 	}
 	m.batches.view = b
 	m.stage = stageBatchView
@@ -502,6 +618,9 @@ func (m model) viewBatchView() string {
 	when := "not dropped"
 	if !b.Dropped.IsZero() {
 		when = formatDoneTime(b.Dropped, now)
+	}
+	if !b.At.IsZero() {
+		out = append(out, field("Scheduled", formatDoneTime(b.At, now)))
 	}
 	out = append(out,
 		field("Dropped", when),

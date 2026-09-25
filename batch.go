@@ -10,6 +10,7 @@
 //	batchStore       batches.json beside a backlog's todos.json
 //	overlaySession   the batch's options laid over each prompt's own
 //	combinedPrompt   the "one prompt, listed" body
+//	batchWatch       the tick's cheap view of both files (fire times, ⧉ badges)
 //
 // The composer that builds one is batchcompose.go, the page that lists them is
 // batches.go, and the dispatch is batchrun.go.
@@ -52,9 +53,25 @@ const (
 // The states a batch record can be in. A batch is written as running before
 // the first prompt goes, so a manager that dies mid-delivery leaves a record
 // that says so rather than one that looks like it never started.
+//
+// The three states before "running" are the ones a batch can be edited in —
+// nothing has been sent, so the record is still a plan rather than history:
+//
+//	scheduled ──fire (claimBatch)──► running ──last step──► done
+//	    │  ▲
+//	    │  └── edit / reschedule ──┐
+//	    ├──► missed ───────────────┤   (too late to fire, or no socket)
+//	    └──► unscheduled ──────────┘   (✕ Unschedule on the page)
+//
+// Every arrow out of scheduled is a compare-and-swap on the record's state and
+// fire time (swapBatch), because two manager panes can be looking at the same
+// batches.json, and only one of them may act on a given fire time.
 const (
-	batchRunning = "running"
-	batchDone    = "done"
+	batchScheduled   = "scheduled"
+	batchMissed      = "missed"
+	batchUnscheduled = "unscheduled"
+	batchRunning     = "running"
+	batchDone        = "done"
 )
 
 // Batch is one batch: its picks in delivery order, how and where they go, and
@@ -74,6 +91,13 @@ type Batch struct {
 	// prompts, which is sessionPtr's rule for a Todo too.
 	Session *SessionOpts `json:"session,omitempty"`
 	State   string       `json:"state"`
+	// At is the fire time of a scheduled batch. It is kept once the batch
+	// fires (or misses), so the record can say it went on a schedule and for
+	// when; zero for a batch dropped straight from the composer.
+	At time.Time `json:"at,omitzero"`
+	// Why says why a scheduled batch missed its time — the one fact the page
+	// cannot rebuild from the rest of the record.
+	Why string `json:"why,omitempty"`
 	// Dropped is when delivery started; zero for a batch never sent.
 	Dropped time.Time  `json:"dropped,omitzero"`
 	Runs    []BatchRun `json:"runs,omitempty"`
@@ -154,6 +178,17 @@ type BatchRun struct {
 	At    time.Time `json:"at"`
 	Where string    `json:"where,omitempty"`
 	Err   string    `json:"err,omitempty"`
+}
+
+// editable says the batch is still a plan: nothing in it has been sent, so
+// opening it means changing it (the composer) rather than reading what
+// happened (the record view).
+func (b Batch) editable() bool {
+	switch b.State {
+	case batchScheduled, batchMissed, batchUnscheduled:
+		return true
+	}
+	return false
 }
 
 // displayName is what a batch is called wherever it is listed: its name, or —
@@ -323,6 +358,139 @@ func (bs *batchStore) delete(id string) error {
 		}
 	}
 	return nil
+}
+
+// swapBatch replaces the record with orig's ID by next — but only while the
+// record on disk is still the one orig was read as (same state, same fire
+// time). It reports whether the swap happened.
+//
+// This is the claim rule claimSchedule keeps for a prompt's schedule, applied
+// to every change to a batch that has not gone yet: firing it, marking it
+// missed, unscheduling it, saving an edit to it. Two managers can hold the same
+// scheduled batch; whichever swaps first wins, and the other finds the record
+// changed and stands down instead of firing it a second time or writing an
+// edit over a batch that has meanwhile started.
+//
+// A record that is gone (deleted from another pane) is a lost swap, not an
+// insert: whoever deleted it meant it, and firing or resurrecting it would
+// undo that.
+func (bs *batchStore) swapBatch(orig, next Batch) (bool, error) {
+	if err := bs.load(); err != nil {
+		return false, err
+	}
+	for i := range bs.batches {
+		cur := bs.batches[i]
+		if cur.ID != orig.ID {
+			continue
+		}
+		if cur.State != orig.State || !cur.At.Equal(orig.At) {
+			return false, nil
+		}
+		next.scope = bs.scope
+		bs.batches[i] = next
+		return true, bs.save()
+	}
+	return false, nil
+}
+
+// takeBatch is swapBatch's delete: it removes the record only while it is still
+// the one orig was read as. An edit that moves a batch to the other file (see
+// scheduleBatch) takes it out of the old one this way.
+func (bs *batchStore) takeBatch(orig Batch) (bool, error) {
+	if err := bs.load(); err != nil {
+		return false, err
+	}
+	for i := range bs.batches {
+		cur := bs.batches[i]
+		if cur.ID != orig.ID {
+			continue
+		}
+		if cur.State != orig.State || !cur.At.Equal(orig.At) {
+			return false, nil
+		}
+		bs.batches = slices.Delete(bs.batches, i, i+1)
+		return true, bs.save()
+	}
+	return false, nil
+}
+
+// --- The tick's view of the files -------------------------------------------------
+
+// batchWatch is a read cache of batches.json files, keyed by path and
+// invalidated by the file's size and modification time.
+//
+// Two readers need the files far more often than they change: the schedule
+// tick, once a second, looking for a batch whose time has come, and the list,
+// on every rebuild, looking for prompts to give a ⧉ badge. The file holds every
+// batch ever sent, so re-parsing it on each of those would be the one per-tick
+// cost in the program that grows with use. A stat is cheap and constant; the
+// parse happens only when another write (from this pane or any other) has
+// changed the file. Every write goes through a rename, which always changes
+// the modification time, so a stale hit would need two different files of the
+// same size written within the clock's resolution.
+//
+// It is only ever a view. Anything that acts on a batch reloads the file and
+// swaps under the claim rule (swapBatch), so a stale read can make the tick
+// look one second late, but never fire twice.
+type batchWatch struct {
+	files map[string]batchSnap
+}
+
+type batchSnap struct {
+	mod     time.Time
+	size    int64
+	batches []Batch
+}
+
+// read returns bs's batches, parsing the file only when it has changed since
+// the last read. A missing file is no batches (and forgets any snapshot, so a
+// file deleted and re-created is read afresh).
+func (w *batchWatch) read(bs *batchStore) ([]Batch, error) {
+	if !bs.available() {
+		return nil, nil
+	}
+	fi, err := os.Stat(bs.path)
+	if errors.Is(err, os.ErrNotExist) {
+		delete(w.files, bs.path)
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if snap, ok := w.files[bs.path]; ok && snap.mod.Equal(fi.ModTime()) && snap.size == fi.Size() {
+		return snap.batches, nil
+	}
+	if err := bs.load(); err != nil {
+		return nil, err
+	}
+	if w.files == nil {
+		w.files = map[string]batchSnap{}
+	}
+	w.files[bs.path] = batchSnap{mod: fi.ModTime(), size: fi.Size(), batches: bs.batches}
+	return bs.batches, nil
+}
+
+// pendingRefs maps each prompt that sits in a scheduled batch to that batch's
+// fire time — the earliest, if it sits in more than one — for the list's ⧉
+// mark. Only scheduled batches count: a missed or unscheduled one will not send
+// anything on its own, so its prompts are not spoken for.
+func pendingRefs(batches []Batch) map[todoRef]time.Time {
+	var out map[todoRef]time.Time
+	for _, b := range batches {
+		if b.State != batchScheduled {
+			continue
+		}
+		for _, it := range b.Items {
+			if out == nil {
+				out = map[todoRef]time.Time{}
+			}
+			ref := it.ref()
+			if at, ok := out[ref]; !ok || b.At.Before(at) {
+				out[ref] = b.At
+			}
+		}
+	}
+	return out
 }
 
 // --- Session options: the batch over the prompt ---------------------------------

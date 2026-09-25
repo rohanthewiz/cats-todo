@@ -373,7 +373,7 @@ func TestComposerEscGuardsPicks(t *testing.T) {
 	m.toggleBatchCand(candIndex(t, m, "Rename headings"))
 	next, _ = m.updateBatchCompose(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(model)
-	if m.stage != stageBatchCompose || m.batch.note != batchLeaveWarn {
+	if m.stage != stageBatchCompose || m.batch.note != m.batchLeaveWarn() {
 		t.Fatalf("first esc with picks: stage %v note %q, want a warning", m.stage, m.batch.note)
 	}
 	next, _ = m.updateBatchCompose(tea.KeyPressMsg{Code: tea.KeyEscape})

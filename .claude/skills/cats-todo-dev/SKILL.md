@@ -58,10 +58,10 @@ and the rest stay local.
 | `nextlist.go` | the Next List page (`stageNextList`): parses `ai_docs/todo/next-list.md` (Open + Roadmap), one-run-of-text rows cut to the pane, ✚ New prompt → prefilled add form (`beginAddWith`), ✉ Send → the drop picker with an unsaved prompt (`sendFromNext`, `finishNextDrop`), ↻ Refresh |
 | `nextmenu.go` | the Next List's right-click menu (`nextMenu`, on `menuBox`): it makes a backlog prompt from the item — draft form (± ⚙ Session / ◫ Images panel), ✉ Send unsaved, ◷ Schedule (add or reuse, then the list's scheduler), ⤓ Add in one press with a mark (`nextMenuAddMark`), value carried from the file; `nextBacklogCopy` (an open prompt starting with `nextItemCite`) greys the Add rows; ⧉ Copy ID / as prompt |
 | `nexthover.go` | the Next List's hover card: `nextHoverMotion`, `nextCardLines` (ID · section, ≤5 text lines, value · raised — 7 rows max); shares the list card's state (`m.hover`/`hoverPend`, whose `stage` keeps a dwell on its own page) |
-| `batch.go` | a batch (several prompts dropped as one unit): `Batch`/`BatchItem`/`BatchRun`, `batchStore` (`batches.json` beside `todos.json`, store's reload-then-write discipline), `overlaySession` (batch options win per field), `overriddenFields` (the ✱), `combinedPrompt` |
-| `batchcompose.go` | the composer stage (`stageBatchCompose`): Pick pane (backlog / Next List tabs, `fuzzyList.checkboxes`), Batch pane (order, drag, A→Z once), settings (name, deliver, target via the picker's `pickForBatch`, ⚙ via `sessForBatch`), `batchGeom` (the one layout both the view and the pointer read), `dropBatch` |
-| `batchrun.go` | delivering a batch: one ordinary `performDrop` per step, chained through `batchStepMsg` under the `m.dropping` guard; the record is written before the first step and after each |
-| `batches.go` | the Batches page (`stageBatches`: ＋ New, ⧉ Duplicate, ✖ Delete on a second press) and one batch's record (`stageBatchView`); `beginBatches` is the list's `ctrl+k` |
+| `batch.go` | a batch (several prompts dropped as one unit): `Batch`/`BatchItem`/`BatchRun`, `batchStore` (`batches.json` beside `todos.json`, store's reload-then-write discipline), `overlaySession` (batch options win per field), `overriddenFields` (the ✱), `combinedPrompt`; the states (scheduled / missed / unscheduled are plans, `editable`; running / done are history), `swapBatch`/`takeBatch` (every change to a plan is a compare-and-swap on state + `At` — the claim rule), `batchWatch` (stat-keyed read cache for the tick and the list's ⧉ marks), `pendingRefs` |
+| `batchcompose.go` | the composer stage (`stageBatchCompose`): Pick pane (backlog / Next List tabs, `fuzzyList.checkboxes`), Batch pane (order, drag, A→Z once), settings (name, deliver, target via the picker's `pickForBatch`, ⚙ via `sessForBatch`, When — empty = now, else `parseScheduleTime`), `batchGeom` (the one layout both the view and the pointer read), `dropBatch` / `scheduleBatch` (the When row greys whichever does not apply), `bc.edit` (the record being edited; `saveEdit` swaps against it and moves it between files when its scope changes) |
+| `batchrun.go` | delivering a batch: one ordinary `performDrop` per step, chained through `batchStepMsg` under the `m.dropping` guard; the record is written before the first step and after each. `startBatch` is shared by the composer (`launchBatch`) and `fireDueBatches` (the tick, after `fireDueSchedules`: grace, missed, claim via `swapBatch`, backlogs re-read, a batch open in the composer skipped; a fired batch's steps go through `performScheduledDrop` for the pane re-check) |
+| `batches.go` | the Batches page (`stageBatches`: ＋ New, ⧉ Duplicate, ✕ Unschedule, ✖ Delete on a second press; running, then scheduled soonest first, then newest first) and one batch's record (`stageBatchView`); enter on a plan opens `composerFromBatch(b, true)` instead; `beginBatches` is the list's `ctrl+k` |
 | `promptcode.go` | code in a prompt: `promptCodeSpans` (inline backtick spans + ``` fences, one span per line), the editor's code paints on the selection/spell overlay, the view's pre-wrap styling |
 | `promptlines.go` | the sweep → whole-rows arithmetic those four share |
 | `spell.go` / `spellpanel.go` / `internal/spell` | spell check + panel; embedded SCOWL list + `extra.txt` |
@@ -154,9 +154,11 @@ and the rest stay local.
 - **Batch composer:** `tab` walks pick → batch → settings → buttons · `space`/`enter`
   tick (Pick pane; the filter holds no spaces) · `ctrl+a` all visible · `ctrl+g`
   backlog ⇄ Next List · `alt+↑/↓` move, `x`/`delete` remove, `s` A→Z (Batch pane) ·
-  `ctrl+r` ⚙ panel · `shift/alt+enter` drop now · `ctrl+k` Batches page · `esc`
-  (a second press when picks would be lost). **Batches page:** `enter` record ·
-  `ctrl+a` new · `ctrl+d` duplicate · `ctrl+x` twice delete.
+  `ctrl+r` ⚙ panel · `shift/alt+enter` drop now · `ctrl+s` schedule (and `enter`
+  on the When row) · `ctrl+k` Batches page · `esc`
+  (a second press when picks would be lost). **Batches page:** `enter` record (or
+  the composer, on a batch not yet sent) · `ctrl+a` new · `ctrl+d` duplicate ·
+  `ctrl+u` unschedule · `ctrl+x` twice delete.
 - **Form:** `ctrl+s` save (also `cmd+s` as `super+s`/`meta+s`, which only a terminal
   that reports Cmd — cats does — can send; and `enter` from the title field) ·
   `enter`/`shift+enter`/`alt+enter`/`ctrl+j` newline in the prompt · `ctrl+o` (and

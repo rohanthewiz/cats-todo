@@ -49,6 +49,9 @@ type batchRunner struct {
 	batch Batch
 	steps []batchStep
 	next  int // the step in flight
+	// fired is set when the batch came off a schedule rather than the
+	// composer; see batchStepCmd.
+	fired bool
 }
 
 // batchStepMsg reports one step's outcome back to Update, the batch's
@@ -68,16 +71,43 @@ func (m model) batchStoreForScope(s scope) *batchStore {
 	return batchStoreFor(m.storeFor(s))
 }
 
-// launchBatch records b as running and fires its first step.
+// launchBatch is the composer's ▶ Drop now: start b, and leave the composer
+// once its record is safely on disk. A record that cannot be written keeps the
+// composer open with the reason, so nothing has been sent and nothing is lost.
+func (m model) launchBatch(b Batch) (tea.Model, tea.Cmd) {
+	cmd, err := m.startBatch(b, false)
+	if err != nil {
+		m.batchSay(err.Error(), true)
+		return m, nil
+	}
+	m.leaveBatchCompose()
+	if m.batchRun == nil {
+		m.batchStatus("batch "+b.displayName()+": nothing sent — every prompt was closed or gone (see ctrl+k)", true)
+		return m, nil
+	}
+	m.batchStatus(m.batchProgress("dropping"), false)
+	return m, cmd
+}
+
+// startBatch records b as running and returns its first step. It is shared by
+// the composer (launchBatch) and a schedule firing (fireDueBatches), which is
+// why it touches no screen: the composer leaves itself, and a fire happens
+// behind whatever the user is looking at. fired says the batch came off a
+// schedule, so each step re-checks a pane target still exists before typing
+// into it (see batchStepCmd).
+//
+// When every item turns out to be closed or gone, the record is still written
+// (done, each item with its reason) and the returned command is nil with
+// m.batchRun left nil — the caller's cue to say that nothing went.
 //
 // Every item is re-read from its backlog here, not taken from the composer:
 // the composer may have been open for minutes, and a prompt frozen, completed
 // or deleted meanwhile in another pane must not be sent. Such an item is
 // recorded as a failed run with the reason, so the batch's history says what
 // happened to it instead of silently holding one prompt fewer than was picked.
-func (m model) launchBatch(b Batch) (tea.Model, tea.Cmd) {
+func (m *model) startBatch(b Batch, fired bool) (tea.Cmd, error) {
 	now := time.Now()
-	b.State, b.Dropped = batchRunning, now
+	b.State, b.Dropped, b.Why = batchRunning, now, ""
 
 	type live struct {
 		idx int
@@ -166,18 +196,14 @@ func (m model) launchBatch(b Batch) (tea.Model, tea.Cmd) {
 		// Without a record the batch would run with no history to show for it,
 		// and the page is where the user will look for what happened. Refusing
 		// before anything is sent is the cheap moment to fail.
-		m.batchSay("could not save the batch: "+err.Error(), true)
-		return m, nil
+		return nil, fmt.Errorf("could not save the batch: %w", err)
 	}
-	m.leaveBatchCompose()
 	if len(steps) == 0 {
-		m.batchStatus("batch "+b.displayName()+": nothing sent — every prompt was closed or gone (see ctrl+k)", true)
-		return m, nil
+		return nil, nil
 	}
 	m.dropping = true
-	m.batchRun = &batchRunner{batch: b, steps: steps}
-	m.batchStatus(m.batchProgress("dropping"), false)
-	return m, m.batchStepCmd(0)
+	m.batchRun = &batchRunner{batch: b, steps: steps, fired: fired}
+	return m.batchStepCmd(0), nil
 }
 
 // sessionValue dereferences an optional record to the value the clone-based
@@ -197,8 +223,20 @@ func (m model) batchStepCmd(i int) tea.Cmd {
 	}
 	client, act, id := m.client, br.steps[i].act, br.batch.ID
 	desc := targetDesc(act.target)
+	// A fired batch goes through the schedule's drop, which first checks that
+	// a running-pane target still exists. The pane was chosen when the batch
+	// was scheduled, maybe hours ago; a pane ID is not a promise, and typing a
+	// prompt into whatever now holds that number would be worse than failing.
+	sched := Schedule{Kind: br.batch.Target.Kind, Pane: br.batch.Target.Pane}
+	fired := br.fired
 	return func() tea.Msg {
-		note, err := performDrop(client, act)
+		var note string
+		var err error
+		if fired {
+			note, err = performScheduledDrop(client, sched, act)
+		} else {
+			note, err = performDrop(client, act)
+		}
 		return batchStepMsg{batchID: id, step: i, desc: desc, note: note, err: err}
 	}
 }
@@ -292,4 +330,117 @@ func (m model) batchProgress(verb string) string {
 	st := br.steps[br.next]
 	return fmt.Sprintf("batch %s: %s %d/%d → %s…", br.batch.displayName(), verb,
 		br.next+1, len(br.steps), targetDesc(st.act.target))
+}
+
+// --- Firing scheduled batches -----------------------------------------------------
+
+// batchFiles is the tick's read of both batches.json files, through the
+// model's watch (see batchWatch). A file that cannot be read is skipped: the
+// tick runs every second, and the page, which reads the files directly, is
+// where a broken one says so.
+func (m *model) batchFiles() []Batch {
+	if m.batchWatch == nil {
+		m.batchWatch = &batchWatch{}
+	}
+	var all []Batch
+	for _, s := range []*store{m.project, m.global} {
+		if s == nil {
+			continue
+		}
+		bs, err := m.batchWatch.read(batchStoreFor(s))
+		if err != nil {
+			continue
+		}
+		all = append(all, bs...)
+	}
+	return all
+}
+
+// fireDueBatches is the tick's work for batches, fireDueSchedules' twin: find a
+// scheduled batch whose time has come and start it, or — when it can no longer
+// be honoured — mark it missed where the Batches page will show it.
+//
+// The rules are the prompt schedule's, for the same reasons:
+//
+//   - Grace. Inside scheduleGrace a late tick still fires; beyond it the batch
+//     is missed. Opening the manager should never set off a batch of agent
+//     runs planned for hours ago.
+//   - One drop at a time. While m.dropping is held (a drop, a schedule, or
+//     another batch in flight) the batch waits for a later tick, still inside
+//     its grace.
+//   - Claim before fire. The record is swapped from scheduled to running on
+//     disk before anything is sent (swapBatch), so a second manager pane on
+//     the same file finds it running and stands down.
+//
+// One more is the batch's own: a batch open in this pane's composer is not
+// fired or marked missed from under the edit. Saving the edit is what decides
+// its time (or cancelling it, after which the next tick reads it as it
+// stands). Another manager pane can still fire it; the edit's save then finds
+// the record changed and says so rather than writing over it.
+func (m *model) fireDueBatches(now time.Time) tea.Cmd {
+	for _, b := range m.batchFiles() {
+		if b.State != batchScheduled || now.Before(b.At) {
+			continue
+		}
+		if m.batch.edit.ID == b.ID {
+			continue
+		}
+		bs := m.batchStoreForScope(b.scope)
+
+		if late := now.Sub(b.At) > scheduleGrace; late || m.client == nil {
+			missed := b
+			missed.State = batchMissed
+			missed.Why = "the manager was not open at " + formatScheduleTime(b.At, now)
+			if !late {
+				missed.Why = "no cats control socket to drop through"
+			}
+			if won, err := bs.swapBatch(b, missed); err == nil && won {
+				m.rebuildList()
+				m.batchStatus("missed batch "+b.displayName()+" ("+formatScheduleTime(b.At, now)+") — ctrl+k to reschedule or drop it", true)
+			}
+			continue
+		}
+
+		if m.dropping {
+			return nil
+		}
+
+		claimed := b
+		claimed.State = batchRunning
+		won, err := bs.swapBatch(b, claimed)
+		if err != nil {
+			m.batchStatus("batch claim failed: "+err.Error(), true)
+			return nil
+		}
+		if !won {
+			// Someone else fired, edited or deleted it between the read and
+			// the claim. The next tick reads whatever they left.
+			continue
+		}
+		// The backlogs are re-read before the items are resolved: this pane's
+		// copy is only refreshed by its own writes, and hours may have passed
+		// in which other panes completed, froze or deleted what the batch
+		// holds. startBatch skips those with the reason on the record.
+		_ = m.project.reload()
+		_ = m.global.reload()
+		cmd, err := m.startBatch(claimed, true)
+		m.rebuildList()
+		switch {
+		case err != nil:
+			// The claim put "running" on disk and nothing was sent. Left
+			// there, the record would claim a delivery forever; written back
+			// as missed, it says what happened and can be rescheduled. Best
+			// effort — the write that just failed may fail again.
+			missed := b
+			missed.State, missed.Why = batchMissed, err.Error()
+			_, _ = bs.swapBatch(claimed, missed)
+			m.batchStatus("scheduled batch "+b.displayName()+": "+err.Error(), true)
+		case m.batchRun == nil:
+			m.batchStatus("scheduled batch "+b.displayName()+": nothing sent — every prompt was closed or gone (see ctrl+k)", true)
+		default:
+			m.batchStatus(m.batchProgress("firing scheduled"), false)
+		}
+		return cmd
+	}
+	return nil
 }

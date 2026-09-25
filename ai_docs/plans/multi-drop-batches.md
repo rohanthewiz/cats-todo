@@ -418,3 +418,44 @@ from the design above in these places:
 - **When is absent.** Every batch in this build is dropped now. The When row
   and ◷ Schedule arrive with phase 2, and the `loop` delivery value is reserved
   in `batch.go` for phase 3.
+
+## Phase 2 as built (2026-09-25)
+
+Scheduling: the composer's When row and ◷ Schedule, the tick firing due
+batches, missed marking, the claim, editing a batch that hasn't gone, ✕
+Unschedule, and the list's ⧉ mark. Files: `batch.go` (states, `At`/`Why`,
+`swapBatch`/`takeBatch`, `batchWatch`, `pendingRefs`), `batchrun.go`
+(`startBatch` split out of `launchBatch`, `fireDueBatches`), `batchcompose.go`
+(When, `scheduleBatch`, `buildBatch`, `saveEdit`), `batches.go` (page states,
+`composerFromBatch`, `unscheduleBatch`), `ui.go` (the tick, the ⧉ row mark),
+tests in `batchsched_test.go`. Where it departs from the design above:
+
+- **When is one text field, not `(•) now ( ) at [...]`.** Empty means now. A
+  radio plus a field is two controls for one fact, and the field alone reads the
+  same way: `now` is drawn when it is empty. What the typed time comes to is
+  shown beside it (`→ Sat 09:00`), or `can't read that`.
+- **The state set is scheduled / missed / unscheduled / running / done.** The
+  plan's *cancelled* became **unscheduled**: ✕ Unschedule keeps the batch as a
+  plan with no time, which can be reopened and rescheduled or dropped, rather
+  than a dead record. *paused* and *stopped* belong to the loop (phase 3).
+- **Every change to a plan is a compare-and-swap** on the record's state and
+  fire time (`swapBatch`): the fire's claim, missed marking, unschedule, and
+  saving an edit. A lost swap is refused in words; a record deleted elsewhere is
+  a lost swap, never re-inserted.
+- **A batch open in the composer is not fired by this manager** (another pane
+  can still fire it; the edit's save then loses the swap and says so). Opened
+  once its time has come, the note says the time has passed.
+- **An edit can move a batch between files.** A global batch that gains a
+  project prompt moves to the project's `batches.json` (`takeBatch` + `put`),
+  since the global file is read by managers in every project and cannot name a
+  project prompt.
+- **The tick reads the files through a stat-keyed cache** (`batchWatch`),
+  shared with the list's ⧉ marks, so the once-a-second check doesn't re-parse a
+  file that grows with every batch ever sent.
+- **A fired batch's steps go through `performScheduledDrop`**, so a
+  running-pane target chosen at schedule time is checked to still exist.
+- **The ⧉ mark is a row mark (`⧉ 09:00`), not the badge.** The badge slot is
+  the prompt's own state (○ ◷ ✓ ❄); the batch's time sits among the description
+  marks beside the prompt's own `⏰`.
+- **The Batches page has no right-click menu yet**, and no ▶ Drop now or ✎ Edit
+  chip: `enter` on a plan opens it in the composer, where both are.

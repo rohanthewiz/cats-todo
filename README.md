@@ -744,7 +744,7 @@ together. A **batch** is those five picked once, put in order, given one setup,
 and dropped as a unit, with a record kept of where each one landed.
 
 `ctrl+k` on the list opens the **Batches** page, which lists every batch you
-have sent; **＋ New** (`ctrl+a` there) opens the composer. With prompts ticked on
+have sent or scheduled; **＋ New** (`ctrl+a` there) opens the composer. With prompts ticked on
 the list (`ctrl+space`), `ctrl+k` skips the page and opens a composer already
 holding them. The list's right-click menu has **⧉ Add to batch…** (the row plus
 anything ticked), and on the [Next List](#the-next-list) page `ctrl+k`, or
@@ -764,9 +764,10 @@ Project                                 │
                                         │   Deliver  (•) all at once  ( ) one prompt, listed
 Global                                  │   Target   ＋ New Claude Code session on a new worktree
   ☐ ｉ Blog notes · info — a note, not… │   Session  ⚙ sonnet
+                                        │   When     now
                                         │   ✱ 1 whose own options the batch overrides
 
-   ▶ Drop now alt+enter   ⇅ A→Z   ☰ Batches ctrl+k   ✕ Cancel esc
+   ▶ Drop now alt+enter   ◷ Schedule ctrl+s   ⇅ A→Z   ☰ Batches ctrl+k   ✕ Cancel esc
 ```
 
 **The left pane is what you can pick.** Its two tabs are the backlog (project
@@ -804,7 +805,7 @@ turns rather than sharing the width (a switcher line says which is up, and
 `tab` or a click moves between them); side by side at that size every title
 would be cut to a stub.
 
-**The settings** are four rows under the batch:
+**The settings** are five rows under the batch:
 
 - **Name** — optional. An unnamed batch is listed as its first prompt's title
   and a count (`Fix flaky drop test +2`).
@@ -825,6 +826,11 @@ would be cut to a stub.
 - **Session** — `enter`, or `ctrl+r` from anywhere in the composer (the
   editor's chord for the same panel), opens the [session options](#session-options)
   panel on the batch's own options.
+- **When** — empty means now. Type a time and the batch is for later: the same
+  forms the list's scheduler reads (`15:30`, `in 2h`, `tomorrow 9:00`,
+  `2026-09-26 09:00`), with what it comes to shown beside it as you type
+  (`→ Sat 09:00`), since "tomorrow 9:00" is easy to write and easy to misjudge.
+  See [Scheduling a batch](#scheduling-a-batch).
 
 **The batch's options win, field by field.** Any option the batch sets replaces
 the prompt's own; any it leaves at the default falls through to the prompt. So
@@ -836,10 +842,15 @@ are the same value. A one-prompt-listed drop is one session and so has one
 setup: only the batch's options apply, and every prompt with options of its own
 wears `✱` to say they won't. The line under the settings counts the `✱` rows.
 
-**▶ Drop now** (`shift+enter`/`alt+enter`, the list's drop chord) sends it. The
-chip is greyed while the batch can't go, and pressing it says why. Leaving with
-picks on the table — `esc`, **✕ Cancel**, **☰ Batches** — takes a second press:
-the first says the picks are not saved until the batch is dropped.
+**▶ Drop now** (`shift+enter`/`alt+enter`, the list's drop chord) sends it, and
+**◷ Schedule** (`ctrl+s`, the list's schedule chord; or `enter` on the When
+row) saves it for the time on the When row. The When row decides which one
+applies: with it empty, Schedule is greyed; with a time on it, Drop now is.
+Pressing the greyed one says why rather than quietly doing the other thing — a
+batch dropped now when the row said 3am, or scheduled for a time you forgot you
+typed, is the surprise the grey is there to prevent. Leaving with picks on the
+table — `esc`, **✕ Cancel**, **☰ Batches** — takes a second press: the first
+says the picks are not saved until the batch is dropped or scheduled.
 
 ### What a drop of a batch does
 
@@ -864,22 +875,71 @@ to hold back the others. Every prompt is re-read from its backlog as the batch
 goes, and one frozen, completed or deleted in another pane meanwhile is not sent;
 the record says so.
 
+### Scheduling a batch
+
+A scheduled batch is written to `batches.json` and sends nothing until its
+time. The manager fires it from the same once-a-second tick that fires a
+prompt's own schedule, by the same rules:
+
+- **It fires only on time.** A tick up to two minutes late still fires it.
+  Later than that, the batch is marked **missed** instead, with the reason, and
+  the status line says so. Opening the manager should never set off a batch of
+  agent runs planned for hours ago; a missed batch waits on the Batches page to
+  be rescheduled or dropped by hand.
+- **One drop at a time.** While a drop, a scheduled prompt or another batch is
+  in flight, a due batch waits for a later tick, still inside its two minutes.
+- **Claimed before it fires.** The record is switched from scheduled to running
+  on disk before anything is sent, and only if it still reads as it did. Two
+  manager panes open on the same backlog can both see the batch come due; the
+  one that switches it first sends it, and the other finds it running and
+  stands down.
+- **Read fresh.** The backlogs are re-read at fire time, so a prompt completed,
+  frozen or deleted in another pane since the batch was scheduled is skipped,
+  with the reason on the record. A running-pane target is checked to still
+  exist before anything is typed into it: a pane chosen hours ago may be gone,
+  and its number is no promise about what now holds it.
+
+The manager has to be open for a batch to fire, as for any schedule. Every
+running manager fires the global backlog's batches; a project's batches fire
+from a manager in that project.
+
+**The list shows what is spoken for.** A prompt sitting in a scheduled batch
+wears `⧉ 09:00` on its row, beside where a prompt's own schedule shows
+`⏰ 09:00`. Without it the prompt looks free, and dropping it by hand now means
+the batch skips it later — a double booking better seen before it happens.
+
+**A batch that hasn't gone is still a plan.** On the Batches page, `enter` on a
+scheduled, missed or unscheduled batch opens it in the composer (**Edit
+batch**) with its prompts, its settings and its time on the When row. Change
+anything, then **◷ Schedule** to save it back over itself, or clear the When row
+and **▶ Drop now**. While it is open there, this manager holds off firing it.
+The save is checked against the record as it was opened: if another pane fired,
+edited or deleted the batch meanwhile, the composer says so rather than writing
+over it or sending it twice. **✕ Unschedule** (`ctrl+u`) takes a scheduled batch
+off the clock but keeps it, marked `◌ not scheduled`. Deleting is the separate,
+two-press button, so taking a batch off the clock doesn't also throw away the
+picking and ordering.
+
 ### The Batches page and the record
 
 ```
- Batches   2 batches
+ Batches   4 batches
 
-│ 🔍 type to filter                      │  2/2
+│ 🔍 type to filter                      │  4/4
 
-   ＋ New ctrl+a   ⧉ Duplicate ctrl+d   ✖ Delete ctrl+x   ← Back esc
+   ＋ New ctrl+a   ⧉ Duplicate ctrl+d   ✕ Unschedule ctrl+u   ✖ Delete ctrl+x   ← Back esc
 
-❯ ✓ Global task      1 prompt · one prompt, listed · New Claude Code session · 13:08 · 1/1
-  ⚠ nightly cleanup  3 prompts · all at once · New Claude Code session on a new worktree · Thu 11:08 · 2/3
+❯ ◷ nightly cleanup  3 prompts · all at once · New Claude Code session on a new worktree · fires Sat 09:00
+  ✓ Global task      1 prompt · one prompt, listed · New Claude Code session · 13:08 · 1/1
+  ⚠ quick wins       3 prompts · all at once · New Claude Code session · Thu 11:08 · 2/3
+  ◷ docs sweep       2 prompts · all at once · New Claude Code session · missed Wed 09:00
 ```
 
-A row's badge is how the batch went: `▶` still going, `✓` every prompt landed,
-`⚠` some did, `✗` none did. `enter` (or a double-click) opens its record — each
-prompt, where it landed, and the error beside any that didn't. **⧉ Duplicate**
+A row's badge is where the batch stands: `◷` scheduled (red once it has
+missed), `◌` not scheduled, `▶` still going, `✓` every prompt landed, `⚠` some
+did, `✗` none did. `enter` (or a double-click) opens a batch that hasn't gone in
+the composer, as above, and one that has gone as its record — each prompt,
+where it landed, and the error beside any that didn't. **⧉ Duplicate**
 (there or on the page) opens a composer with the batch's settings and whichever
 of its prompts are **still open**, which after a partial drop is exactly the
 ones that didn't land; the ones that did are done, and reopening them on the list
@@ -891,8 +951,9 @@ The records are kept in `batches.json` beside `todos.json` — the project's
 directory otherwise. A file of its own, rather than a key in `todos.json`,
 because a batch can mix project and global prompts and so belongs to neither
 backlog, and because it leaves `todos.json` byte-identical for everyone who
-never makes a batch. The file keeps creation order; the page sorts newest first,
-with a batch still going on top.
+never makes a batch. The file keeps creation order. The page sorts: a batch
+still going on top, then the scheduled ones soonest first (what happens next),
+then everything else newest first.
 
 ## Bundles: disk, email, and the machine across the room
 

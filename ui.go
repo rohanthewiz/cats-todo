@@ -587,6 +587,11 @@ type model struct {
 	batch    batchComposer
 	batchRun *batchRunner
 	batches  batchesPage
+	// batchWatch caches both batches.json files for the two readers that
+	// need them constantly — the schedule tick and the list's ⧉ marks — and
+	// re-parses a file only when it changes (see batchWatch). A pointer, so
+	// the model's copies share one cache; created on first use.
+	batchWatch *batchWatch
 	// pickForBatch and sessForBatch are the target picker and the ⚙ panel
 	// opened from the composer: enter in the picker records the row on the
 	// draft instead of dropping, and leaving the panel writes the options to
@@ -713,7 +718,13 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// up; the status lands when the user is next on the list. The next
 		// tick is armed in the same breath — the loop must survive every path
 		// out of fireDueSchedules.
-		return m, tea.Batch(m.fireDueSchedules(time.Time(msg)), scheduleTick())
+		//
+		// Prompt schedules are asked first. Whichever fires takes the
+		// dropping guard, and the other waits a tick, inside its grace: the
+		// arguments are evaluated in order, so the batch check sees the
+		// guard the schedule check may have just taken.
+		now := time.Time(msg)
+		return m, tea.Batch(m.fireDueSchedules(now), m.fireDueBatches(now), scheduleTick())
 	case batchStepMsg:
 		// Above the stage switch like a drop's result: the chain has to go on
 		// whatever screen the user has moved to meanwhile.
@@ -959,6 +970,8 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// name on its settings row, the Pick pane's query otherwise.
 		if m.batch.focus == batchFocusSettings && m.batch.setRow == batchSetName {
 			m.batch.name, cmd = m.batch.name.Update(msg)
+		} else if m.batch.focus == batchFocusSettings && m.batch.setRow == batchSetWhen {
+			m.batch.when, cmd = m.batch.when.Update(msg)
 		} else if m.batch.focus == batchFocusPick {
 			cmd = m.batch.pick.editQuery(msg)
 		}
@@ -2227,6 +2240,9 @@ func (m *model) rebuildList() {
 	// tagging them all would be noise.
 	tagGlobal := m.project.available()
 
+	// The prompts spoken for by a scheduled batch, for the ⧉ mark below.
+	pending := pendingRefs(m.batchFiles())
+
 	add := func(s *store) {
 		appendTodo := func(t Todo) {
 			ref := todoRef{scope: s.scope, id: t.ID}
@@ -2268,6 +2284,17 @@ func (m *model) rebuildList() {
 					when = "missed " + when
 				}
 				marks = append(marks, descMark{text: "⏰ " + when, style: descStyle})
+			}
+			// A prompt sitting in a scheduled batch is spoken for just as one
+			// with its own schedule is, and the row says so the same way: a
+			// time, beside the ⧉ the Batches page uses. Without it the prompt
+			// looks free, and dropping it by hand now means the batch later
+			// skips it (it will be done by then) — a double booking best
+			// seen before it happens. Only while the prompt is open: a done or
+			// frozen one will be skipped anyway, which the batch's record
+			// says when it fires.
+			if at, ok := pending[ref]; ok && !t.closed() {
+				marks = append(marks, descMark{text: "⧉ " + formatScheduleTime(at, time.Now()), style: descStyle})
 			}
 			// A done row takes the slot the fire time would have held (a done
 			// todo holds no schedule) for when it was finished — the compact

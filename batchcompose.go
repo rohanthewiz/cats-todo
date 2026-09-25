@@ -17,8 +17,9 @@
 //	 ☐ Draft blog notes · info          │ Deliver  (•) all at once  ( ) one prompt, listed
 //	                                    │ Target   ＋ New Claude Code session on a new worktree
 //	                                    │ Session  ⚙ sonnet · high
+//	                                    │ When     tomorrow 9:00  → Sat 09:00
 //
-//	  ▶ Drop now shift+enter  ⇅ A→Z s  ☰ Batches ctrl+k  ✕ Cancel esc
+//	  ▶ Drop now shift+enter  ◷ Schedule ctrl+s  ⇅ A→Z  ☰ Batches ctrl+k  ✕ Cancel esc
 //	  <note line>
 //	  <footer: the keys of whichever region holds the focus>
 //
@@ -37,8 +38,21 @@
 // be something the user can see and edit, not a view over something else.
 //
 // Next List items can be picked beside backlog prompts. They become backlog
-// prompts only when the batch is dropped (nextItemAsPrompt), so a composer
-// abandoned with esc has written nothing anywhere.
+// prompts only when the batch is dropped or scheduled (nextItemAsPrompt), so a
+// composer abandoned with esc has written nothing anywhere.
+//
+// When is the one row that decides which button applies. Empty means now, and
+// ▶ Drop now is live; a time (anything parseScheduleTime reads) means later,
+// and ◷ Schedule is. The other is greyed and says why when pressed, rather
+// than one silently winning: a batch dropped now when the row said 3am, or
+// scheduled when the row was forgotten, is exactly the surprise a greyed chip
+// is there to prevent.
+//
+// The same composer edits a batch that has not gone yet — scheduled, missed,
+// or unscheduled (Batch.editable) — opened from the Batches page. It is then
+// holding bc.edit, the record as it was read, and saving is a swap against
+// that record (swapBatch): if another pane fired, edited or deleted the batch
+// meanwhile, the save says so instead of writing over it.
 package main
 
 import (
@@ -80,12 +94,14 @@ const (
 	batchSetDeliver
 	batchSetTarget
 	batchSetSession
+	batchSetWhen
 	batchSetCount
 )
 
 // The button row, in order (see batchActions).
 const (
 	batchBtnDrop = iota
+	batchBtnSchedule
 	batchBtnSort
 	batchBtnBatches
 	batchBtnCancel
@@ -142,6 +158,7 @@ type batchComposer struct {
 	btn    int
 
 	name    textinput.Model
+	when    textinput.Model
 	deliver string
 	target  dropTarget
 	session SessionOpts
@@ -156,6 +173,11 @@ type batchComposer struct {
 	dragging  bool
 	dragKey   string
 	dragMoved bool
+
+	// edit is the record being edited, exactly as it was read, or the zero
+	// Batch for a new one. Saving swaps against it (see the file comment),
+	// and the tick leaves it alone while it is open (fireDueBatches).
+	edit Batch
 }
 
 // defaultBatchTarget is the target a new batch starts on: a new Claude Code
@@ -171,10 +193,15 @@ func (m model) beginBatchCompose(from uiStage, source int, preset []batchCand) (
 	ti.Prompt = ""
 	ti.Placeholder = "optional"
 	ti.CharLimit = 80
+	wi := textinput.New()
+	wi.Prompt = ""
+	wi.Placeholder = "now — or 15:30 · in 2h · tomorrow 9:00"
+	wi.CharLimit = 40
 	bc := batchComposer{
 		from:    from,
 		source:  source,
 		name:    ti,
+		when:    wi,
 		deliver: deliverEach,
 		target:  defaultBatchTarget(),
 		picked:  preset,
@@ -598,16 +625,14 @@ func (m model) batchPickStar(c batchCand) bool {
 
 // --- Dropping -------------------------------------------------------------------
 
-// batchDropWhy is why the batch cannot be dropped as it stands, or "".
-func (m model) batchDropWhy() string {
+// batchCommonWhy is what stops the batch going at all, now or later, or "".
+func (m model) batchCommonWhy() string {
 	bc := m.batch
 	switch {
 	case len(bc.picked) == 0:
 		return "pick at least one prompt first — space on a row on the left"
 	case m.client == nil:
 		return "cats control socket unavailable — can't drop into a session"
-	case m.dropping:
-		return "a drop is still in progress…"
 	case !m.project.available() && !m.global.available():
 		return noBacklogWhy
 	case bc.deliver == deliverEach && bc.target.kind == targetExistingPane && len(bc.picked) > 1:
@@ -619,13 +644,49 @@ func (m model) batchDropWhy() string {
 	return ""
 }
 
-// dropBatch is ▶ Drop now: validate, turn picked Next List items into backlog
-// prompts, record the batch, and start the chain (launchBatch).
-func (m model) dropBatch() (tea.Model, tea.Cmd) {
-	if why := m.batchDropWhy(); why != "" {
-		m.batchSay(why, true)
-		return m, nil
+// batchWhenText is the When row as typed; empty means now.
+func (bc batchComposer) batchWhenText() string {
+	return strings.TrimSpace(bc.when.Value())
+}
+
+// batchDropWhy is why the batch cannot be dropped now as it stands, or "".
+func (m model) batchDropWhy() string {
+	if why := m.batchCommonWhy(); why != "" {
+		return why
 	}
+	if w := m.batch.batchWhenText(); w != "" {
+		return "the When row says “" + w + "” — ◷ Schedule (ctrl+s) sends it then; clear the row to drop now"
+	}
+	if m.dropping {
+		return "a drop is still in progress…"
+	}
+	return ""
+}
+
+// batchScheduleWhy is why the batch cannot be scheduled as it stands, or "" —
+// and, when it can, the fire time the When row names. A drop in flight is no
+// reason to refuse: scheduling writes a record and sends nothing.
+func (m model) batchScheduleWhy(now time.Time) (time.Time, string) {
+	if why := m.batchCommonWhy(); why != "" {
+		return time.Time{}, why
+	}
+	w := m.batch.batchWhenText()
+	if w == "" {
+		return time.Time{}, "type a time on the When row first — 15:30 · in 2h · tomorrow 9:00"
+	}
+	at, err := parseScheduleTime(w, now)
+	if err != nil {
+		return time.Time{}, err.Error()
+	}
+	return at, ""
+}
+
+// buildBatch turns the composer into a record: picked Next List items become
+// backlog prompts (the one write it makes outside batches.json, so it comes
+// after every check that could refuse), and the record gets its file. An edit
+// keeps the record's identity — its ID and when it was made — so the page's
+// row is the same batch before and after.
+func (m *model) buildBatch() (Batch, error) {
 	bc := m.batch
 	b := Batch{
 		ID:      newID(),
@@ -635,14 +696,16 @@ func (m model) dropBatch() (tea.Model, tea.Cmd) {
 		Target:  batchTargetFrom(bc.target, m.ctx.projectDir()),
 		Session: sessionPtr(bc.session),
 	}
+	if bc.edit.ID != "" {
+		b.ID, b.Created = bc.edit.ID, bc.edit.Created
+	}
 	anyProject := false
 	for _, c := range bc.picked {
 		ref := c.ref
 		if c.next.ID != "" {
 			var err error
 			if ref, err = m.nextItemAsPrompt(c.next); err != nil {
-				m.batchSay(c.next.ID+": "+err.Error(), true)
-				return m, nil
+				return Batch{}, errors.New(c.next.ID + ": " + err.Error())
 			}
 		}
 		if ref.scope == scopeProject {
@@ -652,18 +715,124 @@ func (m model) dropBatch() (tea.Model, tea.Cmd) {
 	}
 	// The record lives with the project whenever it touches the project: that
 	// is where someone looking for what happened to these prompts will be.
+	// It is also the only file a project prompt can be named from — the
+	// global file is read by managers in every project, and "project" there
+	// would mean whichever one happened to read it.
 	b.scope = scopeGlobal
 	if (anyProject || !m.global.available()) && m.project.available() {
 		b.scope = scopeProject
 	}
-	// A selection on the list that became this batch has done its job; left
-	// standing it would make the next ctrl+k (or ctrl+o) act on prompts that
-	// are now done.
-	if bc.from == stageList && m.markCount() > 0 {
+	return b, nil
+}
+
+// errBatchChanged is a lost swap on an edit: the record is no longer the one
+// the composer opened.
+var errBatchChanged = errors.New("this batch changed in another pane since it was opened (it may have fired) — ctrl+k to see it as it is now")
+
+// saveEdit writes next over the record the composer is editing, under the
+// claim rule: only while the record is still the one that was opened. A
+// record that has to move file (the edit added a project prompt to a global
+// batch, or took the last one out of a project batch) is taken out of the old
+// file the same way and written into the new one.
+func (m *model) saveEdit(next Batch) error {
+	orig := m.batch.edit
+	old := m.batchStoreForScope(orig.scope)
+	var won bool
+	var err error
+	if orig.scope == next.scope {
+		won, err = old.swapBatch(orig, next)
+	} else if won, err = old.takeBatch(orig); err == nil && won {
+		err = m.batchStoreForScope(next.scope).put(next)
+	}
+	switch {
+	case err != nil:
+		return fmt.Errorf("could not save the batch: %w", err)
+	case !won:
+		return errBatchChanged
+	}
+	return nil
+}
+
+// clearSpentMarks drops the list selection that became this batch. It has done
+// its job; left standing it would make the next ctrl+k (or ctrl+o) act on
+// prompts that are now done or spoken for.
+func (m *model) clearSpentMarks() {
+	if m.batch.from == stageList && m.markCount() > 0 {
 		m.clearMarks()
 		m.rebuildList()
 	}
+}
+
+// dropBatch is ▶ Drop now: validate, build the record, and start the chain
+// (launchBatch). An edited batch is claimed first, so a batch that fired in
+// another pane while it was open here is not sent a second time.
+func (m model) dropBatch() (tea.Model, tea.Cmd) {
+	if why := m.batchDropWhy(); why != "" {
+		m.batchSay(why, true)
+		return m, nil
+	}
+	b, err := m.buildBatch()
+	if err != nil {
+		m.batchSay(err.Error(), true)
+		return m, nil
+	}
+	if m.batch.edit.ID != "" {
+		claimed := b
+		claimed.State = batchRunning
+		if err := m.saveEdit(claimed); err != nil {
+			m.batchSay(err.Error(), true)
+			return m, nil
+		}
+	}
+	m.clearSpentMarks()
 	return m.launchBatch(b)
+}
+
+// scheduleBatch is ◷ Schedule (ctrl+s): validate the When row, build the
+// record, and write it as scheduled. The tick (fireDueBatches) does the rest.
+//
+// With the When row empty the refusal also moves the keys there, since that is
+// the one row the press was asking about.
+func (m model) scheduleBatch() (tea.Model, tea.Cmd) {
+	now := time.Now()
+	at, why := m.batchScheduleWhy(now)
+	if why != "" {
+		m.batchSay(why, true)
+		if m.batchCommonWhy() == "" {
+			m.batch.setRow = batchSetWhen
+			return m, m.setBatchFocus(batchFocusSettings)
+		}
+		return m, nil
+	}
+	b, err := m.buildBatch()
+	if err != nil {
+		m.batchSay(err.Error(), true)
+		return m, nil
+	}
+	b.State, b.At = batchScheduled, at
+	if m.batch.edit.ID != "" {
+		err = m.saveEdit(b)
+	} else {
+		err = m.batchStoreForScope(b.scope).put(b)
+		if err != nil {
+			err = fmt.Errorf("could not save the batch: %w", err)
+		}
+	}
+	if err != nil {
+		m.batchSay(err.Error(), true)
+		return m, nil
+	}
+	m.clearSpentMarks()
+	verb := "scheduled"
+	if m.batch.edit.ID != "" {
+		verb = "rescheduled"
+	}
+	m.leaveBatchCompose()
+	// The list's ⧉ marks read the file this just wrote.
+	m.rebuildList()
+	m.batchStatus(fmt.Sprintf("batch %s %s for %s — %d prompt%s, ctrl+k to see it",
+		b.displayName(), verb, formatScheduleTime(at, now), len(b.Items), plural(len(b.Items))), false)
+	return m, nil
 }
 
 // nextItemAsPrompt is the backlog prompt a picked Next List item becomes: the
@@ -686,11 +855,14 @@ func (m *model) setBatchFocus(f int) tea.Cmd {
 	bc.focus = f
 	bc.pick.input.Blur()
 	bc.name.Blur()
+	bc.when.Blur()
 	switch {
 	case f == batchFocusPick:
 		return bc.pick.input.Focus()
 	case f == batchFocusSettings && bc.setRow == batchSetName:
 		return bc.name.Focus()
+	case f == batchFocusSettings && bc.setRow == batchSetWhen:
+		return bc.when.Focus()
 	}
 	return nil
 }
@@ -736,6 +908,9 @@ func (m model) updateBatchCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "shift+enter", "alt+enter":
 		// The list's drop chord, meaning the same thing here: send it.
 		return m.dropBatch()
+	case "ctrl+s":
+		// The list's schedule chord.
+		return m.scheduleBatch()
 	case "ctrl+r":
 		// The form's chord for the ⚙ panel.
 		return m.beginBatchSession()
@@ -830,6 +1005,15 @@ func (m model) updateBatchCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if s == "enter" || s == "space" || s == " " {
 				return m.beginBatchSession()
 			}
+		case batchSetWhen:
+			// Enter on a time is "then": the row is the question Schedule
+			// answers. Empty, it says what the row wants.
+			if s == "enter" {
+				return m.scheduleBatch()
+			}
+			var cmd tea.Cmd
+			bc.when, cmd = bc.when.Update(msg)
+			return m, cmd
 		}
 		return m, nil
 	case batchFocusButtons:
@@ -852,6 +1036,8 @@ func (m model) pressBatchButton(i int) (tea.Model, tea.Cmd) {
 	switch i {
 	case batchBtnDrop:
 		return m.dropBatch()
+	case batchBtnSchedule:
+		return m.scheduleBatch()
 	case batchBtnSort:
 		m.sortBatchPicks()
 	case batchBtnBatches:
@@ -868,8 +1054,8 @@ func (m model) pressBatchButton(i int) (tea.Model, tea.Cmd) {
 // the key that clears a filter one press earlier; the two are close enough
 // together on the hand that one of them should not silently cost the other.
 func (m model) cancelBatchCompose() (tea.Model, tea.Cmd) {
-	if len(m.batch.picked) > 0 && m.batch.note != batchLeaveWarn {
-		m.batchSay(batchLeaveWarn, true)
+	if len(m.batch.picked) > 0 && m.batch.note != m.batchLeaveWarn() {
+		m.batchSay(m.batchLeaveWarn(), true)
 		return m, nil
 	}
 	m.leaveBatchCompose()
@@ -880,8 +1066,8 @@ func (m model) cancelBatchCompose() (tea.Model, tea.Cmd) {
 // in the note first when there is a draft to lose, so a stray press costs one
 // more press rather than the picks.
 func (m model) openBatchesFromCompose() (tea.Model, tea.Cmd) {
-	if len(m.batch.picked) > 0 && m.batch.note != batchLeaveWarn {
-		m.batchSay(batchLeaveWarn, true)
+	if len(m.batch.picked) > 0 && m.batch.note != m.batchLeaveWarn() {
+		m.batchSay(m.batchLeaveWarn(), true)
 		return m, nil
 	}
 	m.batch = batchComposer{}
@@ -889,13 +1075,21 @@ func (m model) openBatchesFromCompose() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// batchLeaveWarn is the one-press guard on leaving a draft for the Batches page.
-const batchLeaveWarn = "the picks here are not saved until the batch is dropped — press again to leave them"
+// batchLeaveWarn is the one-press guard's words. An edit is not lost by
+// leaving — the record stays as it was — but the changes made here are, so it
+// says that instead.
+func (m model) batchLeaveWarn() string {
+	if m.batch.edit.ID != "" {
+		return "changes here are not saved until the batch is scheduled or dropped — press again to leave them"
+	}
+	return "the picks here are not saved until the batch is dropped or scheduled — press again to leave them"
+}
 
 // batchActions is the button row.
 func (m model) batchActions() []listAction {
 	return []listAction{
 		{label: "▶ Drop now", hint: m.modEnter(), tint: colAccent},
+		{label: "◷ Schedule", hint: "ctrl+s", tint: colInfo},
 		// No chord on the chip: s sorts only while the Batch pane has the keys
 		// (anywhere else it is a letter for a query or a name), and the
 		// footer says so there. A chip teaching "s" would be wrong two times
@@ -985,6 +1179,7 @@ func (m *model) sizeBatchCompose() {
 	g := m.batchGeom()
 	m.batch.pick.input.SetWidth(max(min(g.pickW-16, searchFieldWidth), 6))
 	m.batch.name.SetWidth(max(min(g.batchW-14, 50), 8))
+	m.batch.when.SetWidth(max(min(g.batchW-14, 40), 8))
 	m.batch.pick.setMaxRows(max(g.pickRows-m.batch.pick.separatorLines(), 1))
 	m.ensureBatchVisible()
 }
@@ -995,7 +1190,11 @@ func (m model) viewBatchCompose() string {
 	g := m.batchGeom()
 	h := g.footY + 1
 	lines := make([]string, h)
-	lines[0] = m.titleLine("New batch")
+	title := "New batch"
+	if m.batch.edit.ID != "" {
+		title = "Edit batch"
+	}
+	lines[0] = m.titleLine(title)
 
 	if !g.split {
 		lines[g.paneTabsY] = m.batchPaneTabs()
@@ -1213,7 +1412,7 @@ func (m model) batchSettingLine(row int) string {
 	} else {
 		b.WriteString("  ")
 	}
-	labels := [batchSetCount]string{"Name", "Deliver", "Target", "Session"}
+	labels := [batchSetCount]string{"Name", "Deliver", "Target", "Session", "When"}
 	b.WriteString(nameStyle.Render(fmt.Sprintf("%-*s", batchSetLabelWidth, labels[row])))
 	val := nameStyle
 	if on {
@@ -1249,6 +1448,26 @@ func (m model) batchSettingLine(row int) string {
 		b.WriteString(val.Render("⚙ " + firstNonEmpty(bc.session.summary(), "each prompt's own")))
 		if on {
 			b.WriteString(descStyle.Render("  enter or ctrl+r to edit"))
+		}
+	case batchSetWhen:
+		w := bc.batchWhenText()
+		switch {
+		case on:
+			b.WriteString(bc.when.View())
+		case w == "":
+			b.WriteString(val.Render("now"))
+		default:
+			b.WriteString(val.Render(w))
+		}
+		// What the typed time comes to, read as the user types: "tomorrow
+		// 9:00" is easy to write and easy to misjudge, and the answer costs a
+		// parse.
+		if w != "" {
+			if at, err := parseScheduleTime(w, time.Now()); err == nil {
+				b.WriteString(descStyle.Render("  → " + formatScheduleTime(at, time.Now())))
+			} else {
+				b.WriteString(errStyle.Render("  can't read that"))
+			}
 		}
 	}
 	return b.String()
@@ -1293,6 +1512,9 @@ func (m model) batchBar() string {
 		if i == batchBtnDrop && m.batchDropWhy() != "" {
 			st, hintFg = btnOffStyle, colFaint
 		}
+		if _, why := m.batchScheduleWhy(time.Now()); i == batchBtnSchedule && why != "" {
+			st, hintFg = btnOffStyle, colFaint
+		}
 		if m.batch.focus == batchFocusButtons && m.batch.btn == i {
 			st, hintFg = btnFocusStyle, ""
 		}
@@ -1314,7 +1536,7 @@ func (m model) batchFooterSegs() []string {
 	case batchFocusButtons:
 		segs = []string{"←/→ choose", "enter press"}
 	}
-	segs = append(segs, "tab next", m.modEnter()+" drop", "esc back")
+	segs = append(segs, "tab next", m.modEnter()+" drop", "ctrl+s schedule", "esc back")
 	return segs
 }
 
