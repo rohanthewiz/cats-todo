@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-043
+**Next ID:** N-045
 
 ## Open
 
@@ -121,7 +121,9 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - **N-026** · raised `2026-0915-1836-prompt-editor-undo-v0.32.0` · value medium
   Hand-test undo in a cats pane: that Cmd+z actually arrives (cats forwards
   Cmd), the menu row, and undo after a `@` insert and after a spelling
-  correction, the two cross-stage paths only the commit point covers.
+  correction, the two cross-stage paths only the commit point covers. Since
+  `2026-0924-2007-redo-and-switch-confirm`, redo too: that shift+cmd+z
+  arrives as one of the bound spellings, and ctrl+y where Cmd is eaten.
   *Lapsed* in `2026-0922-0943-info-annotation`.
 
 - **N-028** · raised `2026-0915-1836-prompt-editor-undo-v0.32.0` · value low
@@ -196,9 +198,27 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   exercised it.
 
 - **N-042** · raised `2026-0924-1939-nextlist-hover-card` · value low
-  Release the Next List hover card as v0.37.0 (a minor bump: it is a new
-  capability). It was committed in `2026-0924-1939-nextlist-hover-card` but
-  not released: bump both version places, tag, and push.
+  Release v0.37.0 (a minor bump: new capabilities). Unreleased on `main`:
+  the Next List hover card (`2026-0924-1939-nextlist-hover-card`), redo in
+  the prompt editor, and the switch-confirm fix for existing-pane drops
+  (`2026-0924-2007-redo-and-switch-confirm`). Bump both version places, tag,
+  and push.
+
+- **N-043** · raised `2026-0924-2007-redo-and-switch-confirm` · value medium
+  Live-test the switch confirm (`panesetup.go`) in cats. Drop a prompt with
+  a different model set and Clear off into a claude pane that answered
+  within the last few minutes. Check that the *Switch model?* dialog is
+  seen, answered, and the prompt arrives whole, with the status line's
+  `confirmed the model switch`. Then check the same with only the effort
+  changed, and with a PreModelSwitch hook that asks. Only a scripted fake
+  pane has exercised it.
+
+- **N-044** · raised `2026-0924-2007-redo-and-switch-confirm` · value low
+  Check whether `/model fable` can raise its usage-credits consent dialog on
+  an existing pane (Claude Code 2.1.282 has one: `F3t`/`T5`, "uses usage
+  credits"). If so it would eat the prompt the way the switch confirm did,
+  and `applyPaneSetup` doesn't watch for it. A pane that has consented once
+  won't show it.
 
 ## Roadmap
 
@@ -242,25 +262,26 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
-- **N-018** · closed 2026-09-24 · raised `2026-0913-1932-existing-pane-session-settings`
+- **N-018** · closed 2026-09-24, `2026-0924-2007-redo-and-switch-confirm` · raised `2026-0913-1932-existing-pane-session-settings`
   — `/model` mid-conversation does ask. Claude Code 2.1.282 raises *Switch
   model?* / *Change effort level?* when the cache is warm and the switch
   changes something, and the next Enter answers it, so a Clear-off drop's
   prompt was lost. `applyPaneSetup` (`panesetup.go`) now watches for the
   dialog after each command and presses Yes. The status line says so, and a
-  PreModelSwitch hook's ask stops the drop instead. Not yet released.
-- **N-019** · closed 2026-09-24 · raised `2026-0913-1932-existing-pane-session-settings`
+  PreModelSwitch hook's ask stops the drop instead (`c68084d`). Not yet
+  released.
+- **N-019** · closed 2026-09-24, `2026-0924-2007-redo-and-switch-confirm` · raised `2026-0913-1932-existing-pane-session-settings`
   — Premise corrected: in Claude Code 2.1.282, `/effort xhigh` on a model
   without xhigh no longer errors. It is accepted, and the request runs at high
   (`max` likewise). A model-aware check was declined, because the capability
   table is Claude Code's, partly served at runtime, and a copy would go
   stale. The README's session options section says what happens.
-- **N-027** · closed 2026-09-24 · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
+- **N-027** · closed 2026-09-24, `2026-0924-2007-redo-and-switch-confirm` · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
   — Redo. `promptUndo.redo` (`promptundo.go`): undo moves the state it
   leaves onto it, `redoPrompt` moves it back, and the next change to the text
   clears it (a caret motion does not). The chords are `shift+cmd+z`,
-  `ctrl+shift+z` and `ctrl+y`, and ↷ Redo sits under ↶ Undo on the context menu.
-  Not yet released.
+  `ctrl+shift+z` and `ctrl+y`, and ↷ Redo sits under ↶ Undo on the context menu
+  (`af86f25`). Not yet released.
 - **N-036** · closed 2026-09-24, `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · raised `2026-0924-1802-code-highlight-and-next-list-seed`
   — Release the code highlighting. Shipped in v0.36.0 (tag `v0.36.0`),
   together with the Next List send and the value levels.
