@@ -115,13 +115,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   is read only from settings.json (`autosaveSeconds`) at launch. The list's
   View panel could offer it if hand-editing turns out to be a nuisance.
 
-- **N-037** · raised `2026-0924-1802-code-highlight-and-next-list-seed` · value low
-  The comment in `viewContent` (`ui.go`) says a pre-styled span "loses its
-  reset at the wrap points". lipgloss v2.0.5 closes a style at each break and
-  opens it again on the next line, which the code highlighting now relies on
-  (`TestStyleCodeSpansSurvivesWrap` pins it). Correct the comment, and decide
-  whether the session and attachment lines still need to stay plain.
-
 - **N-038** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value medium
   Live-test the Next List's ✉ Send (`shift+enter`, `nextlist.go`
   `sendFromNext`) in cats: a new session, a worktree session and a running
@@ -216,14 +209,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   close that pane, and let it fire: each step should fail with "the
   scheduled pane is gone". Only the tests have exercised it.
 
-- **N-055** · raised `2026-0925-1344-batch-scheduling-phase2` · value low
-  The composer's footer loses its tail below about 110 columns, and at 80
-  the bar has gone to bare chips (`◷ Schedule`, `☰ Batches`, `✕ Cancel`
-  without chords) while the footer no longer names `ctrl+s`, `ctrl+k` or
-  `esc`. Contract 6 says the footer should then name what the chips stopped
-  teaching. `batchFooterSegs` could put the button chords ahead of the
-  region's keys once `batchBarTier` drops the hints.
-
 - **N-056** · raised `2026-0925-1409-batch-loop-phase3` · value medium
   Live-test batch loops in cats. Only the tests have driven one, with made-up
   pane states. Check:
@@ -303,6 +288,20 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-055** · closed 2026-09-25, `2026-0925-1821-composer-footer-and-view-labels` · raised `2026-0925-1344-batch-scheduling-phase2`
+  — Once `batchBarTier` drops the hints (under 89 columns, not the 110 the
+  item guessed), `batchFooterSegs` leads with the button chords as a legend
+  for the row: `▶ alt+enter · ◷ ctrl+s · ☰ ctrl+k · ✕ esc`. The focused
+  region's keys follow in the width left. The legend is 41 cells where the
+  worded form was 60, so `space pick` still fits at 60 columns. Wide panes
+  are unchanged.
+- **N-037** · closed 2026-09-25, `2026-0925-1821-composer-footer-and-view-labels` · raised `2026-0924-1802-code-highlight-and-next-list-seed`
+  — The `viewContent` comment now says what lipgloss v2 does (a style closed
+  at each break and reopened on the next line). It also no longer calls
+  this the list badges' hazard, which is style nesting, not wrapping. The
+  appended lines are styled now: `⚙ session:` and `📎 n attached:` are dim
+  labels, and `(missing — will not be sent)` is in the error hue, pinned
+  across a wrap by `TestViewMarksWhatItAppends`.
 - **N-028** · closed 2026-09-25, `2026-0925-1808-title-undo` · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
   — The title has its own undo/redo history (`titleUndo`), a second
   `promptUndo` fed by the same commit point (`recordUndo`), as the item said
