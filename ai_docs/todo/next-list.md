@@ -72,12 +72,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   2026-09-24). Not asked for; raise it with the user before doing it. *Lapsed* in
   `2026-0922-0943-info-annotation`.
 
-- **N-014** · raised `2026-0913-1813-done-stamp-v0.31.0` · value low
-  The list hover card (`listhover.go`) shows no completion stamp. The row's
-  compact form may be enough; decide whether the card should spell out the
-  full stamp the way `viewPrompt` does. *Lapsed* from the carried list in
-  `2026-0922-0943-info-annotation`.
-
 - **N-017** · raised `2026-0913-1932-existing-pane-session-settings` · value medium
   Live-test an existing-pane drop into a real claude pane with model and
   effort set, in both run and paste mode. Confirm that `clearSettle` (400ms)
@@ -328,6 +322,14 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-014** · closed 2026-09-25, `2026-0925-1448-hover-card-done-stamp` · raised `2026-0913-1813-done-stamp-v0.31.0`
+  — Decided yes. The compact form on the row was not enough, because it is
+  the row's last mark and the first thing a narrow pane cuts off (a titleless
+  prompt's name alone runs to 60 cells). The card now leads its fields with
+  `Done    2026-09-13 18:13 CDT`, the prompt view's full stamp. There is no
+  row when there is no stamp, and a stamped title-only done todo now earns a
+  card. The format moved into `formatDoneStamp` (`schedule.go`), which the
+  view, the card and the bundle share.
 - **N-050** · closed 2026-09-25, `2026-0925-1409-batch-loop-phase3` · raised `2026-0925-1315-multi-drop-batches-phase1`
   — Batches phase 3, the loop (`batchloop.go`). One prompt at a time, the next
   when the pane goes working → idle (judged per poll by the pure
