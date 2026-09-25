@@ -221,16 +221,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   batch's progress re-sorts the rows under it. Only the tests have
   exercised it.
 
-- **N-059** · raised `2026-0925-1739-batches-menu-and-loop-default` · value medium
-  Release v0.40.0: the Batches page's right-click menu (a new capability, so
-  minor), loop as the composer's default Deliver, and the loop's one-hour
-  resume window (N-057), the fire-time agent check on a scheduled pane
-  drop (N-020), the caret walk that made enter on a long one-line
-  prompt slow (N-024), undo/redo in the title (N-028), and the autosave
-  delay on the View panel (N-035). Bump `main.go` and
-  `cats-plugin.toml`, commit `chore(release): v0.40.0`, tag it, and push the
-  code and the tag.
-
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -273,6 +263,12 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-059** · closed 2026-09-25 · raised `2026-0925-1739-batches-menu-and-loop-default`
+  — Released v0.40.0: both version files bumped, `chore(release): v0.40.0`
+  tagged `v0.40.0` and pushed with the code. It carries the Batches page's
+  right-click menu (the minor), loop as the default Deliver, the one-hour
+  resume window (N-057), N-020, N-024, N-028, N-035 and the column-mode
+  footer (N-007).
 - **N-007** · closed 2026-09-25 · raised `2026-0912-2110-multi-caret-enter-paste-tab-indent`
   — The column-mode footer is 117 cells (was 128), so a 120-cell pane shows
   all of it. Two segments lost the word that restated the lead ("typing goes
