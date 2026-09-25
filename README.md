@@ -732,6 +732,167 @@ the one above it, type a filter, fold the closed rows away: the ticks stay on
 the prompts they were put on, and a prompt that is hidden by a filter or a fold
 is still in the set. A prompt that is deleted leaves it. Actions that cannot
 take a set — a drop, a schedule — still mean the highlighted row and say so.
+The one that can drop a set is `ctrl+k`: with prompts ticked it opens the
+[batch composer](#batches-several-prompts-one-drop) holding them.
+
+## Batches: several prompts, one drop
+
+A drop is one prompt into one place. Five related prompts meant for five fresh
+worktrees used to be five trips through the target picker, the same session
+options set five times, and nothing afterwards to say the five had gone out
+together. A **batch** is those five picked once, put in order, given one setup,
+and dropped as a unit, with a record kept of where each one landed.
+
+`ctrl+k` on the list opens the **Batches** page, which lists every batch you
+have sent; **＋ New** (`ctrl+a` there) opens the composer. With prompts ticked on
+the list (`ctrl+space`), `ctrl+k` skips the page and opens a composer already
+holding them. The list's right-click menu has **⧉ Add to batch…** (the row plus
+anything ticked), and on the [Next List](#the-next-list) page `ctrl+k`, or
+**⧉ Batch…** on an item's menu, opens the composer on that page's items.
+
+```
+CatsTodo vX.Y.Z - New batch
+
+ Backlog │ Next List  ctrl+g            │ Batch  3 prompts
+│ 🔍 filter                  │  6/6     │ ❯  1. Fix flaky drop test △ ⚙ ✱
+  ☒ all · 3 of 5 picked · ctrl+a        │ ⠿  2. Rename fuzzyList headings
+                                        │ ⠿  3. N-014 Tidy promptsel… ✚
+Project                                 │
+  ☑ △ Fix flaky drop test               │   order: manual · s sorts A→Z
+  ☑ Rename fuzzyList headings           │
+  ☐ Add worktree cleanup command        │   Name     nightly cleanup
+                                        │   Deliver  (•) all at once  ( ) one prompt, listed
+Global                                  │   Target   ＋ New Claude Code session on a new worktree
+  ☐ ｉ Blog notes · info — a note, not… │   Session  ⚙ sonnet
+                                        │   ✱ 1 whose own options the batch overrides
+
+   ▶ Drop now alt+enter   ⇅ A→Z   ☰ Batches ctrl+k   ✕ Cancel esc
+```
+
+**The left pane is what you can pick.** Its two tabs are the backlog (project
+and global, under their own headings) and the Next List, and `ctrl+g` flips
+between them — the list's chord for the Next List page, meaning the same thing
+here. A **checkbox is membership**: there is no separate "add" step, so the right
+pane is simply the ticked rows in the order you ticked them, and the two panes
+cannot disagree. `space` (or `enter`, or a click) ticks the highlighted row;
+`ctrl+a`, or the **☐ all** line, ticks every row the filter is showing, and a
+second press takes them all back out. So "type `docs`, press `ctrl+a`" is every
+docs prompt in one move. Because `space` is the checkbox key the filter holds no
+spaces, and fuzzy matching never needs one.
+
+Only open prompts are listed. Done and frozen ones are closed work — and a done
+pile can be hundreds of rows — so offering them only to refuse them would bury
+the rows you came for. An **info** prompt is listed but greyed, with the reason on
+its row, because it is exactly the one you would go looking for and wonder
+about: it is a note, and an agent handed a note would try to do it. A prompt
+that already has its own schedule can be picked, and its row shows the `◷` time,
+so the double booking is visible before the batch goes.
+
+**The right pane is the batch, in delivery order.** Drag a row by its `⠿`, or
+`alt+↑/↓` (the editor's line-move chord) with the pane focused; `x` or
+`delete` takes a row out (and unticks it on the left). **⇅ A→Z** — `s` in the
+pane — sorts once by title. It is an action rather than a view: what it leaves is
+an ordinary order you can keep dragging, because a batch's order is what gets
+delivered and has to be something you can see and edit. The marks after a title
+are the prompt's own (priority, value), then `⚙` when it has session options of
+its own, `✱` when the batch's options override some of them, and `✚` for a Next
+List item that becomes a backlog prompt when the batch drops.
+
+`tab` walks the regions — pick, batch, settings, buttons — and the footer
+names the keys of whichever holds them. Below 100 columns the two panes take
+turns rather than sharing the width (a switcher line says which is up, and
+`tab` or a click moves between them); side by side at that size every title
+would be cut to a stub.
+
+**The settings** are four rows under the batch:
+
+- **Name** — optional. An unnamed batch is listed as its first prompt's title
+  and a count (`Fix flaky drop test +2`).
+- **Deliver** — how the prompts reach the agents (`←/→` or a click):
+  - **all at once** — each prompt gets its own new session, or its own
+    worktree when the target is a worktree row. This is the case
+    [worktree drops](#dropping-onto-a-new-worktree) were built for: several jobs
+    in parallel without any of them editing another's files. A running pane is
+    one conversation, so it is refused as a target here (in words, naming the
+    other two ways) once there is more than one prompt.
+  - **one prompt, listed** — the prompts joined into one body, each under a
+    numbered `## 1. <title>` heading in batch order, after a line telling the
+    agent they are separate tasks to take in order. One drop, into any target.
+- **Target** — `enter` opens the ordinary target picker, so a batch's target is
+  chosen from exactly the rows a single drop offers (new session, new
+  worktree, running panes). It starts on a new Claude Code session, so a batch
+  can go without the trip.
+- **Session** — `enter`, or `ctrl+r` from anywhere in the composer (the
+  editor's chord for the same panel), opens the [session options](#session-options)
+  panel on the batch's own options.
+
+**The batch's options win, field by field.** Any option the batch sets replaces
+the prompt's own; any it leaves at the default falls through to the prompt. So
+"every prompt on sonnet" costs one prompt nothing of its own `/sess-use`
+pattern, and a context mode travels with its argument (the prompt's argument was
+written for the prompt's mode). The two yes/no options can be turned *on* for
+every prompt but not *off* for one that asked for them, since "no" and "not set"
+are the same value. A one-prompt-listed drop is one session and so has one
+setup: only the batch's options apply, and every prompt with options of its own
+wears `✱` to say they won't. The line under the settings counts the `✱` rows.
+
+**▶ Drop now** (`shift+enter`/`alt+enter`, the list's drop chord) sends it. The
+chip is greyed while the batch can't go, and pressing it says why. Leaving with
+picks on the table — `esc`, **✕ Cancel**, **☰ Batches** — takes a second press:
+the first says the picks are not saved until the batch is dropped.
+
+### What a drop of a batch does
+
+The prompts go **one after another**, each an ordinary drop — the same prompt
+composition, agent-ready wait and worktree cut a single drop does. "All at once"
+means *without waiting for any of them to finish their work*, not
+simultaneously: two drops typing into panes at the same moment is how prompts get
+garbled, so the batch holds the manager's one-drop-at-a-time guard for its whole
+run (which also keeps a scheduled drop, `ctrl+s`, from firing into the
+middle of it). The status line counts it through: `batch nightly: dropping 2/3 →
+…`.
+
+Picked Next List items are saved as backlog prompts at that moment — or, when the
+backlog already holds an open copy of the item, that copy is used — so every
+prompt in a batch is a backlog prompt, and nothing is written anywhere by a
+composer you leave with `esc`.
+
+Each prompt that lands is **marked done**, as a single drop marks its prompt. A
+failed one stays open, and the rest still go: in "all at once" the prompts are
+independent by construction, so one branch that could not be cut is no reason
+to hold back the others. Every prompt is re-read from its backlog as the batch
+goes, and one frozen, completed or deleted in another pane meanwhile is not sent;
+the record says so.
+
+### The Batches page and the record
+
+```
+ Batches   2 batches
+
+│ 🔍 type to filter                      │  2/2
+
+   ＋ New ctrl+a   ⧉ Duplicate ctrl+d   ✖ Delete ctrl+x   ← Back esc
+
+❯ ✓ Global task      1 prompt · one prompt, listed · New Claude Code session · 13:08 · 1/1
+  ⚠ nightly cleanup  3 prompts · all at once · New Claude Code session on a new worktree · Thu 11:08 · 2/3
+```
+
+A row's badge is how the batch went: `▶` still going, `✓` every prompt landed,
+`⚠` some did, `✗` none did. `enter` (or a double-click) opens its record — each
+prompt, where it landed, and the error beside any that didn't. **⧉ Duplicate**
+(there or on the page) opens a composer with the batch's settings and whichever
+of its prompts are **still open**, which after a partial drop is exactly the
+ones that didn't land; the ones that did are done, and reopening them on the list
+(`ctrl+t`) is how a finished batch is run again. **✖ Delete** removes the record
+(never the prompts) on a second press.
+
+The records are kept in `batches.json` beside `todos.json` — the project's
+`.cats-todo/` when the batch holds a project prompt, the global config
+directory otherwise. A file of its own, rather than a key in `todos.json`,
+because a batch can mix project and global prompts and so belongs to neither
+backlog, and because it leaves `todos.json` byte-identical for everyone who
+never makes a batch. The file keeps creation order; the page sorts newest first,
+with a batch still going on top.
 
 ## Bundles: disk, email, and the machine across the room
 
@@ -948,6 +1109,7 @@ applied:
 │ ◫ Images…                      │
 │ ✉ Send…            shift+enter │
 │ ◷ Schedule…                    │
+│ ⧉ Batch…                ctrl+k │
 │ ⤓ Add to backlog               │
 │ ⤓ Add as 🍏 quick win          │
 │ ⤓ Add as △ high priority       │
@@ -1141,6 +1303,7 @@ on the prompt you pointed at.
 │ ✎ Edit flag note…               │
 │ ✓ Select             ctrl+space │
 │ ➦ Export…                ctrl+o │
+│ ⧉ Add to batch…          ctrl+k │
 │ ✖ Delete…                ctrl+x │
 ╰─────────────────────────────────╯
 ```
@@ -1172,10 +1335,14 @@ save: the options are written to that prompt and you are back on the list with
 it still highlighted. It is never dim, since the options are local to the
 backlog. (The row used to be **◉ View**; the prompt view is still `ctrl+v`.)
 
-Two rows read the *selection* rather than the prompt: **✓ Select** reads
-**Unselect** on a row that is already ticked, and **➦ Export…** becomes
+Three rows read the *selection* rather than the prompt: **✓ Select** reads
+**Unselect** on a row that is already ticked, **➦ Export…** becomes
 **➦ Export 3 prompts…** while three are held — a menu opened on one row must not
-say "Export" and quietly mean four.
+say "Export" and quietly mean four — and **⧉ Add to batch…** becomes
+**⧉ Batch 4 prompts…**, counting the row it was opened on too, since that row
+goes into the [batch](#batches-several-prompts-one-drop) whether or not it is
+ticked. It is dim on a done, frozen or info prompt, none of which a batch can
+drop.
 
 ### Marking priority and quick wins from the list
 

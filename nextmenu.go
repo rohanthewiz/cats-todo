@@ -15,6 +15,7 @@
 //	│ ◫ Images…                      │   … with its attachments editor up
 //	│ ✉ Send…            shift+enter │   straight to an agent, unsaved
 //	│ ◷ Schedule…                    │   save (or reuse the saved copy), schedule
+//	│ ⧉ Batch…                ctrl+k │   a batch composer with this item picked
 //	│ ⤓ Add to backlog               │   saved in one press, no form
 //	│ ⤓ Add as 🍏 quick win          │   … with one mark set
 //	│ ⤓ Add as △ high priority       │
@@ -46,6 +47,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -59,6 +61,7 @@ const (
 	nextMenuImages
 	nextMenuSend
 	nextMenuSchedule
+	nextMenuBatch
 	nextMenuAdd
 	nextMenuAddFruit
 	nextMenuAddHigh
@@ -183,6 +186,9 @@ func (m model) openNextMenu(msg tea.MouseClickMsg, it nextItem) (tea.Model, tea.
 		{act: nextMenuImages, label: "◫ Images…", why: draftWhy},
 		{act: nextMenuSend, label: "✉ Send…", hint: m.modEnter(), why: sendWhy},
 		{act: nextMenuSchedule, label: "◷ Schedule…", why: schedWhy},
+		// A composer with this item already picked, on the Next List tab, so
+		// the next few items are a space each away.
+		{act: nextMenuBatch, label: "⧉ Batch…", hint: "ctrl+k"},
 		add(nextMenuAdd, "⤓ Add to backlog"),
 		// The marks in the annotation bar's order, wearing the glyphs the row
 		// will draw, so the menu is a legend for what the press leaves behind.
@@ -273,6 +279,8 @@ func (m model) pressNextMenu(i int) (tea.Model, tea.Cmd) {
 		return m.sendNextItem(it)
 	case nextMenuSchedule:
 		return m.scheduleNextItem(it)
+	case nextMenuBatch:
+		return m.beginBatchCompose(stageNextList, batchSrcNext, []batchCand{{next: it, title: nextItemTitle(it)}})
 	case nextMenuCopyID:
 		m.next.say("copied "+it.ID, false)
 		return m, copyTextToClipboard(it.ID)
@@ -363,10 +371,22 @@ func (m model) nextBacklogCopy(it nextItem) (todoRef, Todo, bool) {
 // Refusals and failures are said on the page's heading, which is the line in
 // view; ok false means one was said.
 func (m *model) addNextItem(it nextItem, mark annots) (todoRef, bool) {
+	ref, err := m.saveNextItem(it, mark)
+	if err != nil {
+		m.next.say(err.Error(), true)
+		return todoRef{}, false
+	}
+	return ref, true
+}
+
+// saveNextItem is addNextItem without the saying: the save itself, with the
+// refusal or failure returned as an error for a caller that reports it on a
+// screen of its own — the batch composer, which turns picked items into
+// prompts as the batch is dropped (nextItemAsPrompt).
+func (m *model) saveNextItem(it nextItem, mark annots) (todoRef, error) {
 	sc, ok := m.nextAddScope()
 	if !ok {
-		m.next.say(noBacklogWhy, true)
-		return todoRef{}, false
+		return todoRef{}, errNoBacklog
 	}
 	if lvl, err := normalizeValue(it.Value); err == nil {
 		mark.Value = lvl
@@ -374,13 +394,12 @@ func (m *model) addNextItem(it nextItem, mark annots) (todoRef, bool) {
 	td := Todo{ID: newID(), Title: nextItemTitle(it), Prompt: nextItemPrompt(it), Created: time.Now()}
 	mark.applyTo(&td)
 	if err := m.storeFor(sc).add(td); err != nil {
-		m.next.say("save failed: "+err.Error(), true)
-		return todoRef{}, false
+		return todoRef{}, fmt.Errorf("save failed: %w", err)
 	}
 	// The list behind this page is rebuilt now, so its count (and the pane
 	// title's paw badge) is right the moment the page is left.
 	m.rebuildList()
-	return todoRef{scope: sc, id: td.ID}, true
+	return todoRef{scope: sc, id: td.ID}, nil
 }
 
 // scheduleNextItem is ◷ Schedule…: a schedule is a note on a backlog prompt,

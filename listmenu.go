@@ -25,6 +25,7 @@
 //	│ ☐ ⚑ Flag                        │
 //	│ ✎ Flag note…                    │
 //	│ ➦ Export…                ctrl+o │
+//	│ ⧉ Add to batch…          ctrl+k │
 //	│ ✖ Delete…                ctrl+x │
 //	╰─────────────────────────────────╯
 //
@@ -124,6 +125,9 @@ const (
 	// remembers.
 	listMenuSelect
 	listMenuExport
+	// Batch is Export's neighbour for the same reason: it too acts on the
+	// selection when there is one, and on the row otherwise.
+	listMenuBatch
 	listMenuDelete
 	listMenuActionCount
 )
@@ -294,6 +298,25 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 	if n := m.markCount(); n > 0 {
 		exportLabel = "➦ Export " + promptWord(n) + "…"
 	}
+	// Batch picks this prompt plus the selection, so the label counts both —
+	// the row the menu was opened on is in the batch whether or not it is
+	// ticked. Closed work and notes cannot be dropped, so the row says so
+	// here rather than opening a composer that leaves the prompt out.
+	batchLabel, batchWhy := "⧉ Add to batch…", ""
+	if n := m.markCount(); n > 0 {
+		if !m.marked[ref] {
+			n++
+		}
+		batchLabel = "⧉ Batch " + promptWord(n) + "…"
+	}
+	switch {
+	case td.Done:
+		batchWhy = "that prompt is done — reopen it (ctrl+t) to batch it"
+	case td.Frozen:
+		batchWhy = "that prompt is frozen — unfreeze it (ctrl+f) to batch it"
+	case td.Info:
+		batchWhy = "that prompt is marked info — a note, not work for an agent"
+	}
 
 	var mu listMenu
 	mu.open, mu.ref = true, ref
@@ -330,6 +353,7 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 		// so neither is ever dim.
 		{act: listMenuSelect, label: selectLabel, hint: "ctrl+space"},
 		{act: listMenuExport, label: exportLabel, hint: "ctrl+o"},
+		{act: listMenuBatch, label: batchLabel, hint: "ctrl+k", why: batchWhy},
 		{act: listMenuDelete, label: "✖ Delete…", hint: "ctrl+x"},
 	}
 	mu.cursor = mu.firstLive()
@@ -432,6 +456,10 @@ func (m model) pressListMenu(i int) (tea.Model, tea.Cmd) {
 		// the menu row has to mean the same thing, or the pointer and the
 		// keyboard would be two different features.
 		return m.beginExport()
+	case listMenuBatch:
+		// The chord's own road, with this row in the batch beside whatever is
+		// selected.
+		return m.beginBatchesWith(ref)
 	case listMenuDelete:
 		return m.beginDelete()
 	}

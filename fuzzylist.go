@@ -150,6 +150,13 @@ type fuzzyList struct {
 	// which is why this is set by the caller from the selection itself rather
 	// than measured off the drawn items.
 	showMarks bool
+	// checkboxes turns the same column into a checkbox on every row — ☑ for a
+	// marked row, ☐ for the rest — for a list whose rows are *choices* rather
+	// than a backlog that is occasionally selected from: the batch composer's
+	// Pick pane (batchcompose.go). There an empty box is the point of the row,
+	// the thing to press, so the showMarks rule of drawing nothing on an
+	// unmarked row would hide the control.
+	checkboxes bool
 }
 
 // searchFieldWidth is how many columns the query box holds. Wide enough for the
@@ -686,9 +693,14 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 		// Blank rather than an empty box on an unmarked row — an unticked
 		// checkbox on every line would draw the eye to the rows that are not
 		// the answer.
-		if l.showMarks {
+		if l.showMarks || l.checkboxes {
 			cell := " "
-			if it.marked {
+			switch {
+			case l.checkboxes && it.marked:
+				cell = "☑"
+			case l.checkboxes:
+				cell = "☐"
+			case it.marked:
 				cell = markGlyph
 			}
 			r.WriteString(onRow(markStyle, selected).Render(cell + " "))

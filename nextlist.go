@@ -769,6 +769,10 @@ func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.sendFromNext()
 	case "ctrl+r":
 		return m.refreshNextList()
+	case "ctrl+k":
+		// The batch composer, on this page's items: several of them, picked
+		// and ordered, to agents in one go.
+		return m.beginBatchCompose(stageNextList, batchSrcNext, nil)
 	}
 	m.next.say("", false)
 	return m, m.next.list.editQuery(msg)
@@ -851,7 +855,7 @@ func (m model) viewNextList() string {
 	// segment a narrow pane drops (fitFooter cuts from the tail), and the
 	// least needed, since everything on the menu is on the bar or a chord too
 	// except the two copies.
-	segs := []string{"dbl-click new prompt", "↑/↓ choose", "type to filter", "right-click menu"}
+	segs := []string{"dbl-click new prompt", "↑/↓ choose", "type to filter", "ctrl+k batch", "right-click menu"}
 	if m.nextBarTier() != tierHints {
 		// The chips stopped teaching their chords, so the footer takes over.
 		segs = append([]string{"enter new prompt", m.modEnter() + " send", "ctrl+r refresh", "esc back"}, segs...)

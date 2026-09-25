@@ -50,6 +50,12 @@ const (
 	// stageNextList is the Next List page (nextlist.go): the project's
 	// ai_docs/todo/next-list.md, as rows a new prompt can be started from.
 	stageNextList
+	// The batch screens: the composer that picks, orders and drops several
+	// prompts at once (batchcompose.go), the page listing every batch sent
+	// (batches.go), and one batch's record.
+	stageBatchCompose
+	stageBatches
+	stageBatchView
 )
 
 // confirmKind distinguishes what the confirm stage is about to do.
@@ -574,6 +580,21 @@ type model struct {
 	// way. See modEnter.
 	kbEnhanced bool
 
+	// The batch composer (batchcompose.go), the chain delivering a dropped
+	// batch (batchrun.go), and the Batches page (batches.go). The composer's
+	// zero value is "not open"; batchRun is non-nil exactly while a batch
+	// holds the dropping guard.
+	batch    batchComposer
+	batchRun *batchRunner
+	batches  batchesPage
+	// pickForBatch and sessForBatch are the target picker and the ⚙ panel
+	// opened from the composer: enter in the picker records the row on the
+	// draft instead of dropping, and leaving the panel writes the options to
+	// the draft instead of to a prompt. Both return to the composer, and both
+	// are cleared with it (leaveBatchCompose) and by backToList.
+	pickForBatch bool
+	sessForBatch bool
+
 	dropping bool // a drop is in flight (off the UI thread); guards re-entry
 	quitting bool
 }
@@ -693,6 +714,10 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// tick is armed in the same breath — the loop must survive every path
 		// out of fireDueSchedules.
 		return m, tea.Batch(m.fireDueSchedules(time.Time(msg)), scheduleTick())
+	case batchStepMsg:
+		// Above the stage switch like a drop's result: the chain has to go on
+		// whatever screen the user has moved to meanwhile.
+		return m.finishBatchStep(msg)
 	case dropResultMsg:
 		m.dropping = false
 		if msg.nextID != "" {
@@ -748,6 +773,9 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.promptSelDrag {
 			return m.promptSelOver(msg)
 		}
+		if m.batch.dragging {
+			return m.batchDragOver(msg)
+		}
 		// Otherwise it is the pointer moving with nothing held. Everywhere but
 		// the list that is a message the terminal was never asked for
 		// (MouseModeCellMotion reports motion only under a button — see View),
@@ -785,6 +813,9 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseReleaseMsg:
 		if m.dragging {
 			return m.endDrag()
+		}
+		if m.batch.dragging {
+			return m.endBatchDrag()
 		}
 		if m.promptSelDrag {
 			// The anchor stays behind: the sweep is over, but what it selected is
@@ -871,6 +902,12 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateViewOpts(msg)
 		case stageNextList:
 			return m.updateNextList(msg)
+		case stageBatchCompose:
+			return m.updateBatchCompose(msg)
+		case stageBatches:
+			return m.updateBatches(msg)
+		case stageBatchView:
+			return m.updateBatchView(msg)
 		}
 	}
 	return m.forward(msg)
@@ -917,6 +954,16 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = m.spellList.editQuery(msg)
 	case stageNextList:
 		cmd = m.next.list.editQuery(msg)
+	case stageBatchCompose:
+		// The blink and a paste go to whichever box holds the keys: the
+		// name on its settings row, the Pick pane's query otherwise.
+		if m.batch.focus == batchFocusSettings && m.batch.setRow == batchSetName {
+			m.batch.name, cmd = m.batch.name.Update(msg)
+		} else if m.batch.focus == batchFocusPick {
+			cmd = m.batch.pick.editQuery(msg)
+		}
+	case stageBatches:
+		cmd = m.batches.list.editQuery(msg)
 	}
 	return m, cmd
 }
@@ -1052,6 +1099,8 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.beginImport()
 	case "ctrl+g":
 		return m.beginNextList()
+	case "ctrl+k":
+		return m.beginBatches()
 	case "ctrl+o":
 		return m.beginExport()
 	case "ctrl+up":
@@ -1154,6 +1203,10 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m.clickViewOpts(msg)
 	case stageNextList:
 		return m.clickNext(msg)
+	case stageBatchCompose:
+		return m.clickBatchCompose(msg)
+	case stageBatches:
+		return m.clickBatches(msg)
 	}
 	return m, nil
 }
@@ -1981,6 +2034,9 @@ func (m *model) backToList() {
 	// next panel opened over the form write straight to disk on esc, into
 	// whichever prompt this one was about.
 	m.sessFromList, m.sessListRef = false, todoRef{}
+	// The composer's two borrowed screens, for the same reason: left set, the
+	// next picker would record a target on a draft nobody is building.
+	m.pickForBatch, m.sessForBatch = false, false
 	_ = m.setActionFocus(false)
 }
 
@@ -2039,6 +2095,13 @@ func (m model) resolve(ref todoRef) (Todo, bool) {
 // picker shows about "this prompt" reads it through here, so a Next List item
 // gets the same rows, warnings and heading a saved prompt would.
 func (m model) dropSubject() (Todo, bool) {
+	if m.pickForBatch {
+		// The batch has no one prompt; what the rows warn about is its own
+		// options, which every prompt in it will carry.
+		o := m.batch.session.clone()
+		name := firstNonEmpty(strings.TrimSpace(m.batch.name.Value()), fmt.Sprintf("batch of %d", len(m.batch.picked)))
+		return Todo{Title: name, Session: sessionPtr(o)}, true
+	}
 	if m.nextDrop != nil {
 		return m.nextDrop.todo, true
 	}
@@ -3726,6 +3789,9 @@ func (m model) beginListSession(ref todoRef) (tea.Model, tea.Cmd) {
 func (m model) closeSession() (tea.Model, tea.Cmd) {
 	m.commitSessInput()
 	m.setSessStatus("", false)
+	if m.sessForBatch {
+		return m.closeBatchSession()
+	}
 	if m.sessFromList {
 		return m.saveListSession()
 	}
@@ -4449,6 +4515,12 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 // item sent from there, which is where the user was walking and where the
 // highlight is still parked on the item.
 func (m model) leaveTarget() (tea.Model, tea.Cmd) {
+	if m.pickForBatch {
+		m.pickForBatch = false
+		m.stage = stageBatchCompose
+		m.sizeBatchCompose()
+		return m, m.setBatchFocus(m.batch.focus)
+	}
 	if m.nextDrop != nil {
 		m.nextDrop = nil
 		m.stage = stageNextList
@@ -4496,12 +4568,17 @@ func (m model) updateTarget(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
-	if m.dropping {
+	// Choosing a batch's target drops nothing, so a drop in flight is no
+	// reason to refuse it.
+	if m.dropping && !m.pickForBatch {
 		return m, nil
 	}
 	idx := m.targetList.selectedIndex()
 	if idx < 0 || idx >= len(m.targets) {
 		return m, nil
+	}
+	if m.pickForBatch {
+		return m.chooseBatchTarget(m.targets[idx])
 	}
 	if m.nextDrop != nil {
 		return m.chooseNextTarget(m.targets[idx], mode)
@@ -5051,7 +5128,8 @@ func (m model) View() tea.View {
 	switch {
 	case m.stage == stageList || m.stage == stageNextList:
 		v.MouseMode = tea.MouseModeAllMotion
-	case m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageImport || m.stage == stageSpell || m.stage == stageViewOpts:
+	case m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageImport || m.stage == stageSpell || m.stage == stageViewOpts ||
+		m.stage == stageBatchCompose || m.stage == stageBatches:
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -5096,6 +5174,12 @@ func (m model) renderStage() string {
 		return m.viewSpell()
 	case stageViewOpts:
 		return m.viewViewOpts()
+	case stageBatchCompose:
+		return m.viewBatchCompose()
+	case stageBatches:
+		return m.viewBatches()
+	case stageBatchView:
+		return m.viewBatchView()
 	case stageNextList:
 		// Its card floats over the page the way the list's does over the list,
 		// composited for the same reason: nextRowsRow is measured on the frame
@@ -5477,7 +5561,7 @@ func (m model) listFooter() string {
 		// double-click is a guess worth confirming, not one worth making blind.
 		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+space select · ctrl+o export · ctrl+x delete") +
 			"\n" +
-			footerStyle.Render("ctrl+r import · ctrl+g next list · ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
+			footerStyle.Render("ctrl+r import · ctrl+g next list · ctrl+k batches · ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
 	}
 	// Freeze rides directly after done: the two are the ways a prompt leaves the
 	// open list, and reading them side by side is what teaches that they are
@@ -5502,7 +5586,7 @@ func (m model) listFooter() string {
 	// the concessions from the right, since the ✓ column it explains is the one
 	// piece of chrome on this screen with no chip anywhere naming its key.
 	segs := []string{
-		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze", "ctrl+space select", "ctrl+r import",
+		"ctrl+s schedule", "ctrl+v view", "ctrl+t done", "ctrl+f freeze", "ctrl+space select", "ctrl+k batches", "ctrl+r import",
 		"ctrl+↑/↓ or drag move", "ctrl+d hide closed", "ctrl+l view options", "ctrl+w clear done", "esc quit",
 		"right-click menu",
 	}
@@ -6488,6 +6572,9 @@ func (m model) viewSession() string {
 	if m.sessFromList {
 		back, saved = "enter/esc save and back to the list", "saved to the prompt as you leave"
 	}
+	if m.sessForBatch {
+		back, saved = "enter/esc back to the batch", "set fields override each prompt's own; blank ones keep them"
+	}
 	b.WriteString(footerStyle.Render(m.fitFooter([]string{
 		"↑/↓ row", "←/→ or space change", back,
 	})))
@@ -6635,6 +6722,12 @@ func (m model) viewTarget() string {
 		heading = "Schedule drop into… (" + formatScheduleTime(m.schedAt, time.Now()) + ")"
 		foot = "enter schedule · esc back"
 	}
+	if m.pickForBatch {
+		// Batch flavor: enter records the row on the draft; the batch itself
+		// is dropped from the composer, and always runs.
+		heading = "Batch target…"
+		foot = "enter choose · esc back to the batch"
+	}
 	b.WriteString(titleStyle.Render(heading))
 	b.WriteString("  ")
 	b.WriteString(descStyle.Render(truncate(title, 60)))
@@ -6693,6 +6786,12 @@ func (m *model) applySizes() {
 		m.spellList.input.SetWidth(w)
 	case stageNextList:
 		m.next.resize(m.width, m.height)
+	case stageBatchCompose:
+		// Cut to the new width, then windowed to the new height.
+		m.rebuildBatchPick()
+		m.sizeBatchCompose()
+	case stageBatches:
+		m.sizeBatchesPage()
 	case stageView:
 		m.viewVP.SetWidth(m.viewWidth())
 		m.viewVP.SetHeight(m.viewHeight())
