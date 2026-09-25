@@ -808,7 +808,12 @@ its own, `✱` when the batch's options override some of them, and `✚` for a N
 List item that becomes a backlog prompt when the batch drops.
 
 `tab` walks the regions — pick, batch, settings, buttons — and the footer
-names the keys of whichever holds them. Below 100 columns the two panes take
+names the keys of whichever holds them. Once the pane is too narrow for the
+button row to print its chords (under about 90 columns), the footer leads with
+them instead, as a legend for the row — `▶ alt+enter · ◷ ctrl+s · ☰ ctrl+k ·
+✕ esc` — and the region's keys take what is left: nothing else on screen would
+say how to drop, schedule or leave, while the region's keys are mostly arrows
+and typing. Below 100 columns the two panes take
 turns rather than sharing the width (a switcher line says which is up, and
 `tab` or a click moves between them); side by side at that size every title
 would be cut to a stub.

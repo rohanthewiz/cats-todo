@@ -1800,8 +1800,30 @@ func (m model) batchFooterSegs() []string {
 	case batchFocusButtons:
 		segs = []string{"←/→ choose", "enter press"}
 	}
-	segs = append(segs, "tab next", m.modEnter()+" drop", "ctrl+s schedule", "esc back")
-	return segs
+	if m.batchBarTier() == tierHints {
+		// The chips spell out their own chords here, so the button keys can
+		// trail the region's: fitFooter trims from the right, and a pane that
+		// cuts them still shows each one on the chip it presses.
+		return append(segs, "tab next", m.modEnter()+" drop", "ctrl+s schedule", "esc back")
+	}
+	// Contract 6: once the bar has shed its hints (below about 90 cells)
+	// nothing on screen names these chords any more, so they lead the line —
+	// the one place fitFooter never trims — in the bar's own order, and the
+	// region's keys take what width is left. The region's keys are the easier
+	// loss: most are the pane's ordinary keys (arrows, space, typing), where a
+	// button's chord cannot be guessed.
+	//
+	// The chords are written as the row's legend, glyph beside key, at both
+	// narrow tiers. The glyph is on the chip whether or not its label is, so
+	// "◷ ctrl+s" reads against "◷ Schedule" as well as against a bare "◷";
+	// and the legend is 41 cells where the worded form ("ctrl+s schedule"…)
+	// is 60, which in a 60–80 cell pane is the difference between keeping the
+	// focused region's first keys and losing every one of them.
+	//
+	// ⇅ A→Z has no entry, as it has no chord on the chip either: s sorts only
+	// while the Batch pane has the keys, and that pane's own segments say so.
+	chords := []string{"▶ " + m.modEnter(), "◷ ctrl+s", "☰ ctrl+k", "✕ esc"}
+	return append(append(chords, segs...), "tab next")
 }
 
 // plural is the "s" a count takes.

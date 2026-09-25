@@ -383,6 +383,42 @@ func TestComposerEscGuardsPicks(t *testing.T) {
 	}
 }
 
+// TestComposerFooterNamesTheChordsTheBarDropped (N-055): below about 90
+// columns the button row sheds its chords, and the footer used to keep them
+// at its tail — the first thing fitFooter cuts — so an 80-column composer
+// named neither ctrl+s, ctrl+k nor esc anywhere (contract 6). They now lead
+// the line once the bar drops its hints, and at every width the line fits.
+func TestComposerFooterNamesTheChordsTheBarDropped(t *testing.T) {
+	for _, w := range []int{50, 60, 80} {
+		m, _, _ := batchModel(t, w, 30)
+		m = openComposer(t, m)
+		if m.batchBarTier() == tierHints {
+			t.Fatalf("width %d: the bar still has its hints; the test needs a narrower pane", w)
+		}
+		foot := m.fitFooter(m.batchFooterSegs())
+		for _, want := range []string{"▶ " + m.modEnter(), "◷ ctrl+s", "☰ ctrl+k", "✕ esc"} {
+			if !strings.Contains(foot, want) {
+				t.Errorf("width %d: footer %q does not name %q", w, foot, want)
+			}
+		}
+		if got := ansi.StringWidth(foot); got > w {
+			t.Errorf("width %d: footer is %d cells", w, got)
+		}
+	}
+	// With room left over, the focused region's keys still follow.
+	m, _, _ := batchModel(t, 80, 30)
+	m = openComposer(t, m)
+	if foot := m.fitFooter(m.batchFooterSegs()); !strings.Contains(foot, "space pick") {
+		t.Errorf("80 columns: footer %q lost the Pick pane's keys", foot)
+	}
+	// A wide pane is unchanged: the chips teach the chords, the region leads.
+	m, _, _ = batchModel(t, 140, 30)
+	m = openComposer(t, m)
+	if foot := m.fitFooter(m.batchFooterSegs()); !strings.HasPrefix(foot, "space pick") {
+		t.Errorf("140 columns: footer %q should lead with the region's keys", foot)
+	}
+}
+
 // TestComposerStarMarksOverrides: ✱ is on a pick whose own options the batch
 // replaces, and — for one combined prompt — on every pick with options.
 func TestComposerStarMarksOverrides(t *testing.T) {
