@@ -20,6 +20,8 @@
 // read it (stageBatchView: which prompt went where, and why any did not), run
 // it again (⧉ Duplicate), or throw the record away.
 //
+// Right-click a batch for the same actions as a menu (batchmenu.go).
+//
 // The rows read both batches.json files, the project's and the global one. A
 // running batch is on top (it is the one still changing), then the scheduled
 // ones soonest first (what happens next), then everything else newest first.
@@ -111,6 +113,10 @@ func candFromTodo(ref todoRef, t Todo) batchCand {
 // openBatchesPage shows the page, read fresh from both files.
 func (m *model) openBatchesPage() {
 	m.clearHover()
+	// A menu left from the last visit (the page was left by a road that is not
+	// backToList, such as a composer opened from it) would swallow the first
+	// key of this one.
+	m.batchesMenu = batchesMenu{}
 	m.stage = stageBatches
 	keep := ""
 	if i := m.batches.list.selectedIndex(); i >= 0 && i < len(m.batches.rows) {
@@ -357,8 +363,7 @@ func (m model) batchesBar() string {
 		// Unschedule applies only to a scheduled batch; on any other row it
 		// is greyed like a chip with nothing selected, and says why if
 		// pressed anyway.
-		stoppable := hb.State == batchRunning && hb.Deliver == deliverLoop
-		if (acts[i].needsSel && !hasSel) || (i == batchesBtnUnsched && hb.State != batchScheduled && !stoppable) {
+		if (acts[i].needsSel && !hasSel) || (i == batchesBtnUnsched && unscheduleWhy(hb) != "") {
 			st, hintFg = btnOffStyle, colFaint
 		}
 		b.WriteString(renderChipDimHint(st, hintFg, acts[i], tier, c.text))
@@ -471,8 +476,8 @@ func (m model) unscheduleBatch() (tea.Model, tea.Cmd) {
 		m.batches.say(line, isErr)
 		m.reloadBatches()
 		return m, nil
-	case b.State != batchScheduled:
-		m.batches.say("only a scheduled batch can be unscheduled (or a running loop stopped) — this one is "+b.State, false)
+	case unscheduleWhy(b) != "":
+		m.batches.say(unscheduleWhy(b), false)
 		return m, nil
 	}
 	off := b
@@ -492,6 +497,31 @@ func (m model) unscheduleBatch() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// unscheduleWhy is why ✕ Unschedule cannot act on b, or "" when it can: only
+// a scheduled batch has a time to take off, and a running loop's ctrl+u is
+// ■ Stop instead. Shared by the chord and the page's menu (batchmenu.go), so
+// the greyed row and the refused chord say the same words.
+func unscheduleWhy(b Batch) string {
+	if b.State == batchScheduled || (b.State == batchRunning && b.Deliver == deliverLoop) {
+		return ""
+	}
+	return "only a scheduled batch can be unscheduled (or a running loop stopped) — this one is " + b.State
+}
+
+// deleteWhy is why ✖ Delete cannot act on b, or "": a record still being
+// written by this manager — an all-at-once chain mid-drop, or a loop it is
+// driving — would be written straight back by the next step, so the delete
+// would not stick. Shared with the menu, as unscheduleWhy is.
+func (m model) deleteWhy(b Batch) string {
+	if b.State == batchRunning && m.batchRun != nil && m.batchRun.batch.ID == b.ID {
+		return "that batch is still being dropped — delete it once it has finished"
+	}
+	if _, driving := m.loops[b.ID]; driving {
+		return "that loop is still running — ■ Stop it first (ctrl+u)"
+	}
+	return ""
+}
+
 // deleteBatch is ✖ Delete, on the second press.
 func (m model) deleteBatch() (tea.Model, tea.Cmd) {
 	b, ok := m.highlightedBatch()
@@ -499,12 +529,8 @@ func (m model) deleteBatch() (tea.Model, tea.Cmd) {
 		m.batches.say("highlight a batch first — ↑/↓ to choose one", false)
 		return m, nil
 	}
-	if b.State == batchRunning && m.batchRun != nil && m.batchRun.batch.ID == b.ID {
-		m.batches.say("that batch is still being dropped — delete it once it has finished", true)
-		return m, nil
-	}
-	if _, driving := m.loops[b.ID]; driving {
-		m.batches.say("that loop is still running — ■ Stop it first (ctrl+u)", true)
+	if why := m.deleteWhy(b); why != "" {
+		m.batches.say(why, true)
 		return m, nil
 	}
 	if m.batches.armDelete != b.ID {
@@ -523,6 +549,12 @@ func (m model) deleteBatch() (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateBatches(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// An open menu owns every key (see menuBox.key). It is answered before the
+	// delete arm below is touched, since the menu's own Delete row is the
+	// armed delete's second press.
+	if m.batchesMenu.open {
+		return m.updateBatchesMenu(msg)
+	}
 	s := msg.String()
 	if s != "ctrl+x" {
 		m.batches.armDelete = ""
@@ -563,6 +595,11 @@ func (m model) updateBatches(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // clickBatches is the pointer on the page: a chip presses, a row highlights,
 // and a second click on the same row opens its record.
 func (m model) clickBatches(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	// An open menu takes the press first, wherever it landed: off the box it
+	// only dismisses, and the chip or row underneath must not also act.
+	if m.batchesMenu.open {
+		return m.clickBatchesMenu(msg)
+	}
 	if msg.Y == batchesBarRow {
 		for i, c := range m.batchesChips() {
 			if msg.X >= c.start && msg.X < c.end {
@@ -608,7 +645,7 @@ func (m model) viewBatches() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.batches.list.view("no batches yet — ＋ New (ctrl+a) to make one", m.batchesBar(), m.width))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{"enter open or edit", "↑/↓ choose", "type to filter", "dbl-click open"})))
+	b.WriteString(footerStyle.Render(m.fitFooter([]string{"enter open or edit", "↑/↓ choose", "type to filter", "dbl-click open", "right-click menu"})))
 	return b.String()
 }
 

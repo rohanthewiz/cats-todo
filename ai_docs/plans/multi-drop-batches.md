@@ -458,7 +458,10 @@ tests in `batchsched_test.go`. Where it departs from the design above:
   the prompt's own state (○ ◷ ✓ ❄); the batch's time sits among the description
   marks beside the prompt's own `⏰`.
 - **The Batches page has no right-click menu yet**, and no ▶ Drop now or ✎ Edit
-  chip: `enter` on a plan opens it in the composer, where both are.
+  chip: `enter` on a plan opens it in the composer, where both are. *(The menu
+  came later, as N-054: `batchmenu.go`, the page's row actions only — ✎ Edit… /
+  ☰ Open record, ⧉ Duplicate…, ✕ Unschedule / ■ Stop, ✖ Delete record… — with
+  ＋ New and ← Back left on the bar.)*
 
 ## Phase 3 as built (2026-09-25)
 

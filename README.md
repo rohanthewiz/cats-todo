@@ -1064,6 +1064,30 @@ ones that didn't land; the ones that did are done, and reopening them on the lis
 (`ctrl+t`) is how a finished batch is run again. **✖ Delete** removes the record
 (never the prompts) on a second press.
 
+**Right-click a batch** for the same actions as a menu, on the batch that was
+pointed at. It uses the same box and keys as the list's menu:
+
+```
+╭──────────────────────────╮
+│ ✎ Edit…            enter │
+│ ⧉ Duplicate…      ctrl+d │
+│ ✕ Unschedule      ctrl+u │
+│ ✖ Delete record…  ctrl+x │
+╰──────────────────────────╯
+```
+
+Each row says what its press does on *this* batch. The first reads **✎ Edit…**
+on a plan and **☰ Open record** on one that has gone, and the third reads
+**■ Stop** on a running loop, as the chip does. A row that can't act is grey
+and says why when pressed, in the chord's own words: Unschedule on a record,
+and Delete while this manager is still dropping or driving the batch. Delete
+keeps the page's two-press rule. The first press arms it, and the next menu on
+that batch reads **✖ Confirm delete**. ＋ New and ← Back are about the page,
+not a batch, so they stay on the bar. A press acts on the batch the menu was
+opened on even if the rows re-sorted under it meanwhile (a running batch's
+progress re-reads them); one deleted in another pane is said rather than acted
+on.
+
 The records are kept in `batches.json` beside `todos.json` — the project's
 `.cats-todo/` when the batch holds a project prompt, the global config
 directory otherwise. A file of its own, rather than a key in `todos.json`,

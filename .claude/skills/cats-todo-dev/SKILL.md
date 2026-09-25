@@ -63,6 +63,7 @@ and the rest stay local.
 | `batchrun.go` | delivering a batch: one ordinary `performDrop` per step, chained through `batchStepMsg` under the `m.dropping` guard; the record is written before the first step and after each. `startBatch` is shared by the composer (`launchBatch`) and `fireDueBatches` (the tick, after `fireDueSchedules`: grace, missed, claim via `swapBatch`, backlogs re-read, a batch open in the composer skipped; a fired batch's steps go through `performScheduledDrop` for the pane re-check) |
 | `batchloop.go` | the loop delivery: `LoopOpts` / `LoopProgress` (next, phase, watched pane, owner pid + heartbeat), the `loopRunner` per batch in `m.loops`; the tick's `pane.list` poll (`loopPollMsg`) judged by the pure `loopRunner.judge` (working → idle; blocked = working; never-started 45s, no agent 10s, pane gone, max wait fail); sends (`loopSentMsg`) take `m.dropping` only while typing; Next written before each send; every record write is a `swapBatch` (`loopWrite`, a lost one stands the runner down); `adoptLoops` takes over loops whose owner is dead or stale; `stopLoop`; same-session finish lifted into one message (`loopFinishText`) |
 | `batches.go` | the Batches page (`stageBatches`: ＋ New, ⧉ Duplicate, ✕ Unschedule — ■ Stop on a running loop, ✖ Delete on a second press; running, then scheduled soonest first, then newest first) and one batch's record (`stageBatchView`, with the loop's options, where it stands, `Why`, and each run's pane/branch/`Stalled`); enter on a plan opens `composerFromBatch(b, true)` instead; `beginBatches` is the list's `ctrl+k` |
+| `batchmenu.go` | the Batches page's right-click menu (`batchesMenu`, on `menuBox`): ✎ Edit… / ☰ Open record, ⧉ Duplicate…, ✕ Unschedule / ■ Stop, ✖ Delete record… (two presses: arms, then ✖ Confirm delete); carries the batch **ID**, and `focusBatch` re-reads the rows and re-highlights it before running the chord's own function, since the rows re-sort under an open menu; refusals are the chords' (`unscheduleWhy`, `deleteWhy`) |
 | `promptcode.go` | code in a prompt: `promptCodeSpans` (inline backtick spans + ``` fences, one span per line), the editor's code paints on the selection/spell overlay, the view's pre-wrap styling |
 | `promptlines.go` | the sweep → whole-rows arithmetic those four share |
 | `spell.go` / `spellpanel.go` / `internal/spell` | spell check + panel; embedded SCOWL list + `extra.txt` |
@@ -160,7 +161,8 @@ and the rest stay local.
   `ctrl+k` Batches page · `esc`
   (a second press when picks would be lost). **Batches page:** `enter` record (or
   the composer, on a batch not yet sent) · `ctrl+a` new · `ctrl+d` duplicate ·
-  `ctrl+u` unschedule (stop, on a running loop) · `ctrl+x` twice delete.
+  `ctrl+u` unschedule (stop, on a running loop) · `ctrl+x` twice delete ·
+  right-click a batch for its menu (`batchmenu.go`).
 - **Form:** `ctrl+s` save (also `cmd+s` as `super+s`/`meta+s`, which only a terminal
   that reports Cmd — cats does — can send; and `enter` from the title field) ·
   `enter`/`shift+enter`/`alt+enter`/`ctrl+j` newline in the prompt · `ctrl+o` (and

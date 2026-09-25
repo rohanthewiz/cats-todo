@@ -420,6 +420,9 @@ type model struct {
 	// because its rows mean different things and it carries an item rather
 	// than a todoRef; the zero value is "closed", as there.
 	nextMenu nextMenu
+	// The Batches page's context menu (batchmenu.go): right-click a batch.
+	// Its own field for the same reason as nextMenu's: it carries a batch ID.
+	batchesMenu batchesMenu
 
 	// Attachment editor (a sub-stage of the form, so its state lives and dies
 	// with the form's).
@@ -703,6 +706,7 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.menu = promptMenu{}
 		m.listMenu = listMenu{}
 		m.nextMenu = nextMenu{}
+		m.batchesMenu = batchesMenu{}
 		// The note pad is re-placed instead of dropped: it holds words someone
 		// is in the middle of typing, which a resize is no reason to throw
 		// away. Its anchor is a cell that may no longer exist, so placement
@@ -1169,7 +1173,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// is where every other program on the machine keeps that list.
 		//
 		// The Next List page answers it the same way, over its items
-		// (nextmenu.go), so the right button means one thing on both lists.
+		// (nextmenu.go), and the Batches page over its batches (batchmenu.go),
+		// so the right button means one thing on every list.
 		switch m.stage {
 		case stageForm:
 			return m.rightClickForm(msg)
@@ -1177,6 +1182,8 @@ func (m model) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			return m.rightClickList(msg)
 		case stageNextList:
 			return m.rightClickNext(msg)
+		case stageBatches:
+			return m.rightClickBatches(msg)
 		}
 		return m, nil
 	}
@@ -2036,7 +2043,9 @@ func (m *model) backToList() {
 	m.listMenu = listMenu{}
 	// The Next List page's menu too: leaving that page is a backToList, and a
 	// box left open would greet the next ctrl+g by swallowing its first key.
+	// The Batches page's, for the same reason and its ctrl+k.
 	m.nextMenu = nextMenu{}
+	m.batchesMenu = batchesMenu{}
 	// The note pad goes with it, and for the same reason: it is a box floated
 	// over the list, and one left standing would be composited over a screen
 	// nobody is on and would swallow the first keystroke back. Its words are
@@ -5225,7 +5234,7 @@ func (m model) renderStage() string {
 	case stageBatchCompose:
 		return m.viewBatchCompose()
 	case stageBatches:
-		return m.viewBatches()
+		return m.overlayBatchesMenu(m.viewBatches())
 	case stageBatchView:
 		return m.viewBatchView()
 	case stageNextList:

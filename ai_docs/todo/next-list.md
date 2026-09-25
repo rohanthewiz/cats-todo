@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-058
+**Next ID:** N-060
 
 ## Open
 
@@ -222,12 +222,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   columns or more, and narrower), Next List items becoming backlog prompts,
   and ⧉ Duplicate after a partial failure. Only the tests have exercised it.
 
-- **N-051** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
-  Release v0.39.0 for batches — the composer, scheduling and the loop (phases
-  1–3): bump `main.go` and `cats-plugin.toml`, commit
-  `chore(release): v0.39.0`, tag it, and push the code and the tag. None of
-  the three is released, and the title chip still says 0.38.0.
-
 - **N-052** · raised `2026-0925-1315-multi-drop-batches-phase1` · value low
   `gofmt -l` lists `promptcode.go` and `ui.go` on a clean HEAD (in `ui.go`,
   the form-stage field block's alignment). One `gofmt -w` commit on its own
@@ -242,12 +236,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   enter on it should open the composer. Also schedule into a running pane,
   close that pane, and let it fire: each step should fail with "the
   scheduled pane is gone". Only the tests have exercised it.
-
-- **N-054** · raised `2026-0925-1344-batch-scheduling-phase2` · value low
-  The Batches page has no right-click menu (the plan's §5 asks for one on
-  `menuBox`, with the page's actions). Everything it would hold is on the
-  chips and chords today; add it if reaching for the mouse there turns out
-  to be common.
 
 - **N-055** · raised `2026-0925-1344-batch-scheduling-phase2` · value low
   The composer's footer loses its tail below about 110 columns, and at 80
@@ -279,6 +267,22 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   manager never sets off work planned for hours ago; a loop resumed days later
   is the same surprise. Consider a resume window (say, the heartbeat older than
   an hour → mark it stopped with the reason, ⧉ Duplicate to go on), or ask.
+
+- **N-058** · raised `2026-0925-1739-batches-menu-and-loop-default` · value medium
+  Live-test the Batches page's right-click menu (`batchmenu.go`) in cats.
+  Check the right-click on a plan (✎ Edit… opens the composer) and on a
+  record (☰ Open record), ■ Stop on a running loop, and the two-press
+  Delete. After the first press, the heading still says "press ctrl+x
+  again". Decide whether a mouse user needs it to name the menu's
+  ✖ Confirm delete too. Also check that the box stays placed while a running
+  batch's progress re-sorts the rows under it. Only the tests have
+  exercised it.
+
+- **N-059** · raised `2026-0925-1739-batches-menu-and-loop-default` · value medium
+  Release v0.40.0: the Batches page's right-click menu (a new capability, so
+  minor) and loop as the composer's default Deliver. Bump `main.go` and
+  `cats-plugin.toml`, commit `chore(release): v0.40.0`, tag it, and push the
+  code and the tag.
 
 ## Roadmap
 
@@ -322,6 +326,18 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-054** · closed 2026-09-25, `2026-0925-1739-batches-menu-and-loop-default` · raised `2026-0925-1344-batch-scheduling-phase2`
+  — The Batches page's right-click menu (`batchmenu.go`, on `menuBox`): the
+  page's row actions on the batch pointed at — ✎ Edit… (a plan) / ☰ Open
+  record, ⧉ Duplicate…, ✕ Unschedule / ■ Stop (a running loop), ✖ Delete
+  record… with the page's two presses (the second reads ✖ Confirm delete).
+  ＋ New and ← Back stay on the bar. The menu carries the batch's ID and
+  re-reads the rows before a press, because a running batch's progress
+  re-sorts them under an open menu. Its refusals are the chords' own words
+  (`unscheduleWhy`, `deleteWhy`, now shared).
+- **N-051** · closed 2026-09-25, `2026-0925-1739-batches-menu-and-loop-default` · raised `2026-0925-1315-multi-drop-batches-phase1`
+  — Found done: `dc7cce5 chore(release): v0.39.0` and tag `v0.39.0` are on
+  origin. It shipped batches phases 1–3 and the hover card's done stamp.
 - **N-014** · closed 2026-09-25, `2026-0925-1448-hover-card-done-stamp` · raised `2026-0913-1813-done-stamp-v0.31.0`
   — Decided yes. The compact form on the row was not enough, because it is
   the row's last mark and the first thing a narrow pane cuts off (a titleless

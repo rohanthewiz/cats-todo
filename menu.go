@@ -1,17 +1,18 @@
 // menu.go — the box every context menu in this program is drawn in.
 //
-// There are three of them: the prompt editor's (promptmenu.go), which asks what
+// There are four of them: the prompt editor's (promptmenu.go), which asks what
 // a swept run of text is worth, the list's (listmenu.go), which asks what can be
-// done to the todo under the pointer, and the Next List page's (nextmenu.go),
-// the same question about a follow-up item. They differ only in what their rows
-// mean; everything a menu *is* — where the box lands, how a click hits a row,
-// how the keyboard walks it, how it draws and how it is composited over the
-// screen it is asking about — is the same, and lives here.
+// done to the todo under the pointer, the Next List page's (nextmenu.go), the
+// same question about a follow-up item, and the Batches page's (batchmenu.go),
+// about a batch. They differ only in what their rows mean; everything a menu
+// *is* — where the box lands, how a click hits a row, how the keyboard walks
+// it, how it draws and how it is composited over the screen it is asking
+// about — is the same, and lives here.
 //
 // The shared piece is a value rather than an interface because a menu has no
 // behaviour of its own to dispatch on: it is geometry plus a list of rows, and
-// the two owners embed it so that mu.open, mu.cursor and mu.place() read the
-// same at both call sites. What a pressed row *does* stays with the owner,
+// the owners embed it so that mu.open, mu.cursor and mu.place() read the
+// same at every call site. What a pressed row *does* stays with the owner,
 // where the state it acts on is.
 //
 //	╭──────────────────────────────╮
