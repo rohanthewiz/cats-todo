@@ -734,6 +734,11 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.stage == stageList {
 			return m.hoverMotion(msg)
 		}
+		// The Next List page asks for all motion too, for its own card
+		// (nexthover.go).
+		if m.stage == stageNextList {
+			return m.nextHoverMotion(msg)
+		}
 	case hoverTickMsg:
 		// The list's dwell timer, answered above the stage switch for the same
 		// reason it is armed at all: the tick is about a rest that has already
@@ -4977,10 +4982,13 @@ func (m model) View() tea.View {
 	// being looked at also stops sending motion (see the tea.BlurMsg case in
 	// Update).
 	v.ReportFocus = true
+	//
+	// The Next List page pays the same price for the same reason: its rows are
+	// items cut to one line, and its card (nexthover.go) is the rest of them.
 	switch {
-	case m.stage == stageList:
+	case m.stage == stageList || m.stage == stageNextList:
 		v.MouseMode = tea.MouseModeAllMotion
-	case m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageImport || m.stage == stageSpell || m.stage == stageViewOpts || m.stage == stageNextList:
+	case m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageImport || m.stage == stageSpell || m.stage == stageViewOpts:
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -5026,7 +5034,10 @@ func (m model) renderStage() string {
 	case stageViewOpts:
 		return m.viewViewOpts()
 	case stageNextList:
-		return m.viewNextList()
+		// Its card floats over the page the way the list's does over the list,
+		// composited for the same reason: nextRowsRow is measured on the frame
+		// underneath.
+		return m.overlayHoverCard(m.viewNextList())
 	default:
 		// The menu floats over the list rather than replacing it, and is
 		// composited here rather than inside viewList for the reason the form's

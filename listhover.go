@@ -107,6 +107,11 @@ const hoverWarm = 800 * time.Millisecond
 // meantime, without a cancellation channel for any of them.
 type hoverPending struct {
 	armed bool
+	// stage is the page the wait was armed on: the backlog list, or the Next
+	// List page (nexthover.go), which shares this state. row indexes that
+	// page's rows, so a tick landing after the page changed has to be told
+	// apart from one that is still about the rows under the pointer.
+	stage uiStage
 	row   int // the filtered-list index the wait is for
 	x, y  int // where the card will be placed, in screen coordinates
 	gen   uint64
@@ -214,7 +219,7 @@ func (m model) hoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	if m.hover.open && m.hover.row == i {
 		return m, nil // still on the row the card is already about
 	}
-	if m.hoverPend.armed && m.hoverPend.row == i {
+	if m.hoverPend.armed && m.hoverPend.row == i && m.hoverPend.stage == stageList {
 		// The wait for this row is already running, so it keeps running: only
 		// where the card will land is updated. Restarting the clock on every
 		// cell would mean a hand that drifts while it reads never rests long
@@ -240,7 +245,7 @@ func (m model) hoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.hoverGen++
-	m.hoverPend = hoverPending{armed: true, row: i, x: msg.X, y: msg.Y, gen: m.hoverGen}
+	m.hoverPend = hoverPending{armed: true, stage: stageList, row: i, x: msg.X, y: msg.Y, gen: m.hoverGen}
 	return m, hoverTick(m.hoverGen)
 }
 
@@ -258,6 +263,16 @@ func (m model) hoverDwell(msg hoverTickMsg) (tea.Model, tea.Cmd) {
 	}
 	p := m.hoverPend
 	m.hoverPend = hoverPending{} // spent, whether or not it produces a card
+	if p.stage != m.stage {
+		return m, nil // armed on the other page; its row means nothing here
+	}
+	if m.stage == stageNextList {
+		// The Next List page has none of the list's surfaces to refuse over.
+		if card, ok := m.nextCardFor(p.row, p.x, p.y); ok {
+			m.hover = card
+		}
+		return m, nil
+	}
 	if m.stage != stageList || m.listMenu.open || m.flagPad.open || m.dragging {
 		return m, nil
 	}

@@ -196,7 +196,7 @@ and never on one stray gesture: it takes a click on the prompt, a click on
 **Send**, and then a click on the target you meant. Pausing instead of running
 is the one thing the pointer does not offer, because it is a modifier chord.
 Mouse reporting is only asked for on the screens with something to click — and
-only the list asks for idle motion, which is what the hover card is drawn from;
+only the list and the Next List ask for idle motion, which is what their hover cards are drawn from;
 the prompt view leaves the terminal's own text selection alone.
 
 A backlog longer than the pane **scrolls**, and says so. The list keeps a window
@@ -883,6 +883,32 @@ project backlog (the directory holding `.cats-todo/`). A `--global` launch
 inside a project reads that project's list, and a prompt made from it goes into
 the global backlog, since that is the only backlog the launch manages.
 
+**Rest the pointer on an item** and it gets [the hover card](#the-hover-card)
+the backlog's rows have, with the same wait, the same box, and the same
+rules for what takes it down. A row can only show the start of the item's
+text, flattened, and never shows the header's fields, so the card fills in the
+rest:
+
+```
+╭────────────────────────────────────────────────────────────╮
+│ N-001 · Open                                               │
+│ Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions │
+│ run inside Cats.app, where GUI launches get a minimal      │
+│ PATH. Merged from the hands-on checks:                     │
+│ - hover cards: the 400ms dwell, the 800ms warm window;     │
+│ - DEC 1004: blur a window with a card up…                  │
+│ value medium · raised 2026-0904-1753-a-dwell               │
+╰────────────────────────────────────────────────────────────╯
+```
+
+The card is capped at **seven rows**: the ID and its section, up to five lines
+of text with the item's line breaks and sub-bullets kept, and one line of
+fields. A longer item ends in an ellipsis, and `enter` opens the whole item in
+the form. Unlike a backlog prompt's card, every item gets one, even one whose
+text fits on the row, because when it was raised and its value in words are
+things the row never shows. The page asks the terminal for all pointer motion
+for this, the same cost the list pays.
+
 ## Sending to a machine on the local network
 
 cats' control socket is a unix socket — it reaches the cats on *this* machine
@@ -987,8 +1013,9 @@ card is built at all, because those gestures already own the pointer.
 
 The one cost is that the list asks the terminal to report *all* pointer motion
 rather than only motion under a held button. That is a message per cell the
-pointer crosses, and it is paid on the list stage alone — the prompt view, the
-one screen whose text gets copied out, still claims no mouse at all.
+pointer crosses, and it is paid only on the list and on
+[the Next List](#the-next-list), which has a card of its own. The prompt view,
+the one screen whose text gets copied out, still claims no mouse at all.
 
 ## The list's context menu
 

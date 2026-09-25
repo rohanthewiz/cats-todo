@@ -676,6 +676,11 @@ func (m model) finishNextDrop(msg dropResultMsg) (tea.Model, tea.Cmd) {
 // updateNextList is the page's key loop: the list's keys, the bar's chords, and
 // everything else, which is the query.
 func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// The hand is on the keyboard: the hover card goes before the key is read,
+	// as on the list (a card over rows the keys are walking would describe a
+	// row the highlight has left) — and every way off this page is a key or a
+	// click, so this and clickNext are also what take it down on leaving.
+	m.clearHover()
 	switch msg.String() {
 	case "ctrl+c":
 		m.quitting = true
@@ -725,6 +730,7 @@ func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // the same row within the double-click window opens it, so reading a row with
 // the pointer never starts a prompt by accident.
 func (m model) clickNext(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	m.clearHover() // a click is the hand acting, not reading (see clearHover)
 	if msg.Y == nextBarRow {
 		for i, c := range m.nextChips() {
 			if msg.X < c.start || msg.X >= c.end {
