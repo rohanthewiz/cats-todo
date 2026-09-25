@@ -301,9 +301,9 @@ type model struct {
 	flagPad flagNotePad
 
 	// Form stage.
-	formMode   formMode
-	formScope  scope
-	editID     string
+	formMode  formMode
+	formScope scope
+	editID    string
 	// formNextID is the Next List item the open form was drafted from
 	// (promptFromNextItem), "" for any other form. It only renames the
 	// editor ("Next List Prompt Editor"), so a draft reached through ctrl+g

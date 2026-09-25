@@ -116,8 +116,10 @@ func appendCodeSpan(spans []codeSpan, start, end int) []codeSpan {
 // it. Each span includes its backticks.
 //
 // A run of backticks is taken whole. That is how CommonMark lets code contain a
-// backtick (``a ` b``), and it is also why a run is not matched against a
-// longer or shorter one:
+// backtick (the first example below), and it is also why a run is not matched
+// against a longer or shorter one. The examples stay in the indented block:
+// in running prose gofmt reads a double backtick as an opening quote and
+// rewrites it to a curly one.
 //
 //	``a ` b``      → one span: the single tick inside is not a delimiter
 //	`a`` b         → no span: the only other run is two ticks, not one

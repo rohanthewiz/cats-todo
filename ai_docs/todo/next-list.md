@@ -194,11 +194,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   columns or more, and narrower), Next List items becoming backlog prompts,
   and ⧉ Duplicate after a partial failure. Only the tests have exercised it.
 
-- **N-052** · raised `2026-0925-1315-multi-drop-batches-phase1` · value low
-  `gofmt -l` lists `promptcode.go` and `ui.go` on a clean HEAD (in `ui.go`,
-  the form-stage field block's alignment). One `gofmt -w` commit on its own
-  would keep that noise out of feature diffs.
-
 - **N-053** · raised `2026-0925-1344-batch-scheduling-phase2` · value medium
   Live-test scheduled batches in cats. Schedule one `in 2m` onto new
   worktrees and watch it fire (the status line, each prompt marked done, the
@@ -288,6 +283,13 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-052** · closed 2026-09-25, no session doc (a `style:` commit on its own) · raised `2026-0925-1315-multi-drop-batches-phase1`
+  — `gofmt -l .` is empty. `ui.go` was only the form-stage field block's
+  alignment. `promptcode.go` could not take a plain `gofmt -w`: its doc
+  comment had ``` ``a ` b`` ``` in running prose, and gofmt reads a double
+  backtick there as a quote and rewrites it to `“a ` b“`. The prose now
+  points at the same example in the indented block below it, which gofmt
+  leaves alone.
 - **N-055** · closed 2026-09-25, `2026-0925-1821-composer-footer-and-view-labels` · raised `2026-0925-1344-batch-scheduling-phase2`
   — Once `batchBarTier` drops the hints (under 89 columns, not the 110 the
   item guessed), `batchFooterSegs` leads with the button chords as a legend
