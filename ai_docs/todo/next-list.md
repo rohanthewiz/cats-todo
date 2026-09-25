@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-046
+**Next ID:** N-048
 
 ## Open
 
@@ -168,7 +168,9 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   Decide whether a Next List send should leave a done copy in the backlog as a
   record of what was sent and when. Today it writes nothing (the item already
   lives in the file); the form's ✉ Send, by contrast, saves then drops. Raised
-  to the user on 2026-09-24, not yet answered.
+  to the user on 2026-09-24, not yet answered. Since the context menu
+  (`nextmenu.go`) a record can be kept deliberately: ⤓ Add to backlog, then
+  send from the list.
 
 - **N-041** · raised `2026-0924-1939-nextlist-hover-card` · value medium
   Live-test the Next List hover card (`nexthover.go`) in cats: the 400ms
@@ -200,6 +202,22 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   itself on SIGHUP. It fails on a clean HEAD as well as with the notes send,
   and passes without `-race`. The race report goes to the helper's pty, so
   capturing it means teeing the drained pty bytes in the test.
+
+- **N-046** · raised `2026-0925-1104-nextlist-context-menu` · value medium
+  Live-test the Next List context menu (`nextmenu.go`) in cats. Check the
+  right-click on an item, both ⧉ Copy rows (OSC 52 and `pbcopy`), that
+  ⚙ Session… and ◫ Images… open over the draft with esc landing on it, that
+  ◷ Schedule… adds the item and lands in the list's scheduler, and that the
+  ⤓ Add rows grey out once an open copy is in the backlog. Also check that
+  the 15-line box fits, or flips above the pointer, in a short pane. Only the
+  tests have exercised it.
+
+- **N-047** · raised `2026-0925-1104-nextlist-context-menu` · value low
+  The Next List rows don't show which items are already in the backlog; only
+  the menu's greyed ⤓ Add rows reveal it. A mark on the row (from
+  `nextBacklogCopy`) would show it at a glance. The copy is recognised by
+  the citation line (`nextItemCite`), so a prompt whose first line was
+  rewritten in the form isn't recognised as a copy.
 
 ## Roadmap
 
