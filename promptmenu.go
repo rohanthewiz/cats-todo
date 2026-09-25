@@ -13,6 +13,7 @@
 //	│ ✓ Spelling…           ctrl+l │
 //	│ ≡ Insert a prompt…    ctrl+p │
 //	│ ↶ Undo                 cmd+z │
+//	│ ↷ Redo           shift+cmd+z │
 //	╰──────────────────────────────╯
 //
 // It is built fresh on every press, from what the press was actually aimed at:
@@ -59,6 +60,11 @@ const (
 	// destructive default on the key a hand reaches for straight after a click
 	// is the one arrangement worth breaking a convention over.
 	menuUndo
+	// menuRedo re-applies what the last undo took back. It sits under ↶ Undo,
+	// the pair every editor keeps together, and is last for the same reason:
+	// it rewrites the text, so it is kept away from the row a bare enter
+	// presses.
+	menuRedo
 	menuActionCount
 )
 
@@ -89,6 +95,10 @@ func (m model) openPromptMenu(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if len(m.promptUndo.stack) == 0 {
 		undoWhy = "nothing to undo — this prompt has not changed since the editor opened"
 	}
+	redoWhy := ""
+	if len(m.promptUndo.redo) == 0 {
+		redoWhy = "nothing to redo — only an undo leaves something to redo, and the next edit clears it"
+	}
 	if lo, hi, ok := m.promptSelSpan(); ok {
 		_, items := splitBulletList(string([]rune(m.promptArea.Value())[lo:hi]))
 		selWhy = ""
@@ -114,6 +124,7 @@ func (m model) openPromptMenu(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		// follows the terminal (undoChord), since cmd+z only arrives where Cmd
 		// is forwarded at all.
 		{act: menuUndo, label: "↶ Undo", hint: m.undoChord(), why: undoWhy},
+		{act: menuRedo, label: "↷ Redo", hint: m.redoChord(), why: redoWhy},
 	}
 
 	// The spell row is the one item that is about the cell the pointer is on
@@ -190,6 +201,8 @@ func (m model) pressPromptMenu(i int) (tea.Model, tea.Cmd) {
 		return m.openSpellPanelOn(word)
 	case menuUndo:
 		return m.undoPrompt()
+	case menuRedo:
+		return m.redoPrompt()
 	case menuInsert:
 		// The same call the chord makes. Anything swept is still standing here —
 		// the menu does not clear it — so the picker's ctrl+s can offer to save

@@ -1235,13 +1235,14 @@ a chord anybody would guess. So they live where every editor keeps that list:
 │ ✓ Spelling…           ctrl+l │
 │ ≡ Insert a prompt…    ctrl+p │
 │ ↶ Undo                 cmd+z │
+│ ↷ Redo           shift+cmd+z │
 ╰──────────────────────────────╯
 ```
 
-↶ Undo is last, against the convention that puts it at the top of a text field's
-menu: the cursor opens on the first row that can act, so the top row is what a
-bare `enter` presses, and every other row on this menu makes a change you can
-press again to fix while that one throws work away.
+↶ Undo and ↷ Redo are last, against the convention that puts them at the top of
+a text field's menu. The cursor opens on the first row that can act, so the top
+row is what a bare `enter` presses. Every other row on this menu makes a change
+you can press again to fix, while those two rewrite the text wholesale.
 
 It is built fresh on every press, from what the press was actually aimed at — but
 an item that cannot act on the current selection is drawn **dim and still there**,
@@ -1789,10 +1790,19 @@ mean — a unit you would recognize as *what I last did*. Everything else — a
 paste, a menu item, a picker's insertion, a spelling correction — is always a
 step of its own, never folded in with the keys around it.
 
+**Redo** is **`shift+cmd+z`** (`ctrl+y` in a terminal that eats Cmd, and
+`ctrl+shift+z` where the kitty protocol can report it), and **↷ Redo** on the
+same menu. An undo no longer throws away the state it leaves: it keeps it on a
+second stack, and redo steps back up through it. So one undo too many costs
+nothing. Moving the caret or clicking keeps the redo stack. The next edit to the
+text clears it, because once the prompt has gone somewhere new, the undone
+states no longer follow from it. This is the linear model every editor on the
+Mac uses.
+
 The history is **per editing session**: it starts empty when a form opens and is
 gone when you leave, because offering to replace one todo's prompt with the text
 of the one you edited before it is the worst thing an undo could do. With nothing
-to take back, the chord and the menu row both say so.
+to take back or redo, the chords and the menu rows say so.
 
 What it cannot take back is anything that has already left the editor. **✂ Split
 writes prompts into the backlog** and then removes the bullets from the text;

@@ -365,3 +365,152 @@ func TestUndoFooterNamesTheChordTheTerminalCanSend(t *testing.T) {
 		t.Errorf("footer does not teach cmd+z under the kitty protocol:\n%s", foot)
 	}
 }
+
+// The redo chord in the spellings a terminal may report it with: shift+cmd+z
+// under both Cmd bits, the capital-Z form of a terminal that folds shift into
+// the key, and the two ctrl chords.
+var (
+	shiftCmdZ  = tea.KeyPressMsg{Code: 'z', Mod: tea.ModShift | tea.ModSuper}
+	shiftMetaZ = tea.KeyPressMsg{Code: 'z', Mod: tea.ModShift | tea.ModMeta}
+	cmdCapZ    = tea.KeyPressMsg{Code: 'Z', Mod: tea.ModSuper}
+	ctrlShiftZ = tea.KeyPressMsg{Code: 'z', Mod: tea.ModCtrl | tea.ModShift}
+	ctrlY      = tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl}
+)
+
+// redoForm presses shift+cmd+z once.
+func redoForm(t *testing.T, m model) model {
+	t.Helper()
+	return typeInForm(t, m, shiftCmdZ)
+}
+
+// TestRedoWalksBackUpTheHistory is N-027's reason for existing: one undo too
+// many used to lose text with no way back. Each undo can now be redone, in
+// order, with the caret where it was when cmd+z was pressed.
+func TestRedoWalksBackUpTheHistory(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "")
+	m = typeInto(t, m, "one two")
+	if n := len(m.promptUndo.stack); n != 2 {
+		t.Fatalf("history holds %d steps, want 2 — the fixture assumes one per word", n)
+	}
+
+	m = undoForm(t, m)
+	m = undoForm(t, m)
+	if got := m.promptArea.Value(); got != "" {
+		t.Fatalf("value = %q, want both words undone", got)
+	}
+
+	m = redoForm(t, m)
+	if got := m.promptArea.Value(); got != "one " {
+		t.Errorf("value = %q, want %q after one redo", got, "one ")
+	}
+	if got := promptCaretOffset(m.promptArea); got != 4 {
+		t.Errorf("caret at %d, want 4 — where it stood when that undo was pressed", got)
+	}
+	m = redoForm(t, m)
+	if got := m.promptArea.Value(); got != "one two" {
+		t.Errorf("value = %q, want %q after two redos", got, "one two")
+	}
+	if !strings.Contains(m.formNote, "nothing further") {
+		t.Errorf("form note = %q, want it to say the redo stack is spent", m.formNote)
+	}
+
+	// And a redo is itself one undoable step, so the two chords can be walked
+	// back and forth without losing anything.
+	m = undoForm(t, m)
+	if got := m.promptArea.Value(); got != "one " {
+		t.Errorf("value = %q, want the redo undone back to %q", got, "one ")
+	}
+	if n := len(m.promptUndo.redo); n != 1 {
+		t.Errorf("redo holds %d steps, want 1", n)
+	}
+}
+
+// TestRedoIsClearedByAnEditNotByAMotion: a change to the text abandons what
+// could be redone. Moving the caret does not, since the undone state is still
+// true of the text on screen.
+func TestRedoIsClearedByAnEditNotByAMotion(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "")
+	m = typeInto(t, m, "abc")
+	m = undoForm(t, m)
+
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyRight})
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	if n := len(m.promptUndo.redo); n != 1 {
+		t.Fatalf("redo holds %d steps after caret motion, want 1 — a motion is not an edit", n)
+	}
+
+	m = typeInto(t, m, "x")
+	if n := len(m.promptUndo.redo); n != 0 {
+		t.Errorf("redo holds %d steps after typing, want 0 — an edit clears it", n)
+	}
+	m = redoForm(t, m)
+	if got := m.promptArea.Value(); got != "x" {
+		t.Errorf("value = %q, want %q — nothing to redo after an edit", got, "x")
+	}
+	if !strings.Contains(m.formNote, "nothing to redo") {
+		t.Errorf("form note = %q, want the refusal in words", m.formNote)
+	}
+}
+
+// TestRedoRefusesFromTheTitle, like undo: the stack is about the prompt.
+func TestRedoRefusesFromTheTitle(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "")
+	m = typeInto(t, m, "abc")
+	m = undoForm(t, m)
+	m.focusForm(formFieldTitle)
+	m = redoForm(t, m)
+	if got := m.promptArea.Value(); got != "" {
+		t.Errorf("value = %q, want the prompt untouched from the title field", got)
+	}
+	if !strings.Contains(m.formNote, "redo works in the prompt") {
+		t.Errorf("form note = %q, want the refusal in words", m.formNote)
+	}
+}
+
+// TestRedoChordSpellings: every spelling does the same thing, and none of
+// them is read as undo (a shift+cmd+z that fell through to the undo case
+// would walk the wrong way).
+func TestRedoChordSpellings(t *testing.T) {
+	for _, chord := range []tea.KeyPressMsg{shiftCmdZ, shiftMetaZ, cmdCapZ, ctrlShiftZ, ctrlY} {
+		m, _, _ := splitFormInTemp(t, "")
+		m = typeInto(t, m, "abc")
+		m = undoForm(t, m)
+		m = typeInForm(t, m, chord)
+		if got := m.promptArea.Value(); got != "abc" {
+			t.Errorf("%s left %q, want the undo redone", chord.String(), got)
+		}
+	}
+}
+
+// TestRedoMenuRow: ↷ Redo sits under ↶ Undo, dim until an undo has left
+// something to redo.
+func TestRedoMenuRow(t *testing.T) {
+	m, _, _ := splitFormInTemp(t, "body")
+	m = typeInto(t, m, "X")
+	edited := rightClickAt(t, m, 1, 0)
+	if edited.menu.items[menuRedo].live() {
+		t.Error("↷ Redo is live with nothing undone")
+	}
+
+	m = undoForm(t, m)
+	undone := rightClickAt(t, m, 1, 0)
+	if !undone.menu.items[menuRedo].live() {
+		t.Fatal("↷ Redo is dim after an undo")
+	}
+	next, _ := undone.pressPromptMenu(menuRedo)
+	if got := next.(model).promptArea.Value(); got != "Xbody" && got != "bodyX" {
+		t.Errorf("value = %q, want the typed X restored", got)
+	}
+}
+
+// TestRedoFooterNamesTheChordTheTerminalCanSend, beside undo's.
+func TestRedoFooterNamesTheChordTheTerminalCanSend(t *testing.T) {
+	m := withForm(t, "", "body", 280, 40)
+	if foot := m.formFooter(); !strings.Contains(foot, "ctrl+y redo") {
+		t.Errorf("footer does not teach ctrl+y without the kitty protocol:\n%s", foot)
+	}
+	m.kbEnhanced = true
+	if foot := m.formFooter(); !strings.Contains(foot, "shift+cmd+z redo") {
+		t.Errorf("footer does not teach shift+cmd+z under the kitty protocol:\n%s", foot)
+	}
+}

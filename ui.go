@@ -2874,6 +2874,20 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// reason: ctrl+d is already the textarea's delete-forward, so a
 		// duplicate bound over it would break a key that works.)
 		return m.undoPrompt()
+	case "shift+super+z", "shift+meta+z", "super+Z", "meta+Z", "ctrl+shift+z", "ctrl+y":
+		// Redo (promptundo.go). shift+cmd+z is the macOS redo, in both Cmd
+		// spellings. It is written shift-first because Keystroke prints the
+		// modifiers in a fixed order (ctrl, alt, shift, meta, hyper, super).
+		// The capital-Z spellings are for a terminal that folds shift into
+		// the key and reports only Cmd. That reading is unambiguous: a bare
+		// cmd+z arrives lowercase, so the two chords cannot be confused.
+		//
+		// ctrl+y is the fallback that always arrives, for the same reason
+		// ctrl+z is: it is the Windows and Linux redo, the textarea and the
+		// textinput leave it unbound, and the pane is in raw mode, so the
+		// terminal's delayed-suspend never sees it. ctrl+shift+z is accepted
+		// too, but only a kitty-protocol terminal can send it.
+		return m.redoPrompt()
 	case "super+d", "meta+d":
 		// Cmd+D duplicates the caret's line — the chord every editor on this
 		// machine puts a line copy on, and the reason it is Cmd-only is the
@@ -6101,8 +6115,10 @@ func (m model) formFooter() string {
 	// prints the chord itself, so this line is the second teacher rather than
 	// the only one — and the chord it names follows the terminal, since cmd+z
 	// arrives only where Cmd is forwarded (see undoChord).
+	// Redo follows undo at the very tail, for the same reason and with the
+	// same second teacher (the ↷ Redo row).
 	segs = append(segs, "ctrl+l spelling", "alt+↑/↓ move line", "cmd+d dup line",
-		"ctrl+p prompt library", m.undoChord()+" undo")
+		"ctrl+p prompt library", m.undoChord()+" undo", m.redoChord()+" redo")
 	lines = append(lines, m.fitFooter(segs))
 
 	for i, ln := range lines {

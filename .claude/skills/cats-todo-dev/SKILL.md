@@ -51,7 +51,7 @@ and the rest stay local.
 | `promptsort.go` | ⇅ Sort lines: items when it is a list (markers stay, bodies move), plain lines otherwise |
 | `promptcarets.go` | ⌶ Caret on every line: the column mode, its goal column, and its caret paints |
 | `promptmove.go` | `alt+↑/↓` moving the caret's line or the swept block |
-| `promptundo.go` | ↶ Undo (`cmd+z`/`ctrl+z`): the per-session history, its coalescing rule, and the commit point `Update` calls (`route` is the old `Update` body) |
+| `promptundo.go` | ↶ Undo (`cmd+z`/`ctrl+z`) and ↷ Redo (`shift+cmd+z`/`ctrl+y`): the per-session history and its redo stack (cleared by the next real edit), its coalescing rule, and the commit point `Update` calls (`route` is the old `Update` body) |
 | `autosave.go` | the form's timed autosave (45s default, `autosaveSeconds` in settings.json): throttle timer (generation-guarded tick), `formSig` change detection, the add→edit switch, and cancel's revert |
 | `nextlist.go` | the Next List page (`stageNextList`): parses `ai_docs/todo/next-list.md` (Open + Roadmap), one-run-of-text rows cut to the pane, ✚ New prompt → prefilled add form (`beginAddWith`), ✉ Send → the drop picker with an unsaved prompt (`sendFromNext`, `finishNextDrop`), ↻ Refresh |
 | `nexthover.go` | the Next List's hover card: `nextHoverMotion`, `nextCardLines` (ID · section, ≤5 text lines, value · raised — 7 rows max); shares the list card's state (`m.hover`/`hoverPend`, whose `stage` keeps a dwell on its own page) |
@@ -151,11 +151,13 @@ and the rest stay local.
   `@` file picker ·
   `ctrl+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
   the swept block) · `shift+alt+↑/↓` extend the selection by a line ·
-  `cmd+z` (`super+z`/`meta+z`) or `ctrl+z` undo (`promptundo.go`) ·
+  `cmd+z` (`super+z`/`meta+z`) or `ctrl+z` undo · `shift+cmd+z`
+  (`shift+super+z`/`shift+meta+z`/`super+Z`), `ctrl+shift+z` or `ctrl+y` redo
+  (`promptundo.go`) ·
   **right-click** the context menu (`promptmenu.go`: ✂ Split · ⇅ Sort · ⌶ Caret
   on every line · ✓ Spelling — the spell ask no longer has a direct road ·
-  ≡ Insert a prompt · ↶ Undo, last because the top row is what a bare enter
-  presses) ·
+  ≡ Insert a prompt · ↶ Undo · ↷ Redo, last because the top row is what a
+  bare enter presses) ·
   **Send** is click-only by design.
 - Two modal states live on the form stage rather than on a stage of their own,
   and both are answered at the very top of `updateForm`: the context menu (owns

@@ -137,12 +137,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   correction, the two cross-stage paths only the commit point covers.
   *Lapsed* in `2026-0922-0943-info-annotation`.
 
-- **N-027** · raised `2026-0915-1836-prompt-editor-undo-v0.32.0` · value medium
-  **Redo**, deliberately left out of v0.32.0. Without it, one undo too many
-  loses text with no way back. The pieces are there: push popped entries onto
-  a second stack, clear it on the next real edit, bind `shift+cmd+z`. Still
-  absent on 2026-09-24. *Lapsed* in `2026-0922-0943-info-annotation`.
-
 - **N-028** · raised `2026-0915-1836-prompt-editor-undo-v0.32.0` · value low
   Undo does not cover the title field. It is a one-line `textinput` with no
   history of its own; if it is ever wanted, it is a second stack, not the
@@ -261,6 +255,12 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-027** · closed 2026-09-24 · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
+  — Redo. `promptUndo.redo` (`promptundo.go`): undo moves the state it
+  leaves onto it, `redoPrompt` moves it back, and the next change to the text
+  clears it (a caret motion does not). The chords are `shift+cmd+z`,
+  `ctrl+shift+z` and `ctrl+y`, and ↷ Redo sits under ↶ Undo on the context menu.
+  Not yet released.
 - **N-036** · closed 2026-09-24, `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · raised `2026-0924-1802-code-highlight-and-next-list-seed`
   — Release the code highlighting. Shipped in v0.36.0 (tag `v0.36.0`),
   together with the Next List send and the value levels.

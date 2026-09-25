@@ -31,6 +31,19 @@
 //	     ▲ each entry is the text as it was *before* the edit that pushed it,
 //	       plus where the caret stood, so restoring one restores both.
 //
+// Redo is the second stack beside it. Undo moves the state it leaves onto that
+// stack instead of discarding it, and redo moves it back, so one press too many
+// costs nothing. The next real edit clears the redo stack: once the text has
+// gone somewhere new, the undone states no longer follow from it, and replaying
+// them over the new edit would be a merge nobody asked for. This is the linear
+// model every editor on this machine uses. Nothing is kept as a tree.
+//
+//	    stack (undo)                  redo
+//	  ┌─────┬─────┐  ◀── cmd+z ──  ┌─────┐
+//	  │ A   │ B   │  ── ⇧cmd+z ──▶ │ D   │     editor shows C
+//	  └─────┴─────┘                 └─────┘
+//	    a real edit from C: push C onto stack, clear redo
+//
 // What it does not cover is anything that has already left the editor. ✂ Split
 // writes prompts into the backlog and then takes the bullets out of the text:
 // undo brings the text back, and the prompts it wrote stay written. That is the
@@ -86,19 +99,27 @@ type promptEdit struct {
 	caret int
 }
 
-// promptUndo is the editor's history. Its zero value is an empty one, which is
+// promptUndo is the editor's history, in both directions. Its zero value is an empty one, which is
 // what beginAdd/beginEditRef restore when a form opens: a stack is about one
 // editing session, and offering to "undo" into the text of the todo edited
 // before this one would be the worst kind of surprise.
 type promptUndo struct {
 	stack []promptEdit
+	// redo holds the states undo walked away from, newest last. It needs no
+	// budget of its own: every entry on it came off stack, and each undo or
+	// redo moves exactly one state from one stack to the other, so the two
+	// together hold what stack alone held (plus the one state being shown)
+	// and are bounded by the same limits. A real edit empties it
+	// (commitPromptEdit).
+	redo []promptEdit
 	// kind is what produced the entry on top, or editNone when the run has been
 	// broken. It is the entire coalescing rule.
 	kind promptEditKind
 	// applied marks that the change the commit point is about to see *is* an
-	// undo restoring an earlier state. Without it, undo would push the state it
-	// just left back onto the stack and the next press would redo it — cmd+z
-	// flip-flopping between two versions forever.
+	// undo or a redo restoring a recorded state. Without it, undo would push the
+	// state it just left back onto the stack and the next press would redo it —
+	// cmd+z flip-flopping between two versions forever — and a redo would read
+	// as a real edit and empty the very stack it was walking.
 	applied bool
 }
 
@@ -129,9 +150,14 @@ func (s uiStage) editsPrompt() bool {
 // commitPromptEdit is the commit point itself, called by Update with the state
 // the editor was in before the message was routed.
 //
-// Three outcomes: the change was an undo (consume the flag and record nothing),
-// the text is unchanged (a key or a click that only moved the caret ends the
-// open run), or the text changed (push, or coalesce into the run on top).
+// Three outcomes: the change was an undo or a redo (consume the flag and record
+// nothing — they keep both stacks themselves), the text is unchanged (a key or
+// a click that only moved the caret ends the open run), or the text changed
+// (push, or coalesce into the run on top, and forget what could be redone).
+//
+// Only a change to the text clears the redo stack. Moving the caret, clicking
+// or scrolling after an undo leaves the redo available, because none of them
+// makes the undone state untrue. Typing does.
 //
 // Only a key press or a click breaks a run, and that distinction is load
 // bearing: the cursor's blink is a message like any other and arrives every few
@@ -151,6 +177,7 @@ func (m *model) commitPromptEdit(before promptEdit, msg tea.Msg) {
 	}
 	kind, endsRun := promptEditKindOf(msg, m.promptArea.KeyMap)
 	m.promptUndo.push(before, kind)
+	m.promptUndo.redo = nil
 	if endsRun {
 		m.promptUndo.kind = editNone
 	}
@@ -254,24 +281,66 @@ func (m model) undoPrompt() (tea.Model, tea.Cmd) {
 	}
 	prev := m.promptUndo.stack[len(m.promptUndo.stack)-1]
 	m.promptUndo.stack = m.promptUndo.stack[:len(m.promptUndo.stack)-1]
-	// The run is over whatever happens next: the state the editor is going back
-	// to is not the state the keys on top of the stack were typed into.
-	m.promptUndo.kind = editNone
-	m.promptUndo.applied = true
-
-	m.promptArea.SetValue(prev.text)
-	setPromptCaretOffset(&m.promptArea, prev.caret)
-	// A highlight and a column of carets are both aimed at offsets in the text
-	// that was just replaced, so both end here — the same rule every other
-	// operation that rewrites the value follows.
-	m.clearPromptSel()
-	m.endPromptCarets()
+	// The state being left goes onto the redo stack rather than away. The caret
+	// saved with it is where the caret is now, so a redo puts the hand back
+	// where it was when cmd+z was pressed.
+	m.promptUndo.redo = append(m.promptUndo.redo, m.promptEditState())
+	m.restorePromptEdit(prev)
 
 	m.formNote = "undone"
 	if len(m.promptUndo.stack) == 0 {
 		m.formNote = "undone · nothing left to take back"
 	}
 	return m, nil
+}
+
+// redoPrompt is shift+cmd+z (or ctrl+y), and the ↷ Redo row of the context
+// menu: re-apply the state the last undo walked away from.
+//
+// It mirrors undoPrompt exactly: pop the top of redo, push the current state
+// onto the undo stack, restore. The push goes straight onto the stack rather
+// than through push, because push would coalesce it into a typing run on top,
+// and each redo has to be one step that a single cmd+z takes back.
+func (m model) redoPrompt() (tea.Model, tea.Cmd) {
+	if m.formFocus != formFieldPrompt {
+		m.formNote = "redo works in the prompt"
+		return m, nil
+	}
+	if len(m.promptUndo.redo) == 0 {
+		// Two reasons the stack can be empty, and the note names both, because
+		// the second one surprises people: the history was there, and a
+		// keystroke after the undo let it go.
+		m.formNote = "nothing to redo — only an undo leaves something to redo, and the next edit clears it"
+		return m, nil
+	}
+	next := m.promptUndo.redo[len(m.promptUndo.redo)-1]
+	m.promptUndo.redo = m.promptUndo.redo[:len(m.promptUndo.redo)-1]
+	m.promptUndo.stack = append(m.promptUndo.stack, m.promptEditState())
+	m.promptUndo.trim()
+	m.restorePromptEdit(next)
+
+	m.formNote = "redone"
+	if len(m.promptUndo.redo) == 0 {
+		m.formNote = "redone · nothing further to redo"
+	}
+	return m, nil
+}
+
+// restorePromptEdit puts the editor into a recorded state. Undo and redo both
+// use it, so they agree on what a restore resets.
+func (m *model) restorePromptEdit(e promptEdit) {
+	// The run is over whatever happens next: the state the editor is moving to
+	// is not the state the keys on top of the stack were typed into.
+	m.promptUndo.kind = editNone
+	m.promptUndo.applied = true
+
+	m.promptArea.SetValue(e.text)
+	setPromptCaretOffset(&m.promptArea, e.caret)
+	// A highlight and a column of carets are both aimed at offsets in the text
+	// that was just replaced, so both end here — the same rule every other
+	// operation that rewrites the value follows.
+	m.clearPromptSel()
+	m.endPromptCarets()
 }
 
 // undoChord names the chord for the footer and the menu row, the way modEnter
@@ -283,4 +352,15 @@ func (m model) undoChord() string {
 		return "cmd+z"
 	}
 	return "ctrl+z"
+}
+
+// redoChord is undoChord's partner: shift+cmd+z where Cmd can arrive, and
+// ctrl+y where it cannot. ctrl+y, not ctrl+shift+z, because shift on a
+// control chord is itself something only the kitty protocol can report, so
+// a terminal without Cmd would not be able to send that either.
+func (m model) redoChord() string {
+	if m.kbEnhanced {
+		return "shift+cmd+z"
+	}
+	return "ctrl+y"
 }
