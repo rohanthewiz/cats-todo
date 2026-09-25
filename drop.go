@@ -185,6 +185,14 @@ func composePrompt(prompt string, images []string, opts *SessionOpts) string {
 // picking that pane was picking that conversation's context, and silently
 // launching an agent run on guessed context is the worse failure. The caller
 // records the error as Missed, where a manual send is one keystroke away.
+//
+// A pane that still exists is not enough, either: the agent in it may have
+// exited since the schedule was made, leaving a shell holding the same pane id.
+// Typing there would put /clear and then the prompt on a command line, and a
+// fire always runs, so each line would be executed. The pane has to still
+// pass isDropAgent — the same rule the picker used to offer it — and its
+// agent label is taken from pane.list now rather than from the schedule, so
+// paneSetupCommands gates /model and /effort on what is running at fire time.
 func performScheduledDrop(client *catsClient, sc Schedule, act pendingAction) (string, error) {
 	l, err := performScheduledDropAt(client, sc, act)
 	return l.note, err
@@ -201,23 +209,47 @@ func performScheduledDropAt(client *catsClient, sc Schedule, act pendingAction) 
 		if err != nil {
 			return dropLanding{}, fmt.Errorf("checking the scheduled pane: %w", err)
 		}
-		if !paneExists(panes, sc.Pane) {
-			return dropLanding{}, errors.New("the scheduled pane is gone — send manually")
+		agent, err := scheduledPaneAgent(panes, sc.Pane)
+		if err != nil {
+			return dropLanding{}, err
 		}
+		act.target.agent = agent
 	}
 	act.mode = dropRun
 	return performDropAt(client, act)
 }
 
-// paneExists reports whether pane.list still knows the pane id — split out
-// pure so the fire path's one judgment call is testable without a socket.
+// scheduledPaneAgent is the fire path's judgment on a scheduled pane target,
+// split out pure so it is testable without a socket: the live agent label when
+// the pane is still there and still an agent a prompt can be dropped into,
+// otherwise the reason it is not. Both refusals end in "send manually" because
+// the caller records them as Missed, and a manual send goes back through the
+// picker, which offers only panes that pass the same check.
+func scheduledPaneAgent(panes []wire.PaneInfo, id uint32) (string, error) {
+	p, ok := findPane(panes, id)
+	if !ok {
+		return "", errors.New("the scheduled pane is gone — send manually")
+	}
+	if !isDropAgent(p) {
+		return "", errors.New("the scheduled pane's agent has exited — send manually")
+	}
+	return p.Agent, nil
+}
+
+// paneExists reports whether pane.list still knows the pane id.
 func paneExists(panes []wire.PaneInfo, id uint32) bool {
+	_, ok := findPane(panes, id)
+	return ok
+}
+
+// findPane is the pane.list entry for id, if there is one.
+func findPane(panes []wire.PaneInfo, id uint32) (wire.PaneInfo, bool) {
 	for _, p := range panes {
 		if p.Pane == id {
-			return true
+			return p, true
 		}
 	}
-	return false
+	return wire.PaneInfo{}, false
 }
 
 // dropIntoNewSession opens a fresh tab (in the active workspace — the one the

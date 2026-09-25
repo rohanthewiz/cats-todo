@@ -304,12 +304,26 @@ func (o *SessionOpts) hasLaunchFlags() bool {
 //   - /model before /effort, because the levels a model accepts are the model's:
 //     setting effort first and switching model after can clamp it back.
 //
-// /clear goes to any agent, as it always has. /model and /effort are Claude
-// Code's commands, so they go only to a pane cats detected as claude: typed at a
-// shell (or at another agent's input) they would be a command line of their own,
-// and in run mode that line gets executed.
+// Each command is gated on what the pane is running, because typed at a shell
+// any of them is a command line of its own, and in run mode that line gets
+// executed:
+//
+//	agent label     /clear   /model   /effort
+//	""  (none)        –        –         –
+//	claude            ✓        ✓         ✓
+//	codex, …          ✓        –         –
+//
+// /clear is the one every agent's input understands, so it goes to any
+// detected agent. With no agent detected there is nothing to clear — the pane
+// is a shell, or an agent cats cannot see — and the command is withheld. The
+// drop picker lists only agent panes, so an empty label reaches here only by a
+// road that skipped the picker's judgment: a caller building a target by hand.
+// The scheduled road re-checks the live pane before it gets this far
+// (performScheduledDropAt); this gate is what still holds if one does not.
+// /model and /effort are Claude Code's commands, so they go only to a pane
+// cats detected as claude.
 func (o *SessionOpts) paneSetupCommands(agent string) []string {
-	if o == nil {
+	if o == nil || strings.TrimSpace(agent) == "" {
 		return nil
 	}
 	var cmds []string

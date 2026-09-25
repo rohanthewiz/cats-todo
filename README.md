@@ -269,9 +269,12 @@ fire time — `◷` and `⏰ 15:30` — until the moment comes. The fire is alwa
 "drop & run" (nobody is standing by to press enter), and it marks the todo done
 exactly as a manual drop would. The manager has to be open at the time: firing
 is the tick loop of the running TUI, not a daemon. A schedule whose moment
-passed while the manager was closed — or whose pane has since disappeared — is
-marked **missed** on the row instead of firing late into a conversation that
-has moved on; send it by hand from there. `ctrl+s` on a scheduled prompt shows
+passed while the manager was closed — or whose pane has since disappeared, or
+whose pane's agent has since exited — is marked **missed** on the row instead of
+firing late into a conversation that has moved on; send it by hand from there.
+The agent check matters because a pane outlives the agent in it: once the agent
+quits, the same pane holds a shell, and a fire that only asked whether the pane
+existed would type `/clear` and the prompt there as command lines, and run them. `ctrl+s` on a scheduled prompt shows
 the time again, where enter on an emptied box clears it.
 
 ### Annotations
@@ -1021,7 +1024,8 @@ prompt's own schedule, by the same rules:
 - **Read fresh.** The backlogs are re-read at fire time, so a prompt completed,
   frozen or deleted in another pane since the batch was scheduled is skipped,
   with the reason on the record. A running-pane target is checked to still
-  exist before anything is typed into it: a pane chosen hours ago may be gone,
+  exist, and still run an agent, before anything is typed into it: a pane chosen
+  hours ago may be gone, or its agent may have exited and left a shell behind,
   and its number is no promise about what now holds it.
 
 The manager has to be open for a batch to fire, as for any schedule. Every
@@ -2459,8 +2463,9 @@ session instead, each as its own submitted message ahead of the prompt:
 `/clear` comes first so the model and effort land on the session that will read
 the prompt, and `/model` before `/effort` because the levels a model accepts are
 its own. They are submitted in paste mode too — the pause is for the prompt, not
-the setup. The two claude commands go only to a pane cats detected as `claude`:
-typed into a shell they would be a command line, and run mode would run it. A
+the setup. The two claude commands go only to a pane cats detected as `claude`,
+and `/clear` only to a pane where cats detects some agent: typed into a shell
+any of them would be a command line, and run mode would run it. A
 command that fails aborts the drop rather than delivering the prompt onto the
 wrong setup. Permission mode is the one setting a running session cannot be
 given — Claude Code only cycles through modes with `shift+tab`, from a starting

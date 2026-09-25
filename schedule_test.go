@@ -169,3 +169,50 @@ func TestPaneExists(t *testing.T) {
 		t.Error("no panes at all cannot contain one")
 	}
 }
+
+// TestScheduledPaneAgent pins the fire-time check on a pane target (N-020).
+// Existence alone used to be the whole check, so a schedule whose agent had
+// exited before it fired typed /clear and then the prompt into the shell left
+// holding the pane — and a fire always runs, so both lines were executed.
+func TestScheduledPaneAgent(t *testing.T) {
+	agent := func(id uint32, label, pluginType string) wire.PaneInfo {
+		return wire.PaneInfo{Pane: id, PaneMeta: wire.PaneMeta{Agent: label, PluginType: pluginType}}
+	}
+	panes := []wire.PaneInfo{
+		agent(3, "claude", ""),
+		agent(4, "codex", "agent"),
+		{Pane: 5}, // the agent exited: a shell, no label
+		agent(6, "ced", "editor"),
+		agent(7, "ced", ""), // an editor on a cats too old to send plugin_type
+	}
+	cases := []struct {
+		name    string
+		id      uint32
+		want    string
+		wantErr string
+	}{
+		{"a claude pane fires", 3, "claude", ""},
+		{"another agent fires, under its live label", 4, "codex", ""},
+		{"a gone pane is refused", 9, "", "gone"},
+		{"a shell left behind is refused", 5, "", "exited"},
+		{"an editor is refused", 6, "", "exited"},
+		{"an editor on an old cats is refused", 7, "", "exited"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := scheduledPaneAgent(panes, c.id)
+			if c.wantErr == "" {
+				if err != nil || got != c.want {
+					t.Fatalf("scheduledPaneAgent(%d) = %q, %v; want %q, nil", c.id, got, err, c.want)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("scheduledPaneAgent(%d) err = %v, want one mentioning %q", c.id, err, c.wantErr)
+			}
+			if !strings.Contains(err.Error(), "send manually") {
+				t.Errorf("refusal %q does not say what to do instead", err)
+			}
+		})
+	}
+}

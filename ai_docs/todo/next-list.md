@@ -79,16 +79,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   new-session path needed 2s (`newSessionSettle`). *Lapsed* in
   `2026-0922-0943-info-annotation`.
 
-- **N-020** · raised `2026-0913-1932-existing-pane-session-settings` · value low
-  Gate `/clear` on a detected agent, the way `/model` and `/effort` are gated
-  (`paneSetupCommands`, `session.go`). **Premise narrowed 2026-09-24:** the
-  drop picker now lists only `isDropAgent` panes (`ui.go`, `context.go`), so
-  an immediate drop cannot reach a shell. The remaining road is a
-  **scheduled** existing-pane drop: `performScheduledDrop` checks only that
-  the pane still exists (`paneExists`), so if its agent exited before the
-  schedule fires, `/clear` and then the prompt are typed at a shell, and in
-  run mode executed there. *Lapsed* in `2026-0922-0943-info-annotation`.
-
 - **N-023** · raised `2026-0915-1637-prompt-editor-paste-line-cap` · value low
   Hand-test in cats: paste a few hundred lines, then type, press enter,
   scroll, click and sweep. Watch whether the caret stays in view on the long
@@ -258,6 +248,9 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   - a permission question mid-prompt (*blocked*) holding the loop;
   - quitting the manager mid-loop and reopening it (`‖ paused`, then
     resumed), and a loop left over an hour (stopped, "not resumed");
+  - a scheduled drop (a prompt or a batch) into a claude pane whose agent is
+    quit before it fires: marked missed, "the scheduled pane's agent has
+    exited", and nothing typed at the shell (N-020);
   - ■ Stop from the page.
 
 - **N-058** · raised `2026-0925-1739-batches-menu-and-loop-default` · value medium
@@ -273,7 +266,8 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - **N-059** · raised `2026-0925-1739-batches-menu-and-loop-default` · value medium
   Release v0.40.0: the Batches page's right-click menu (a new capability, so
   minor), loop as the composer's default Deliver, and the loop's one-hour
-  resume window (N-057). Bump `main.go` and
+  resume window (N-057), and the fire-time agent check on a scheduled pane
+  drop (N-020). Bump `main.go` and
   `cats-plugin.toml`, commit `chore(release): v0.40.0`, tag it, and push the
   code and the tag.
 
@@ -319,6 +313,16 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-020** · closed 2026-09-25, `2026-0925-1757-scheduled-drop-agent-gate` · raised `2026-0913-1932-existing-pane-session-settings`
+  — A scheduled existing-pane drop now checks, when it fires, that the pane
+  still runs an agent and not just that it still exists
+  (`scheduledPaneAgent`, `drop.go`). It uses the same `isDropAgent` rule the
+  picker applies. A pane whose agent has exited is marked Missed with
+  "the scheduled pane's agent has exited — send manually". The live agent
+  label replaces the one saved with the schedule, so `/model` and `/effort`
+  are gated on what runs at fire time. Scheduled batches get the same check.
+  `paneSetupCommands` now also withholds `/clear` when no agent is detected,
+  as a backstop for any caller that builds a target by hand.
 - **N-057** · closed 2026-09-25, `2026-0925-1749-loop-resume-window` · raised `2026-0925-1409-batch-loop-phase3`
   — A resume window: a loop whose heartbeat is over an hour old
   (`loopResumeWindow`) is stopped with the reason instead of resumed

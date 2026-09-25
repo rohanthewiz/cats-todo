@@ -162,7 +162,11 @@ func TestPaneSetupCommands(t *testing.T) {
 		{"a claude path is still claude", &SessionOpts{Model: "opus"}, "/usr/local/bin/claude",
 			[]string{"/model opus"}},
 		{"another agent gets only /clear", all, "codex", []string{"/clear"}},
-		{"an undetected agent gets only /clear", all, "", []string{"/clear"}},
+		// N-020: with no agent detected the pane may be a shell, where
+		// "/clear" is a command line — nothing at all is typed ahead of the
+		// prompt, not even the one command every agent understands.
+		{"an undetected agent gets nothing", all, "", nil},
+		{"a blank label is undetected too", all, "  ", nil},
 		{"permission alone sends nothing", &SessionOpts{Permission: permAuto}, "claude", nil},
 	}
 	for _, c := range cases {
