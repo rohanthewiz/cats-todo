@@ -178,13 +178,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   that asking for all motion on the page causes no lag. Only the tests have
   exercised it.
 
-- **N-042** · raised `2026-0924-1939-nextlist-hover-card` · value low
-  Release v0.37.0 (a minor bump: new capabilities). Unreleased on `main`:
-  the Next List hover card (`2026-0924-1939-nextlist-hover-card`), redo in
-  the prompt editor, and the switch-confirm fix for existing-pane drops
-  (`2026-0924-2007-redo-and-switch-confirm`). Bump both version places, tag,
-  and push.
-
 - **N-043** · raised `2026-0924-2007-redo-and-switch-confirm` · value medium
   Live-test the switch confirm (`panesetup.go`) in cats. Drop a prompt with
   a different model set and Clear off into a claude pane that answered
@@ -201,7 +194,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   and `applyPaneSetup` doesn't watch for it. A pane that has consented once
   won't show it.
 
-- **N-045** · raised 2026-09-24, the notes-send commit (no session doc) · value low
+- **N-045** · raised `2026-0924-2029-notes-send-to-gonotes` · value low
   `TestProgramExitsOnHangup/sighup` fails under `go test -race`: the helper
   process exits 66, the race detector's code, so `runProgram` races with
   itself on SIGHUP. It fails on a clean HEAD as well as with the notes send,
@@ -250,7 +243,11 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
-- **N-030** · closed 2026-09-24, the notes-send commit (no session doc) · raised `2026-0922-0943-info-annotation`
+- **N-042** · closed 2026-09-24 · raised `2026-0924-1939-nextlist-hover-card`
+  — Released v0.37.0 (tag `v0.37.0`). It ships the notes drop target, redo,
+  the Next List hover card, the switch-confirm fix, the footer's trimmed
+  tail, and the bundle's done stamp.
+- **N-030** · closed 2026-09-24, `2026-0924-2029-notes-send-to-gonotes` · raised `2026-0922-0943-info-annotation`
   — An info prompt's Send (shift+enter, the form's ✉ Send, the menu row that
   now reads ✉ Send to notes) files it in the notes plugin rather than
   refusing. `notes.go` finds the pane by `plugin_type == "notes_mgr"` in
@@ -261,28 +258,28 @@ below were found done or overtaken while seeding.
   out. The intake contract was settled with the user: a paste into the pane
   rather than an inbox dir or a CLI, because the pane's process already owns
   the store. gonotes `08eb409` is the receiver (`tui/intake.go`), which opens
-  an unsaved form. Schedule still refuses info prompts. Not yet released.
+  an unsaved form. Schedule still refuses info prompts. Shipped in v0.37.0.
 - **N-013** · closed 2026-09-24, `2026-0924-2019-bundle-done-stamp` · raised `2026-0913-1813-done-stamp-v0.31.0`
   — `bundleTodoNote` (`bundle.go`) now writes `done 2026-09-24 14:05 CDT`,
   the prompt view's full stamp with the zone, and plain `done` when there is
   no stamp. It also fixes a bug found along the way: since `5e14beb` every
   prompt without a priority rendered as "none priority", because the note
-  tested `priorityLabel`'s output rather than the level. Not yet released.
+  tested `priorityLabel`'s output rather than the level. Shipped in v0.37.0.
 - **N-029** · closed 2026-09-24, `2026-0924-2013-form-footer-tail` · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
   — The form footer's tail is cut to what nothing else teaches: `ctrl+l
   spelling · right-click menu · alt+↑/↓ move line · cmd+d dup line`. The
   prompt library, undo and redo left it, because their right-click menu rows
   print their chords. `cmd+d` is named only under `kbEnhanced`. The full line
-  went from 244 cells to 207 (`TestFormFooterTailFitsAWidePane`). Not yet
-  released.
+  went from 244 cells to 207 (`TestFormFooterTailFitsAWidePane`). Shipped in
+  v0.37.0.
 - **N-018** · closed 2026-09-24, `2026-0924-2007-redo-and-switch-confirm` · raised `2026-0913-1932-existing-pane-session-settings`
   — `/model` mid-conversation does ask. Claude Code 2.1.282 raises *Switch
   model?* / *Change effort level?* when the cache is warm and the switch
   changes something, and the next Enter answers it, so a Clear-off drop's
   prompt was lost. `applyPaneSetup` (`panesetup.go`) now watches for the
   dialog after each command and presses Yes. The status line says so, and a
-  PreModelSwitch hook's ask stops the drop instead (`c68084d`). Not yet
-  released.
+  PreModelSwitch hook's ask stops the drop instead (`c68084d`). Shipped in
+  v0.37.0.
 - **N-019** · closed 2026-09-24, `2026-0924-2007-redo-and-switch-confirm` · raised `2026-0913-1932-existing-pane-session-settings`
   — Premise corrected: in Claude Code 2.1.282, `/effort xhigh` on a model
   without xhigh no longer errors. It is accepted, and the request runs at high
@@ -294,7 +291,7 @@ below were found done or overtaken while seeding.
   leaves onto it, `redoPrompt` moves it back, and the next change to the text
   clears it (a caret motion does not). The chords are `shift+cmd+z`,
   `ctrl+shift+z` and `ctrl+y`, and ↷ Redo sits under ↶ Undo on the context menu
-  (`af86f25`). Not yet released.
+  (`af86f25`). Shipped in v0.37.0.
 - **N-036** · closed 2026-09-24, `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · raised `2026-0924-1802-code-highlight-and-next-list-seed`
   — Release the code highlighting. Shipped in v0.36.0 (tag `v0.36.0`),
   together with the Next List send and the value levels.
