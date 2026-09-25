@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // typeChar is one printable key as a terminal reports it — Text populated, which
@@ -434,6 +435,28 @@ func TestCaretsFooterTeachesTheMode(t *testing.T) {
 	}
 	if strings.Contains(foot, "tab switch field") {
 		t.Errorf("the ordinary editor footer is still up during the mode:\n%s", foot)
+	}
+}
+
+// TestCaretsFooterFitsA120CellPane: once enter and tab joined the mode the line
+// grew to 128 cells, and fitFooter trimmed its tail — "←/→ moves them" and
+// "ctrl+a/e line ends" — from every pane of 120 or less. Tightened to 117, the
+// whole line fits there again; this pins every segment surviving at 120 so a
+// new key has to make room rather than silently pushing one out.
+func TestCaretsFooterFitsA120CellPane(t *testing.T) {
+	m := caretsOver(t, "one\ntwo")
+	m.width = 120
+	foot := m.formFooter()
+	for _, want := range []string{
+		"typing goes on every line", "esc ends", "backspace deletes", "enter breaks",
+		"tab indents", "←/→ move", "ctrl+a/e line ends",
+	} {
+		if !strings.Contains(foot, want) {
+			t.Errorf("a 120-cell pane loses %q from the column-mode footer:\n%s", want, foot)
+		}
+	}
+	if w := lipgloss.Width(foot); w > 118 {
+		t.Errorf("column-mode footer is %d cells, past the 118 the editor's footer keeps to", w)
 	}
 }
 

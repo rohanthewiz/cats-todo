@@ -52,12 +52,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   test stubs the clipboard with the column mode on. The OSC 52 road is
   covered. *Lapsed* in `2026-0922-0943-info-annotation`.
 
-- **N-007** · raised `2026-0912-2110-multi-caret-enter-paste-tab-indent` · value low
-  The column-mode footer is over 120 cells, so narrow panes lose its tail
-  (`←/→ moves them`, `ctrl+a/e line ends`). Acceptable for now; revisit if
-  the mode gains another key. *Lapsed* in
-  `2026-0922-0943-info-annotation`.
-
 - **N-011** · raised `2026-0912-2234-carried-indent-and-release` · value low
   Enter with the caret *inside* an indent (`"  |  x"`) leaves the spaces left
   of the caret as trailing whitespace on the upper line (`"  "` / `"    x"`).
@@ -279,6 +273,13 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-007** · closed 2026-09-25 · raised `2026-0912-2110-multi-caret-enter-paste-tab-indent`
+  — The column-mode footer is 117 cells (was 128), so a 120-cell pane shows
+  all of it. Two segments lost the word that restated the lead ("typing goes
+  on every line"): `enter breaks each` → `enter breaks`, `←/→ moves them` →
+  `←/→ move`. `ctrl+a/e line ends` stays word-for-word with the editor's
+  footer. `TestCaretsFooterFitsA120CellPane` pins every segment at 120 and
+  the line at ≤118, so a new key for the mode has to replace a segment.
 - **N-035** · closed 2026-09-25, `2026-0925-1836-gofmt-and-autosave-view-row` · raised `2026-0924-1231-prompt-editor-autosave`
   — The list's View panel (`ctrl+l`) has a third row, **Autosave**. It is a
   stepper over off, 15s, 30s, 45s, 1m, 90s, 2m and 5m that wraps at both

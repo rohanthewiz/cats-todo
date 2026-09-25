@@ -6195,10 +6195,20 @@ func (m model) formFooter() string {
 	// mode, this line outgrew a 120-cell pane, and "esc ends" was what got cut.
 	// Knowing how to leave a mode is worth more than any single thing it does,
 	// so the exit sits just behind the one fact that says what the mode is.
+	//
+	// The whole line now fits a 120-cell pane again (117 cells), so a narrow
+	// pane no longer loses the tail either. Two segments were tightened to buy
+	// that rather than one being dropped: "enter breaks each" → "enter breaks"
+	// and "←/→ moves them" → "←/→ move". Both lost only the word that restated
+	// the lead — after "typing goes on every line", every verb on the line is
+	// already about every caret. "ctrl+a/e line ends" keeps the exact words the
+	// editor's own footer uses for the same keys, so the two lines agree.
+	// A new key for the mode has no room left here at 120; it would have to
+	// replace a segment, or go at the tail and accept being cut.
 	if m.carets.on {
 		return footerStyle.Render(m.fitFooter([]string{
-			"typing goes on every line", "esc ends", "backspace deletes", "enter breaks each",
-			"tab indents", "←/→ moves them", "ctrl+a/e line ends",
+			"typing goes on every line", "esc ends", "backspace deletes", "enter breaks",
+			"tab indents", "←/→ move", "ctrl+a/e line ends",
 		}))
 	}
 	var lines []string
