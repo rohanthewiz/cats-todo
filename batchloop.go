@@ -35,7 +35,9 @@
 // mid-loop can leave a prompt unsent but never lets one be sent twice. Another
 // manager — or the same project's manager reopened — finds a running loop whose
 // owner is gone, takes it over with a compare-and-swap (the claim rule every
-// batch change follows, see swapBatch), and resumes from the recorded phase.
+// batch change follows, see swapBatch), and resumes from the recorded phase —
+// but only within loopResumeWindow of the last heartbeat. Past it the loop is
+// stopped with the reason instead, as a schedule past its grace is missed.
 // Every write the driver makes is such a swap, which is also how a loop is
 // stopped from another pane: the stop changes the record, the driver's next
 // write loses, and it stands down before typing anything more.
@@ -144,6 +146,16 @@ const (
 	// hung manager, or a pid reused after a reboot).
 	loopBeat  = time.Minute
 	loopLease = 5 * time.Minute
+	// loopResumeWindow is how long a loop may go undriven — its heartbeat
+	// that old — and still be picked up again. Past it the loop is stopped
+	// with the reason instead (loopLapsed). It is the loop's version of
+	// scheduleGrace: opening the manager, or waking the laptop, should not set
+	// off a sequence of agent runs left off hours or days ago, into a pane and
+	// a working tree that have moved on since. Wider than the grace because a
+	// loop was already running — the user did set it off, and a manager closed
+	// by accident and reopened within the hour is the case worth carrying on
+	// from — and well past loopLease, so a take-over is always tried first.
+	loopResumeWindow = time.Hour
 )
 
 // parseLoopDuration reads a pause or max wait as typed: "" is none, anything
@@ -298,6 +310,21 @@ func (m model) loopDriven(b Batch, now time.Time) bool {
 		return false
 	}
 	return processAlive(p.Owner) && now.Sub(p.Beat) < loopLease
+}
+
+// loopLapsed says a loop last driven at p.Beat has been left too long to pick
+// up again (see loopResumeWindow), and why, in the words its record keeps. A
+// record with no heartbeat at all — only a hand edit leaves one — counts as
+// lapsed: there is nothing to say it was ever recently driven.
+func loopLapsed(p *LoopProgress, now time.Time) (string, bool) {
+	if p == nil || (!p.Beat.IsZero() && now.Sub(p.Beat) < loopResumeWindow) {
+		return "", false
+	}
+	const tail = " — a loop is picked up again only within an hour; ⧉ Duplicate sends the prompts not sent"
+	if p.Beat.IsZero() {
+		return "not resumed: no manager's heartbeat on the record" + tail, true
+	}
+	return "not resumed: nothing drove it after " + formatScheduleTime(p.Beat, now) + tail, true
 }
 
 // --- The runner -------------------------------------------------------------------
@@ -1023,6 +1050,15 @@ func (m *model) loopTick(now time.Time) tea.Cmd {
 			continue
 		}
 		p := lr.batch.Progress
+		// This manager's own heartbeat can lapse too: the laptop slept with
+		// the manager open, and the tick is only now running again. The loop
+		// ends the same way an orphan past the window does, so which manager
+		// wakes first — this one, or another on the same backlog that would
+		// find the stale beat in adoptLoops — never changes the outcome.
+		if why, lapsed := loopLapsed(p, now); lapsed {
+			m.loopClose(lr, batchStopped, why)
+			continue
+		}
 		if p.Phase == loopPhasePause && lr.pending == "" && !now.Before(p.Until) {
 			cmds = append(cmds, m.loopPhaseDone(lr, now))
 			continue
@@ -1077,6 +1113,12 @@ func (m model) loopPolled(msg loopPollMsg) (tea.Model, tea.Cmd) {
 		if lr == nil || !lr.watching() {
 			continue
 		}
+		// An answer that was in flight when the laptop slept arrives before
+		// the tick has had its look; judging it would send the next prompt
+		// into a loop the tick is about to stop.
+		if _, lapsed := loopLapsed(lr.batch.Progress, msg.at); lapsed {
+			continue
+		}
 		switch v, why := lr.judge(observePane(msg.panes, lr.batch.Progress.Pane), msg.at); v {
 		case loopFinished:
 			cmds = append(cmds, m.loopPhaseDone(lr, msg.at))
@@ -1095,23 +1137,27 @@ func (m model) loopPolled(msg loopPollMsg) (tea.Model, tea.Cmd) {
 // A prompt the record says was being sent when the owner went, but which has no
 // run, may or may not have reached its pane; the record says so on its row
 // rather than guess, and the loop carries on from the prompt after it.
+//
+// An orphan whose heartbeat is past loopResumeWindow is not taken over but
+// stopped, with the reason on its record (expireLoop). That needs no cats
+// socket — it sends nothing — so it runs in a manager outside cats too, and
+// the Batches page stops calling a days-old loop "paused".
 func (m *model) adoptLoops(now time.Time) tea.Cmd {
-	if m.client == nil {
-		return nil
-	}
 	var cmds []tea.Cmd
 	for _, b := range m.batchFiles() {
 		if b.Deliver != deliverLoop || b.State != batchRunning || b.Progress == nil || m.loopDriven(b, now) {
 			continue
 		}
+		if why, lapsed := loopLapsed(b.Progress, now); lapsed {
+			m.expireLoop(b, why, now)
+			continue
+		}
+		if m.client == nil {
+			continue
+		}
 		next := b.cloneLoop()
 		next.Progress.Owner, next.Progress.Beat = os.Getpid(), now
-		if p := next.Progress; p.Phase == loopPhasePrompt && p.Next > 0 {
-			if _, ran := next.itemRun(p.Next - 1); !ran {
-				next.Runs = append(next.Runs, BatchRun{Items: []int{p.Next - 1}, At: now,
-					Err: "the manager closed while this prompt was being sent — look in its pane to see whether it arrived"})
-			}
-		}
+		markLoopInFlight(&next, now)
 		won, err := m.batchStoreForScope(b.scope).swapBatch(b, next)
 		if err != nil || !won {
 			continue
@@ -1125,6 +1171,38 @@ func (m *model) adoptLoops(now time.Time) tea.Cmd {
 		cmds = append(cmds, m.runLoop(next, true))
 	}
 	return tea.Batch(cmds...)
+}
+
+// markLoopInFlight records, on an orphaned loop taken over or expired, that
+// the prompt its record says was being sent — one with no run — may or may
+// not have reached its pane. Guessing either way is worse: sending it again
+// could run it twice, and calling it sent could lose it.
+func markLoopInFlight(b *Batch, now time.Time) {
+	p := b.Progress
+	if p == nil || p.Phase != loopPhasePrompt || p.Next == 0 {
+		return
+	}
+	if _, ran := b.itemRun(p.Next - 1); !ran {
+		b.Runs = append(b.Runs, BatchRun{Items: []int{p.Next - 1}, At: now,
+			Err: "the manager closed while this prompt was being sent — look in its pane to see whether it arrived"})
+	}
+}
+
+// expireLoop stops an orphaned loop left past loopResumeWindow, through the
+// same swap a take-over uses, so of two managers finding it only one writes
+// (and says so). The loop's state is left as stopLoop leaves it — no owner,
+// no pane — which is what ⧉ Duplicate starts a new batch from.
+func (m *model) expireLoop(b Batch, why string, now time.Time) {
+	off := b.cloneLoop()
+	off.State, off.Why = batchStopped, why
+	off.Progress.Owner, off.Progress.Pane = 0, 0
+	markLoopInFlight(&off, now)
+	won, err := m.batchStoreForScope(b.scope).swapBatch(b, off)
+	if err != nil || !won {
+		return
+	}
+	m.rebuildList()
+	m.batchStatus(fmt.Sprintf("loop %s: stopped at %d/%d — %s", b.displayName(), b.Progress.Next, len(b.Items), why), true)
 }
 
 // --- Stopping -----------------------------------------------------------------------

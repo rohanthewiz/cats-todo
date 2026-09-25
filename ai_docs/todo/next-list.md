@@ -257,16 +257,8 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   - fresh each onto worktrees;
   - a permission question mid-prompt (*blocked*) holding the loop;
   - quitting the manager mid-loop and reopening it (`‖ paused`, then
-    resumed);
+    resumed), and a loop left over an hour (stopped, "not resumed");
   - ■ Stop from the page.
-
-- **N-057** · raised `2026-0925-1409-batch-loop-phase3` · value low
-  A loop orphaned by a closed manager is resumed by the next manager opened on
-  its backlog however long ago that was (`adoptLoops`), provided its pane still
-  answers. Schedules refuse to fire past a two-minute grace so that opening the
-  manager never sets off work planned for hours ago; a loop resumed days later
-  is the same surprise. Consider a resume window (say, the heartbeat older than
-  an hour → mark it stopped with the reason, ⧉ Duplicate to go on), or ask.
 
 - **N-058** · raised `2026-0925-1739-batches-menu-and-loop-default` · value medium
   Live-test the Batches page's right-click menu (`batchmenu.go`) in cats.
@@ -280,7 +272,8 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 
 - **N-059** · raised `2026-0925-1739-batches-menu-and-loop-default` · value medium
   Release v0.40.0: the Batches page's right-click menu (a new capability, so
-  minor) and loop as the composer's default Deliver. Bump `main.go` and
+  minor), loop as the composer's default Deliver, and the loop's one-hour
+  resume window (N-057). Bump `main.go` and
   `cats-plugin.toml`, commit `chore(release): v0.40.0`, tag it, and push the
   code and the tag.
 
@@ -326,6 +319,15 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-057** · closed 2026-09-25, `2026-0925-1749-loop-resume-window` · raised `2026-0925-1409-batch-loop-phase3`
+  — A resume window: a loop whose heartbeat is over an hour old
+  (`loopResumeWindow`) is stopped with the reason instead of resumed
+  (`loopLapsed`, `expireLoop` in `adoptLoops`), in a manager outside cats too.
+  The driving manager's own beat lapsing (a laptop asleep with it open) ends
+  it the same way on its first tick back, so which manager wakes first never
+  changes the outcome; a pane.list answer in flight across the sleep is not
+  judged. The paused record view says until when it can still be picked up.
+  ⧉ Duplicate goes on.
 - **N-054** · closed 2026-09-25, `2026-0925-1739-batches-menu-and-loop-default` · raised `2026-0925-1344-batch-scheduling-phase2`
   — The Batches page's right-click menu (`batchmenu.go`, on `menuBox`): the
   page's row actions on the batch pointed at — ✎ Edit… (a plan) / ☰ Open

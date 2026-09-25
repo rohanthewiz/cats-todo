@@ -273,12 +273,15 @@ func TestLoopBetweenCommandAndPause(t *testing.T) {
 func TestLoopOnFail(t *testing.T) {
 	t.Run("stop on a stuck prompt", func(t *testing.T) {
 		m, project, _ := batchModel(t, 120, 30)
-		b := loopBatch(m, LoopOpts{MaxWait: "1h"}, "Fix flaky drop test", "Rename headings")
+		b := loopBatch(m, LoopOpts{MaxWait: "20m"}, "Fix flaky drop test", "Rename headings")
 		m = startLoopOn(t, m, b)
 		now := time.Now()
 		m, _ = update(m, loopSentMsg{batchID: b.ID, what: loopPhasePrompt, item: 0, desc: "d", landing: dropLanding{pane: 7}})
 		m = poll(m, now.Add(time.Minute), panesWith(7, "working"))
-		m = poll(m, now.Add(2*time.Hour), panesWith(7, "working"))
+		// Past the max wait but inside loopResumeWindow: no tick runs here to
+		// refresh the heartbeat, and a jump past the window is a lapsed loop
+		// (TestOwnLoopLapsedBySleepIsStopped), not a stuck prompt.
+		m = poll(m, now.Add(30*time.Minute), panesWith(7, "working"))
 		rec, _ := readBatch(t, project, b.ID)
 		run, _ := rec.itemRun(0)
 		if rec.State != batchStopped || !strings.Contains(rec.Why, "max wait") || run.Err != "" || !strings.Contains(run.Stalled, "max wait") {
@@ -397,6 +400,100 @@ func TestLoopResumesAfterTheManagerClosed(t *testing.T) {
 	m = poll(m, time.Now(), panesWith(7, "idle"))
 	if !m.dropping || m.loops[b.ID].batch.Progress.Next != 3 {
 		t.Error("the resumed loop did not move on")
+	}
+}
+
+// TestLoopPastTheResumeWindowIsStopped: an orphaned loop whose heartbeat is
+// over an hour old is not taken over — opening the manager days later must not
+// set its prompts off, any more than a schedule past its grace fires. It is
+// stopped with the reason instead, the prompt in flight at the close marked
+// unknown as a take-over would, and that happens outside cats too, since
+// stopping sends nothing. The Owner is left alive but stale, which is the
+// suspended-laptop case as another manager sees it.
+func TestLoopPastTheResumeWindowIsStopped(t *testing.T) {
+	old := processAlive
+	t.Cleanup(func() { processAlive = old })
+	processAlive = func(int) bool { return true }
+
+	m, project, _ := batchModel(t, 120, 30)
+	m.client = nil
+	now := time.Now()
+	beat := now.Add(-loopResumeWindow - time.Minute)
+	b := loopBatch(m, LoopOpts{}, "Fix flaky drop test", "Rename headings", "Add cleanup command")
+	b.State = batchRunning
+	b.Runs = []BatchRun{{Items: []int{0}, At: beat, Pane: 7}}
+	b.Progress = &LoopProgress{Next: 2, Phase: loopPhasePrompt, Pane: 7, Since: beat, Owner: 999999, Beat: beat}
+	if err := batchStoreFor(project).put(b); err != nil {
+		t.Fatal(err)
+	}
+
+	m, _ = update(m, scheduleTickMsg(now))
+	if m.loops[b.ID] != nil {
+		t.Fatal("took over a loop left past the resume window")
+	}
+	rec, _ := readBatch(t, project, b.ID)
+	if rec.State != batchStopped || !strings.Contains(rec.Why, "not resumed") {
+		t.Fatalf("record = %q (%s), want stopped with the reason", rec.State, rec.Why)
+	}
+	if rec.Progress.Owner != 0 || rec.Progress.Pane != 0 || rec.Progress.Next != 2 {
+		t.Errorf("progress = %+v, want no owner or pane, Next kept", rec.Progress)
+	}
+	if run, ok := rec.itemRun(1); !ok || !strings.Contains(run.Err, "manager closed") {
+		t.Errorf("the prompt in flight at the close: %+v", run)
+	}
+}
+
+// TestLoopInsideTheResumeWindowIsResumed: the window's other side — an
+// orphan whose beat is under the hour is taken over as before.
+func TestLoopInsideTheResumeWindowIsResumed(t *testing.T) {
+	old := processAlive
+	t.Cleanup(func() { processAlive = old })
+	processAlive = func(int) bool { return false }
+
+	m, project, _ := batchModel(t, 120, 30)
+	m.client = &catsClient{}
+	now := time.Now()
+	beat := now.Add(-loopResumeWindow + time.Minute)
+	b := loopBatch(m, LoopOpts{}, "Fix flaky drop test", "Rename headings")
+	b.State = batchRunning
+	b.Runs = []BatchRun{{Items: []int{0}, At: beat, Pane: 7}}
+	b.Progress = &LoopProgress{Next: 1, Phase: loopPhasePrompt, Pane: 7, Since: beat, Owner: 999999, Beat: beat}
+	if err := batchStoreFor(project).put(b); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = update(m, scheduleTickMsg(now))
+	if m.loops[b.ID] == nil {
+		t.Fatal("a loop inside the window was not resumed")
+	}
+	if rec, _ := readBatch(t, project, b.ID); rec.State != batchRunning {
+		t.Errorf("state = %q, want running", rec.State)
+	}
+}
+
+// TestOwnLoopLapsedBySleepIsStopped: the manager driving a loop was itself
+// asleep (a laptop lid) for past the window. Its first tick back stops the
+// loop, exactly as another manager finding the stale beat would, so the
+// outcome never depends on which one wakes first — and a pane.list answer
+// that was in flight across the sleep is not judged before that tick.
+func TestOwnLoopLapsedBySleepIsStopped(t *testing.T) {
+	m, project, _ := batchModel(t, 120, 30)
+	b := loopBatch(m, LoopOpts{}, "Fix flaky drop test", "Rename headings")
+	m = startLoopOn(t, m, b)
+	m, _ = update(m, loopSentMsg{batchID: b.ID, what: loopPhasePrompt, item: 0, desc: "d", landing: dropLanding{pane: 7}})
+	m = poll(m, time.Now().Add(time.Second), panesWith(7, "working"))
+
+	woke := time.Now().Add(loopResumeWindow + time.Minute)
+	m = poll(m, woke, panesWith(7, "idle"))
+	if m.dropping {
+		t.Fatal("a poll across the sleep sent the next prompt")
+	}
+	m, _ = update(m, scheduleTickMsg(woke))
+	if m.loops[b.ID] != nil || m.dropping {
+		t.Fatalf("runner %v dropping %v, want it stopped", m.loops[b.ID] != nil, m.dropping)
+	}
+	rec, _ := readBatch(t, project, b.ID)
+	if rec.State != batchStopped || !strings.Contains(rec.Why, "not resumed") || rec.Progress.Next != 1 {
+		t.Errorf("record = %q next %d (%s)", rec.State, rec.Progress.Next, rec.Why)
 	}
 }
 

@@ -727,6 +727,11 @@ func (m model) viewBatchView() string {
 			now := b.loopWord(driven)
 			if !driven {
 				now += " — no manager is driving it; the next one opened on this backlog picks it up"
+				// Say until when: past loopResumeWindow it is stopped instead,
+				// and a reader deciding whether to open a manager needs that.
+				if p := b.Progress; p != nil && !p.Beat.IsZero() {
+					now += " until " + formatScheduleTime(p.Beat.Add(loopResumeWindow), time.Now()) + ", then stops it"
+				}
 			}
 			out = append(out, field("Now", now))
 		}

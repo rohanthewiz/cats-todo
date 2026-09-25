@@ -978,6 +978,19 @@ sent, so a manager that dies at the wrong moment can leave a prompt unsent but
 never sends one twice. A prompt that was mid-send when the manager went is
 marked on the record as unknown ("look in its pane"), not sent again.
 
+**It is picked up again only within the hour.** A loop nobody has driven for an
+hour — its manager closed, or the laptop slept with it open — is not resumed
+but **stopped**, with the reason on its record ("not resumed: nothing drove it
+after 14:05"), by whichever manager next looks at the backlog, in cats or not.
+It is the loop's version of a schedule's two-minute grace: opening the manager
+should not set off the rest of a sequence left off hours or days ago, into a
+pane and a working tree that have moved on since. The hour is wider than the
+grace because the loop was already running — a manager closed by accident and
+reopened soon after is the case worth carrying on from. The record view of a
+paused loop says until when it can still be picked up. To go on after the hour,
+**⧉ Duplicate** it: the prompts already sent were marked done, so the new batch
+starts with the ones that were not.
+
 **■ Stop** (`ctrl+u` on the page, where the Unschedule chip turns into it for a
 running loop) ends a loop: nothing more is sent. What is already running in its
 pane carries on — nothing on the wire can interrupt an agent, and the pane is
