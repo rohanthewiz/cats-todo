@@ -345,9 +345,10 @@ func TestComposerDropRefusals(t *testing.T) {
 		t.Errorf("no-socket note = %q", m.batch.note)
 	}
 	// With a client, all at once into one running pane is refused for more
-	// than one prompt.
+	// than one prompt. It is chosen by hand, since the composer opens on loop.
 	m.client = &catsClient{}
 	m.toggleBatchCand(candIndex(t, m, "Fix flaky drop test"))
+	m.batch.deliver = deliverEach
 	m.batch.target = dropTarget{kind: targetExistingPane, pane: 3, agent: "claude", label: "claude · proj"}
 	if why := m.batchDropWhy(); !strings.Contains(why, "its own session") {
 		t.Errorf("pane + all at once = %q, want the two ways out", why)

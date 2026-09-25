@@ -761,11 +761,16 @@ Project                                 │
   ☑ △ Fix flaky drop test               │   order: manual · s sorts A→Z
   ☑ Rename fuzzyList headings           │
   ☐ Add worktree cleanup command        │   Name     nightly cleanup
-                                        │   Deliver  (•) all at once  ( ) one prompt  ( ) loop, in order
-Global                                  │   Target   ＋ New Claude Code session on a new worktree
-  ☐ ｉ Blog notes · info — a note, not… │   Session  ⚙ sonnet
+                                        │   Deliver  ( ) all at once  ( ) one prompt  (•) loop, in order
+Global                                  │   Loop     (•) same session  ( ) fresh each
+  ☐ ｉ Blog notes · info — a note, not… │   Between  none — e.g. /compact      ☐ after the last too
+                                        │   Pause    none — e.g.…
+                                        │   Max wait no limit — …
+                                        │   On fail  (•) stop  ( ) skip and go on
+                                        │   Target   ＋ New Claude Code session on a new worktree
+                                        │   Session  ⚙ sonnet
                                         │   When     now
-                                        │   ✱ 1 whose own options the batch overrides
+                                        │   ✱ 1 whose own options the batch overrides · the finish is sent once, after the last
 
    ▶ Drop now alt+enter   ◷ Schedule ctrl+s   ⇅ A→Z   ☰ Batches ctrl+k   ✕ Cancel esc
 ```
@@ -810,7 +815,12 @@ while it says loop — see [Looping a batch](#looping-a-batch)):
 
 - **Name** — optional. An unnamed batch is listed as its first prompt's title
   and a count (`Fix flaky drop test +2`).
-- **Deliver** — how the prompts reach the agents (`←/→` or a click):
+- **Deliver** — how the prompts reach the agents (`←/→` or a click). A new
+  batch starts on **loop, in order**, in the same session: it is the one mode
+  that takes any target and any number of prompts, and never sets two of them
+  working on the tree at once, so the careful choice is the one already made.
+  The other two are a press away when the prompts really are independent. A
+  batch duplicated or edited from the Batches page keeps its own mode.
   - **all at once** — each prompt gets its own new session, or its own
     worktree when the target is a worktree row. This is the case
     [worktree drops](#dropping-onto-a-new-worktree) were built for: several jobs

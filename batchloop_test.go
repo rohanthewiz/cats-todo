@@ -506,7 +506,8 @@ func TestFiredLoopClaimsAndDrives(t *testing.T) {
 	}
 }
 
-// TestComposerLoopRows: choosing loop shows its rows under Deliver; the loop's
+// TestComposerLoopRows: a new composer opens on loop with its rows under
+// Deliver; moving off loop hides them and moving back shows them; the loop's
 // refusals are in words; the rows reach the record.
 func TestComposerLoopRows(t *testing.T) {
 	m, _, _ := batchModel(t, 120, 30)
@@ -515,11 +516,17 @@ func TestComposerLoopRows(t *testing.T) {
 	m.toggleBatchCand(candIndex(t, m, "Fix flaky drop test"))
 	m.toggleBatchCand(candIndex(t, m, "Rename headings"))
 
-	if n := len(m.batch.setRows()); n != 5 {
-		t.Fatalf("rows before loop = %d", n)
+	// Loop is the default Deliver, so its five rows are there from the start.
+	if m.batch.deliver != deliverLoop || len(m.batch.setRows()) != 10 {
+		t.Fatalf("a new composer: deliver %q rows %d, want loop and 10", m.batch.deliver, len(m.batch.setRows()))
 	}
 	m.batch.setRow = batchSetDeliver
 	m.setBatchFocus(batchFocusSettings)
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	if m.batch.deliver != deliverEach || len(m.batch.setRows()) != 5 {
+		t.Fatalf("off loop: deliver %q rows %d", m.batch.deliver, len(m.batch.setRows()))
+	}
 	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
 	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyRight})
 	if m.batch.deliver != deliverLoop || len(m.batch.setRows()) != 10 {

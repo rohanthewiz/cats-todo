@@ -14,7 +14,8 @@
 //	❯☑ Fix flaky drop test              │ order: manual · s sorts A→Z
 //	 ☑ Rename fuzzyList headings        │
 //	 ☐ ▲ Add worktree cleanup command   │ Name     nightly cleanup
-//	 ☐ Draft blog notes · info          │ Deliver  (•) all at once  ( ) one prompt, listed
+//	 ☐ Draft blog notes · info          │ Deliver  ( ) all at once  ( ) one prompt  (•) loop, in order
+//	                                    │ …        (the loop's five rows while Deliver says loop)
 //	                                    │ Target   ＋ New Claude Code session on a new worktree
 //	                                    │ Session  ⚙ sonnet · high
 //	                                    │ When     tomorrow 9:00  → Sat 09:00
@@ -327,7 +328,14 @@ func (m model) beginBatchCompose(from uiStage, source int, preset []batchCand) (
 		between: box("none — e.g. /compact", 200),
 		pause:   box("none — e.g. 30s", 12),
 		maxWait: box("no limit — e.g. 2h", 12),
-		deliver: deliverEach,
+		// A new batch starts as a loop in the same session: the one mode
+		// that is safe for any target and any count (all at once refuses a
+		// running pane with more than one prompt) and that never sets two
+		// prompts working on the tree at once. Only the composer's starting
+		// radio changes. deliverEach stays the stored zero value, so records
+		// already in batches.json keep meaning what they meant, and
+		// ⧉ Duplicate/edit copy b.Deliver over this.
+		deliver: deliverLoop,
 		target:  defaultBatchTarget(),
 		picked:  preset,
 	}
