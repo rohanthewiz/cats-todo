@@ -353,9 +353,9 @@ func (m model) buildHoverCard(td Todo, row, x, y int) (hoverCard, bool) {
 	return card, true
 }
 
-// hoverLines is the card's content: the title, the body, and the session's
-// launch flags — each dropped when it has nothing to say, so the card is only
-// ever as tall as this prompt earns.
+// hoverLines is the card's content: the title, the body, the flag's note, a done
+// prompt's completion stamp and the session's launch flags. Each is dropped when
+// it has nothing to say, so the card is only ever as tall as this prompt earns.
 //
 // The title leads even though the row under the pointer is already showing it,
 // because the card is placed *off* that row: with several rows within a cell or
@@ -399,30 +399,59 @@ func hoverLines(td Todo, inner int) []string {
 		}
 	}
 
+	// The label/value fields, gathered first so the separator above them is
+	// drawn once, and only when at least one of them has a value.
+	type field struct{ label, value string }
+	var fields []field
+
+	// When a done prompt was finished, spelled out in full (formatDoneStamp).
+	// The row already carries the compact form ("done 14:05"), but it can't be
+	// relied on to show it. The stamp is the row's last mark, after the name and
+	// any annotations, and a titleless prompt's name alone is up to 60 cells, so
+	// in a side pane of ordinary width it is the stamp that goes off the right
+	// edge. The card is where the pointer already is, so it is the one place in
+	// the list that is sure to show it. The compact form also drops the date
+	// within the week and the zone always, and that is the question someone
+	// hovering a finished prompt is usually asking.
+	//
+	// It leads the fields because on a done card it is the live fact. The
+	// model and effort below it describe a launch that has already happened.
+	// A todo finished before DoneAt existed has no stamp and adds no row, as it
+	// adds no mark to its list row.
+	if td.Done && !td.DoneAt.IsZero() {
+		fields = append(fields, field{"Done", formatDoneStamp(td.DoneAt)})
+	}
+
 	// The session's launch flags — the two that decide what the receiving agent
 	// *is*, and the pair a drop is most often reconsidered over. The rest of the
 	// setup (context, reviews, wrap-up) is deliberately left to the ⚙ panel:
 	// those are things the agent will do, and this card is about what is being
 	// sent and to what.
 	if td.Session != nil {
-		labelled := func(label, value string) {
-			if value == "" {
-				return // an empty value drops its row, as it does on cats' card
-			}
-			pad := hoverLabelWidth - lipgloss.Width(label)
-			text := label + strings.Repeat(" ", max(pad, 0)) + value
-			row(truncate(text, inner), hoverFieldStyle)
-		}
-		if td.Session.Model != "" || td.Session.Effort != "" {
-			row("", hoverBodyStyle) // the separator between the prose and the fields
-			labelled("Model", td.Session.Model)
-			labelled("Effort", td.Session.Effort)
-		}
+		fields = append(fields,
+			field{"Model", td.Session.Model},
+			field{"Effort", td.Session.Effort})
 	}
 
-	// A title-only todo with no session and no body has nothing the row is not
-	// already saying, so it gets no card at all rather than a box repeating one
-	// line back at the pointer.
+	sep := false
+	for _, f := range fields {
+		if f.value == "" {
+			continue // an empty value drops its row, as it does on cats' card
+		}
+		if !sep {
+			row("", hoverBodyStyle) // the separator between the prose and the fields
+			sep = true
+		}
+		pad := hoverLabelWidth - lipgloss.Width(f.label)
+		text := f.label + strings.Repeat(" ", max(pad, 0)) + f.value
+		row(truncate(text, inner), hoverFieldStyle)
+	}
+
+	// A title-only todo with no body, note, stamp or session has nothing the
+	// row is not already saying, so it gets no card at all rather than a box
+	// repeating one line back at the pointer. A done title-only todo with a
+	// stamp does get one: the card spells out a stamp the row only abbreviates,
+	// or may have cut off.
 	if len(lines) < 2 {
 		return nil
 	}
@@ -431,8 +460,9 @@ func hoverLines(td Todo, inner int) []string {
 
 // hoverLabelWidth is the column the field values line up on — "Effort" plus two
 // spaces, the widest label the card has. Fixed rather than measured because the
-// set is fixed: two labels, and a table that re-measures itself would move its
-// values sideways depending on which fields a todo happened to set.
+// set is fixed: three labels (Done, Model, Effort), and a table that
+// re-measures itself would move its values sideways depending on which fields
+// a todo happened to set.
 const hoverLabelWidth = 8
 
 // hoverBody is the prompt as up to hoverBodyLines wrapped lines, with the title

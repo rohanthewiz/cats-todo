@@ -133,6 +133,17 @@ func formatDoneTime(at, now time.Time) string {
 	return formatScheduleTime(at, now)
 }
 
+// formatDoneStamp is the completion stamp spelled out in full: date, time and
+// zone, with no reference to today. formatDoneTime's relative ladder suits a row,
+// which has a dozen cells for it and is read against the clock on the same screen.
+// The full form is for the places someone goes to find out *when*: the prompt
+// view, the list's hover card and an exported bundle. There "14:05" alone is
+// ambiguous across days and zones, and a bundle is read on another day
+// altogether. It lives in one place so those three can't drift apart.
+func formatDoneStamp(at time.Time) string {
+	return at.Local().Format("2006-01-02 15:04 MST")
+}
+
 // scheduleFromTarget records a picker choice as a Schedule: the pane's
 // identity for an existing session, the launch command and directory for a
 // new one. cwd is captured now because the fire happens with no picker on

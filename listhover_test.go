@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -453,4 +454,60 @@ func TestListAsksForFocusReports(t *testing.T) {
 	if !m.View().ReportFocus {
 		t.Error("focus reporting is off, so no BlurMsg ever arrives to take the card down")
 	}
+}
+
+// TestHoverCardSpellsOutTheDoneStamp pins N-014's decision. A done prompt's card
+// carries the full completion stamp, the form the prompt view prints, because
+// the row's compact "done 14:05" is its last mark and is the first thing a
+// narrow pane cuts off. The stamp leads the fields, and one separator stands
+// the whole block off the prose.
+func TestHoverCardSpellsOutTheDoneStamp(t *testing.T) {
+	at := time.Date(2026, 9, 13, 18, 13, 0, 0, time.Local)
+	plain := func(lines []string) string {
+		var b strings.Builder
+		for _, ln := range lines {
+			b.WriteString(strings.TrimSpace(ansi.Strip(ln)) + "\n")
+		}
+		return b.String()
+	}
+
+	t.Run("done with a stamp, above the session fields", func(t *testing.T) {
+		got := plain(hoverLines(Todo{
+			Title: "Fix the drop timeout", Prompt: "Fix the drop timeout\nstale probes",
+			Done: true, DoneAt: at,
+			Session: &SessionOpts{Model: "claude-opus-5"},
+		}, hoverCardWidth-4))
+		want := "Done    " + formatDoneStamp(at)
+		if !strings.Contains(got, want) {
+			t.Fatalf("card lacks %q:\n%s", want, got)
+		}
+		if strings.Index(got, "Done") > strings.Index(got, "Model") {
+			t.Errorf("the stamp should lead the fields:\n%s", got)
+		}
+		if n := strings.Count(got, "\n\n"); n != 1 {
+			t.Errorf("want one separator before the fields, got %d:\n%s", n, got)
+		}
+	})
+
+	// A title-only prompt would get no card at all (TestHoverCardSaysNothingTwice).
+	// Once it is done and stamped, the card has something the row only
+	// abbreviates, so it earns one.
+	t.Run("a stamp alone earns a card", func(t *testing.T) {
+		lines := hoverLines(Todo{Title: "ship it", Prompt: "ship it", Done: true, DoneAt: at}, hoverCardWidth-4)
+		if !strings.Contains(plain(lines), formatDoneStamp(at)) {
+			t.Errorf("no stamp on a done title-only card:\n%s", plain(lines))
+		}
+	})
+
+	// A todo finished before DoneAt existed has no stamp, and the card invents
+	// no row for it. The row draws no mark for it either.
+	t.Run("no stamp, no row", func(t *testing.T) {
+		if lines := hoverLines(Todo{Title: "ship it", Prompt: "ship it", Done: true}, hoverCardWidth-4); lines != nil {
+			t.Errorf("an unstamped title-only done todo got a card:\n%s", plain(lines))
+		}
+		got := plain(hoverLines(Todo{Title: "t", Prompt: "t\nbody", Done: true}, hoverCardWidth-4))
+		if strings.Contains(got, "Done") || strings.Contains(got, "\n\n") {
+			t.Errorf("an unstamped done todo drew a Done row or a stray separator:\n%s", got)
+		}
+	})
 }

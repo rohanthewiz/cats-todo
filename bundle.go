@@ -704,7 +704,7 @@ func bundleTodoNote(t Todo) string {
 		// no stamp and says just "done", as the list row does.
 		done := "done"
 		if !t.DoneAt.IsZero() {
-			done += " " + t.DoneAt.Local().Format("2006-01-02 15:04 MST")
+			done += " " + formatDoneStamp(t.DoneAt)
 		}
 		parts = append(parts, done)
 	case groupFrozen:

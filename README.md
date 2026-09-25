@@ -1426,6 +1426,14 @@ with blanks in it. A prompt with no session options gets no **Model**/**Effort**
 rows; a prompt whose body is only the line the row is already showing gets no
 card at all, rather than a bordered box repeating it back at you.
 
+A **done** prompt's card leads its fields with when it was finished, spelled out
+in full the way the prompt view prints it: `Done    2026-09-13 18:13 CDT`. The row
+has its own `done 18:13`, but that is the row's last mark, so in a narrow pane it
+is the first thing cut off. It also drops the date within the week and never
+shows the zone. The card is where the pointer already is, so it is the one place
+in the list that always has room for the whole stamp. A prompt finished before
+stamps existed has none, and its card gets no row for it.
+
 Four lines of body is the reading budget. A longer prompt ends in an ellipsis,
 which is the invitation to press `ctrl+v` — the card is a glance, not the prompt
 view with a border on it. It lands below and right of the pointer and flips or

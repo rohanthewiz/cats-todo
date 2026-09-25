@@ -6706,7 +6706,7 @@ func (m model) viewPrompt() string {
 		if !td.DoneAt.IsZero() {
 			// The full stamp, zone included: this is the screen someone opens to
 			// find out when, and "14:05" alone is ambiguous across days and zones.
-			done += " " + td.DoneAt.Local().Format("2006-01-02 15:04 MST")
+			done += " " + formatDoneStamp(td.DoneAt)
 		}
 		meta += " · " + checkStyle.Render(done)
 	}
