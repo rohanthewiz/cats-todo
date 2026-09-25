@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-041
+**Next ID:** N-043
 
 ## Open
 
@@ -205,6 +205,19 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   record of what was sent and when. Today it writes nothing (the item already
   lives in the file); the form's ✉ Send, by contrast, saves then drops. Raised
   to the user on 2026-09-24, not yet answered.
+
+- **N-041** · raised `2026-0924-1939-nextlist-hover-card` · value medium
+  Live-test the Next List hover card (`nexthover.go`) in cats: the 400ms
+  dwell and the warm window across rows, that the card closes on a key, a
+  click and on leaving the rows, and that the 62-cell box and its 7-row cap
+  read well on real items (sub-bullets kept, `…` on long ones). Also check
+  that asking for all motion on the page causes no lag. Only the tests have
+  exercised it.
+
+- **N-042** · raised `2026-0924-1939-nextlist-hover-card` · value low
+  Release the Next List hover card as v0.37.0 (a minor bump: it is a new
+  capability). It was committed in `2026-0924-1939-nextlist-hover-card` but
+  not released: bump both version places, tag, and push.
 
 ## Roadmap
 
