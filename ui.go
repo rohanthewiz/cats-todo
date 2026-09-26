@@ -2493,6 +2493,10 @@ func (m *model) rebuildList() {
 	if m.width > 0 {
 		m.sizeSearchInput()
 	}
+	// The Next List page marks the items this backlog holds a copy of, so a
+	// backlog change made from that page (an Add, a send's record) redraws
+	// the marks along with the list behind it.
+	m.syncNextBacklog()
 }
 
 // folded reports whether either fold is currently holding this todo out of the

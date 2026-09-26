@@ -1228,11 +1228,11 @@ Next list  ai_docs/todo/next-list.md · 24 open · 3 roadmap
   ✚ New prompt enter   ✉ Send shift+enter   ↻ Refresh ctrl+r   ← Back esc
 
 Open
-❯ N-001 ◆  Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions run inside Cats.app, where G…
-  N-003    A plugin started by hand from a shell (e.g. `cats-todo` typed at a prompt) has no `CATS_P…
-  N-017 🔷 …
+❯ N-001 ◆    Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions run inside Cats.app, wher…
+  N-003    ⤓ A plugin started by hand from a shell (e.g. `cats-todo` typed at a prompt) has no `CAT…
+  N-017 🔷   …
 Roadmap
-  N-019    …
+  N-019      …
 ```
 
 Only **Open** and **Roadmap** are listed. Non-goals and Closed hold items too,
@@ -1255,6 +1255,17 @@ levels:
 Unlike a backlog row's packed marks, each mark here takes the same two cells, so the
 text starts in the same column on every row. The ID's colour follows the value
 too (yellow, straw, grey), but that alone was too subtle to read the value from.
+
+After the value mark, a green **⤓** says the backlog already holds an open
+prompt made from the item (N-003 above). It is the glyph the context menu's
+⤓ Add rows wear, and it tells you at a glance what those rows would otherwise
+reveal only by greying out. A done copy, such as a send's record, doesn't earn
+the mark, just as it doesn't stop you adding the item again. A copy is
+recognised by the citation line every prompt made here opens with, so a prompt
+whose first line was rewritten in the form isn't counted. The column is kept
+on every row so the text stays straight, and the mark follows the backlog as
+you add from the page; `ctrl+r` picks up changes made in another pane.
+
 Typing filters across the whole item, including text
 past the edge of the row, as well as the ID, the value and the section name,
 so `N-014`, `high` and `roadmap` all work as queries.

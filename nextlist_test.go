@@ -288,8 +288,9 @@ func TestNextListValueMarks(t *testing.T) {
 		if i < 0 {
 			continue
 		}
-		// ID (5 cells) + space + mark (2) + space.
-		col := lipgloss.Width(ln[:i]) + 5 + 1 + nextValueMarkWidth + 1
+		// ID (5 cells) + space + value mark (2) + space + backlog mark (1)
+		// + space.
+		col := lipgloss.Width(ln[:i]) + 5 + 1 + nextValueMarkWidth + 1 + nextBacklogMarkWidth + 1
 		if textCol < 0 {
 			textCol = col
 		}
@@ -475,5 +476,67 @@ func TestNextListDraftCarriesTheItem(t *testing.T) {
 	m = pressList(t, m, "ctrl+a")
 	if got := ansi.Strip(m.viewForm()); strings.Contains(got, "Next List") || !strings.Contains(got, "Prompt Editor") {
 		t.Errorf("a plain add after the draft is still titled after the item:\n%s", got)
+	}
+}
+
+// TestNextListMarksItemsInTheBacklog: a row whose item the backlog already
+// holds an open copy of wears ⤓ — what the menu's greyed Add rows used to be
+// the only sign of. The mark follows the backlog as it changes on the page: an
+// Add puts it on, and a done copy (a send's record, or closed work) does not
+// count, as it does not for nextBacklogCopy.
+func TestNextListMarksItemsInTheBacklog(t *testing.T) {
+	marked := func(m model, id string) bool {
+		for _, ln := range strings.Split(ansi.Strip(m.viewNextList()), "\n") {
+			// A row starts with the cursor gutter, then the ID; the heading's
+			// note can name the ID too ("added N-002 …") and must not match.
+			// No sample item's text holds a ⤓, so the whole row can be
+			// searched rather than cutting out the mark's cells.
+			if strings.HasPrefix(strings.TrimLeft(ln, "❯ "), id+" ") {
+				return strings.Contains(ln, "⤓")
+			}
+		}
+		t.Fatalf("no row for %s", id)
+		return false
+	}
+
+	m, _ := nextModel(t, sampleNextList)
+	m = openNext(t, m)
+	if marked(m, "N-002") {
+		t.Fatal("N-002 marked before anything was added")
+	}
+
+	m = rightClickNextAt(t, m, nextN002Y)
+	next, _ := m.pressNextMenu(nextMenuRow(t, m, nextMenuAdd))
+	m = next.(model)
+	if !marked(m, "N-002") {
+		t.Error("N-002 not marked after ⤓ Add to backlog")
+	}
+	if marked(m, "N-001") {
+		t.Error("N-001 marked, but only N-002 was added")
+	}
+
+	if err := m.project.setDone(m.project.todos[0].ID, true); err != nil {
+		t.Fatal(err)
+	}
+	m.rebuildList()
+	if marked(m, "N-002") {
+		t.Error("N-002 still marked with only a done copy in the backlog")
+	}
+}
+
+// TestNextCitedIDReadsBackTheCitation: the reader accepts exactly what
+// nextItemCite writes, and nothing that merely starts the same way.
+func TestNextCitedIDReadsBackTheCitation(t *testing.T) {
+	for prompt, want := range map[string]string{
+		nextItemPrompt(nextItem{ID: "N-014", Text: "x"}): "N-014",
+		"Next list item N-7 (somewhere):":                "N-7",
+		"Next list item N-014 without a path":            "",
+		"next list item N-014 (ai_docs):":                "",
+		"Something else entirely":                        "",
+	} {
+		got, ok := nextCitedID(prompt)
+		if got != want || ok != (want != "") {
+			t.Errorf("nextCitedID(%q) = %q, %v; want %q", prompt, got, ok, want)
+		}
 	}
 }

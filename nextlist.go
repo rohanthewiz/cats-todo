@@ -247,6 +247,11 @@ type nextPage struct {
 	noteErr bool
 	list    fuzzyList
 	width   int // the pane width the rows were cut to; see rebuild
+	// inBacklog holds the IDs of items the target backlog already has an open
+	// copy of — the same test the menu's ⤓ Add rows grey on (nextBacklogCopy),
+	// taken for every item at once. The page cannot see the stores, so the
+	// model fills it (syncNextBacklog) and rebuild draws the ⤓ mark from it.
+	inBacklog map[string]bool
 }
 
 // newNextPage reads the list under root and builds the page over it.
@@ -357,8 +362,9 @@ func (p *nextPage) rebuild() {
 		flat := collapseLines(it.Text)
 		name := flat
 		if p.width > 0 {
-			// ID + its space, then the value mark + its space.
-			room := p.width - indentWidth - lipgloss.Width(it.ID) - 1 - nextValueMarkWidth - 1
+			// ID + its space, the value mark + its space, then the backlog
+			// mark + its space.
+			room := p.width - indentWidth - lipgloss.Width(it.ID) - 1 - nextValueMarkWidth - 1 - nextBacklogMarkWidth - 1
 			if overflows {
 				room -= 8 // "▾ 123" and the pad before it
 			}
@@ -368,7 +374,7 @@ func (p *nextPage) rebuild() {
 			name:       name,
 			badge:      it.ID,
 			badgeStyle: nextValueStyle(it.Value),
-			annots:     []annotMark{nextValueMark(it.Value)},
+			annots:     []annotMark{nextValueMark(it.Value), nextBacklogMark(p.inBacklog[it.ID])},
 			// The haystack is the whole item, not the cut row, so a query finds
 			// words from past the edge of the pane — plus the ID, the value and
 			// the section, so "N-014", "high" and "roadmap" all narrow the page.
@@ -421,6 +427,28 @@ func nextValueMark(v string) annotMark {
 	// item here has a value or is meant to, so the column is worth its cells.
 	glyph += strings.Repeat(" ", max(nextValueMarkWidth-lipgloss.Width(glyph), 0))
 	return annotMark{text: glyph, style: st, selStyle: st}
+}
+
+// nextBacklogMarkWidth is the cells the backlog mark's slot takes on every row,
+// held or not, for the value mark's reason: the text column stays straight.
+const nextBacklogMarkWidth = 1
+
+// nextBacklogMark says the item already has an open prompt in the backlog. It
+// is the ⤓ the menu's Add rows wear, so the row shows at a glance what those
+// rows would otherwise reveal only by greying out: adding it again would make
+// a second record of the same work. Green, the palette's "this is in hand"
+// tone, and after the value mark so the value column keeps its place.
+//
+// Only an open or frozen copy counts, as in nextBacklogCopy: a done copy is
+// work that was closed (or, since N-040, a send's record) and does not stop
+// the item being added again. A copy whose citation line was rewritten in the
+// form is not recognised; the citation is the only tie between the two.
+func nextBacklogMark(held bool) annotMark {
+	if !held {
+		return annotMark{text: strings.Repeat(" ", nextBacklogMarkWidth)}
+	}
+	st := lipgloss.NewStyle().Foreground(lipgloss.Color(colAccent))
+	return annotMark{text: "⤓", style: st, selStyle: st}
 }
 
 // counts is the heading's tally: how many items each listed section holds. An
@@ -535,6 +563,7 @@ func (m model) beginNextList() (tea.Model, tea.Cmd) {
 	m.clearHover()
 	m.nextMenu = nextMenu{}
 	m.next = newNextPage(m.nextListRoot())
+	m.next.inBacklog = m.nextBacklogIDs()
 	m.next.resize(m.width, m.height)
 	m.stage = stageNextList
 	return m, textinput.Blink
@@ -548,8 +577,57 @@ func (m model) closeNextList() (tea.Model, tea.Cmd) {
 
 // refreshNextList re-reads the file (see nextPage.reload).
 func (m model) refreshNextList() (tea.Model, tea.Cmd) {
+	// The marks too: a refresh is how a backlog edited in another pane shows.
+	m.next.inBacklog = m.nextBacklogIDs()
 	m.next.reload(m.width, m.height)
 	return m, nil
+}
+
+// nextBacklogIDs is nextBacklogCopy for every item at once: the IDs of items
+// with an open or frozen copy in the target backlog, recognised by the
+// citation line every road off this page writes (nextItemCite). One pass over
+// the backlog rather than a nextBacklogCopy call per item, since the page
+// rebuilds on every resize.
+func (m model) nextBacklogIDs() map[string]bool {
+	sc, ok := m.nextAddScope()
+	if !ok {
+		return nil
+	}
+	ids := map[string]bool{}
+	for _, td := range m.storeFor(sc).todos {
+		if id, ok := nextCitedID(td.Prompt); ok && !td.Done {
+			ids[id] = true
+		}
+	}
+	return ids
+}
+
+// nextCitedID reads back the item ID a prompt made from this page cites, the
+// inverse of nextItemCite. The round trip through nextItemCite keeps the
+// reader from accepting anything the writer would not have written.
+func nextCitedID(prompt string) (string, bool) {
+	const lead = "Next list item "
+	rest, ok := strings.CutPrefix(prompt, lead)
+	if !ok {
+		return "", false
+	}
+	id, _, ok := strings.Cut(rest, " (")
+	if !ok || !strings.HasPrefix(prompt, nextItemCite(id)) {
+		return "", false
+	}
+	return id, true
+}
+
+// syncNextBacklog redraws the page's ⤓ marks after the backlog changed under
+// it: an Add from the menu, a send's record. rebuildList calls it, since
+// every write that matters here already ends there. Off the page it does
+// nothing; beginNextList takes a fresh set when the page opens.
+func (m *model) syncNextBacklog() {
+	if m.stage != stageNextList {
+		return
+	}
+	m.next.inBacklog = m.nextBacklogIDs()
+	m.next.rebuild()
 }
 
 // promptFromNext opens the add form holding the highlighted item: its ID and

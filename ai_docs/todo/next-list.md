@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-062
+**Next ID:** N-063
 
 ## Open
 
@@ -152,13 +152,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   the 15-line box fits, or flips above the pointer, in a short pane. Only the
   tests have exercised it.
 
-- **N-047** · raised `2026-0925-1104-nextlist-context-menu` · value low
-  The Next List rows don't show which items are already in the backlog; only
-  the menu's greyed ⤓ Add rows reveal it. A mark on the row (from
-  `nextBacklogCopy`) would show it at a glance. The copy is recognised by
-  the citation line (`nextItemCite`), so a prompt whose first line was
-  rewritten in the form isn't recognised as a copy.
-
 - **N-048** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
   Live-test batches in cats. Check an all-at-once batch onto new worktrees
   (the tabs open one after another, each prompt lands whole, and each is
@@ -221,6 +214,15 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   Decide whether a non-empty query should search the folded agents too
   (unfold on type, or match them and show them under the fold).
 
+- **N-062** · raised `2026-0926-1840-dimmer-greys-and-next-list-backlog-record` · value medium
+  Live-test in cats the two Next List backlog changes from this session.
+  First, a successful ✉ Send (shift+enter or the menu) should leave a done
+  prompt in the backlog, or close an open copy made by ⤓ Add, and the
+  heading should read `… · recorded done in the project backlog`. An esc
+  from the picker or a failed send should write nothing. Second, the green
+  ⤓ row mark should appear on items with an open copy, keep the text column
+  straight next to 🔷 and ◆, and update right after a menu Add.
+
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -263,7 +265,18 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
-- **N-040** · closed 2026-09-26 · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0`
+- **N-047** · closed 2026-09-26, `2026-0926-1840-dimmer-greys-and-next-list-backlog-record` · raised `2026-0925-1104-nextlist-context-menu`
+  — A Next List row whose item has an open or frozen copy in the target
+  backlog wears a green ⤓ after its value mark (`nextBacklogMark`). The page
+  holds the set of such IDs (`nextPage.inBacklog`), filled by
+  `nextBacklogIDs`, which does one pass over the store and reads each
+  citation back with `nextCitedID`, the inverse of `nextItemCite`. The set is
+  taken when the page opens, on `ctrl+r`, and from `rebuildList` whenever the
+  page is up, so an Add or a send's record redraws the mark. The column is
+  reserved on every row. A copy whose citation was rewritten is still not
+  recognised; that limit is stated in the README. Tests:
+  `TestNextListMarksItemsInTheBacklog`, `TestNextCitedIDReadsBackTheCitation`.
+- **N-040** · closed 2026-09-26, `2026-0926-1840-dimmer-greys-and-next-list-backlog-record` · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0`
   — Answered yes: a Next List send leaves a done copy in the backlog.
   `recordNextSend` (`nextlist.go`) runs from `finishNextDrop` only on a
   successful drop. It marks an open copy of the item done if the backlog
@@ -273,7 +286,7 @@ below were found done or overtaken while seeding.
   reads `N-014 dropped → … · recorded done in the project backlog`.
   `dropResultMsg` carries the whole `nextItem` in place of `nextID`.
   Tests: `TestNextListSendDispatches`, `TestNextListSendMarksAnOpenCopyDone`.
-- **N-005** · closed 2026-09-26 · raised `2026-0912-2110-multi-caret-enter-paste-tab-indent`
+- **N-005** · closed 2026-09-26, `2026-0926-1840-dimmer-greys-and-next-list-backlog-record` · raised `2026-0912-2110-multi-caret-enter-paste-tab-indent`
   — `TestCaretsTakeTheLocalPasteboard` (`promptcarets_test.go`) drives the
   Cmd+V chord's local pasteboard road with the column mode on, under both
   `super+v` and `meta+v`, with `stubClipboard` in place of the pasteboard.
