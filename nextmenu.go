@@ -6,14 +6,14 @@
 // prompt, so none of it can be done to the item itself. What the menu can do is
 // make that prompt, from the item, with the setting already applied. Every row
 // below is therefore one of three things: open the draft form (on the panel
-// asked for), send the item unsaved, or save it to the backlog in one press,
-// marked:
+// asked for), send the item (recorded as done only once it lands), or save it
+// to the backlog in one press, marked:
 //
 //	╭────────────────────────────────╮
 //	│ ✚ New prompt…            enter │   the draft form (nothing saved yet)
 //	│ ⚙ Session…                     │   … with its session panel up
 //	│ ◫ Images…                      │   … with its attachments editor up
-//	│ ✉ Send…            shift+enter │   straight to an agent, unsaved
+//	│ ✉ Send…            shift+enter │   to an agent; a done record on success
 //	│ ◷ Schedule…                    │   save (or reuse the saved copy), schedule
 //	│ ⧉ Batch…                ctrl+k │   a batch composer with this item picked
 //	│ ⤓ Add to backlog               │   saved in one press, no form
@@ -27,9 +27,10 @@
 //	╰────────────────────────────────╯
 //
 // Order runs from least to most committing, as the backlog's menu does: the
-// form rows write nothing until the form saves, Send writes nothing at all,
-// Schedule and the Add rows write a backlog prompt, and the copies — the quiet
-// ones, which change nothing but the clipboard — close the box.
+// form rows write nothing until the form saves, Send writes only a done record
+// once the drop has landed (recordNextSend), Schedule and the Add rows write a
+// backlog prompt, and the copies — the quiet ones, which change nothing but the
+// clipboard — close the box.
 //
 // Every saved prompt carries the item's value (the file rates items on the
 // backlog's own three levels), exactly as the draft form does. The Add rows

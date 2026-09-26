@@ -192,11 +192,13 @@ type dropResultMsg struct {
 	// failure this copy is what gets written back — as Missed, keeping the
 	// failure on the row instead of vanishing with the status line.
 	sched *Schedule
-	// nextID is the Next List item this drop sent ("N-014"), or "" for a
-	// backlog prompt. Such a drop has no todo to mark done, and its outcome
-	// is reported on the Next List page as well as in the status line (see
-	// finishNextDrop).
-	nextID string
+	// nextItem is the Next List item this drop sent, or nil for a backlog
+	// prompt. Such a drop has no todo of its own to mark done: on success a
+	// done copy is recorded in the backlog instead (recordNextSend), and the
+	// outcome is reported on the Next List page as well as in the status line
+	// (see finishNextDrop). The whole item rides here, not just its ID, because
+	// the page may have reloaded the file by the time a slow drop lands.
+	nextItem *nextItem
 	// note is what performDrop did on the user's behalf that the success line
 	// should say (a switch confirm it answered), or "".
 	note string
@@ -768,7 +770,7 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.finishBatchStep(msg)
 	case dropResultMsg:
 		m.dropping = false
-		if msg.nextID != "" {
+		if msg.nextItem != nil {
 			return m.finishNextDrop(msg)
 		}
 		if msg.err != nil {

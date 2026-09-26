@@ -111,14 +111,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   the Value/Priority labels and drops the checkbox words (the words need 104);
   swap the two tiers if the words turn out to matter more.
 
-- **N-040** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value low
-  Decide whether a Next List send should leave a done copy in the backlog as a
-  record of what was sent and when. Today it writes nothing (the item already
-  lives in the file); the form's ✉ Send, by contrast, saves then drops. Raised
-  to the user on 2026-09-24, not yet answered. Since the context menu
-  (`nextmenu.go`) a record can be kept deliberately: ⤓ Add to backlog, then
-  send from the list.
-
 - **N-041** · raised `2026-0924-1939-nextlist-hover-card` · value medium
   Live-test the Next List hover card (`nexthover.go`) in cats: the 400ms
   dwell and the warm window across rows, that the card closes on a key, a
@@ -271,6 +263,16 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-040** · closed 2026-09-26 · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0`
+  — Answered yes: a Next List send leaves a done copy in the backlog.
+  `recordNextSend` (`nextlist.go`) runs from `finishNextDrop` only on a
+  successful drop. It marks an open copy of the item done if the backlog
+  already holds one (`nextBacklogCopy`), and otherwise adds the item (value
+  carried) and marks it done. A failed send, or an esc out of the picker,
+  writes nothing, and having no backlog at all is not an error. The heading
+  reads `N-014 dropped → … · recorded done in the project backlog`.
+  `dropResultMsg` carries the whole `nextItem` in place of `nextID`.
+  Tests: `TestNextListSendDispatches`, `TestNextListSendMarksAnOpenCopyDone`.
 - **N-005** · closed 2026-09-26 · raised `2026-0912-2110-multi-caret-enter-paste-tab-indent`
   — `TestCaretsTakeTheLocalPasteboard` (`promptcarets_test.go`) drives the
   Cmd+V chord's local pasteboard road with the column mode on, under both

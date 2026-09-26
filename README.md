@@ -1274,14 +1274,16 @@ paste and pause. The prompt is the same one the form would have been
 prefilled with, citation and all, and a new session opens in the project the
 list belongs to.
 
-A sent item is **not** saved to a backlog, which is where this differs from
-the form's ✉ Send (save, then drop). The item already has a home in the file,
-and a backlog copy would be a second record of the same work, marked done
-after the drop and never looked at again. It would also stay behind if you
-backed out of the picker without sending anything. Closing the item is left to
-the file: the agent that did the work, or the next session wrap-up, moves it
-to Closed. `esc` in the picker comes back to this page, with the highlight
-still on the item. The outcome (`N-014 dropped → …`, or why it failed) is shown
+Once the drop succeeds, the item is **recorded in the backlog as a done
+prompt**: a record of what was sent and when, with the same end state as the
+form's ✉ Send (save, then drop). The difference is only the order. Nothing is
+written before the drop, so backing out of the picker, or a failed send, leaves
+no row behind. If the backlog already holds an open copy of the item (from ⤓ Add
+to backlog), that copy is the one marked done rather than a second one added.
+Closing the item itself is still left to the file: the agent that did the work,
+or the next session wrap-up, moves it to Closed. `esc` in the picker comes back
+to this page, with the highlight still on the item. The outcome (`N-014 dropped
+→ … · recorded done in the project backlog`, or why it failed) is shown
 on the page's heading and in the list's status line, since a slow new-session
 drop may land after you have left the page. Without a cats control socket the
 page says so and stays put.
@@ -1358,8 +1360,8 @@ The rows run from least to most committing:
   and **◫ Images…** open the same draft with the form's session panel or
   attachments editor already up, so `esc` from the panel lands on the draft.
   Nothing is saved until the form is.
-- **✉ Send…** hands the item to an agent without saving it, the same as
-  `shift+enter`.
+- **✉ Send…** hands the item to an agent, the same as `shift+enter`. Nothing
+  is saved unless the send succeeds, and then only a done record of it.
 - **◷ Schedule…** saves the item to the backlog and opens the list's scheduler
   on it. A schedule belongs to a backlog row, so this is the one row that
   leaves the page. Backing out of the scheduler leaves the prompt in the

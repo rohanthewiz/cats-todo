@@ -355,8 +355,8 @@ func TestNextListSendOpensThePicker(t *testing.T) {
 
 // TestNextListSendDispatches follows a send through the picker: the model is
 // back on the page at once with the send in flight, and the result lands on
-// the page's heading — failure in red — without touching a backlog, since
-// there is no todo to mark done.
+// the page's heading — failure in red. A failure touches no backlog; a success
+// leaves a done copy there as its record (recordNextSend).
 func TestNextListSendDispatches(t *testing.T) {
 	m, root := nextModel(t, sampleNextList)
 	m.client = &catsClient{socket: "/nonexistent/cats.sock"}
@@ -377,7 +377,7 @@ func TestNextListSendDispatches(t *testing.T) {
 		t.Fatal("choosing a target returned no command")
 	}
 	res, ok := cmd().(dropResultMsg)
-	if !ok || res.nextID != "N-001" || res.err == nil {
+	if !ok || res.nextItem == nil || res.nextItem.ID != "N-001" || res.err == nil {
 		t.Fatalf("drop result = %+v, want N-001 failing on the missing socket", res)
 	}
 
@@ -386,15 +386,46 @@ func TestNextListSendDispatches(t *testing.T) {
 	if m.dropping || !m.next.noteErr || !strings.Contains(m.next.note, "send failed") {
 		t.Errorf("after the failure: dropping=%v note=%q noteErr=%v, want it said in red", m.dropping, m.next.note, m.next.noteErr)
 	}
-
-	// A success names the item and where it went.
-	next, _ = m.Update(dropResultMsg{desc: "a new claude session", mode: dropRun, nextID: "N-001"})
-	m = next.(model)
-	if m.next.noteErr || m.next.note != "N-001 dropped → a new claude session" {
-		t.Errorf("after a success: note = %q (err %v)", m.next.note, m.next.noteErr)
-	}
 	if _, err := os.Stat(projectTodosPath(root)); !os.IsNotExist(err) {
-		t.Errorf("a send wrote a backlog (%v), want nothing marked done", err)
+		t.Errorf("a failed send wrote a backlog (%v), want nothing recorded", err)
+	}
+
+	// A success names the item and where it went, and records it in the
+	// backlog as done — the same result as the form's save-then-send.
+	next, _ = m.Update(dropResultMsg{desc: "a new claude session", mode: dropRun, nextItem: res.nextItem})
+	m = next.(model)
+	if want := "N-001 dropped → a new claude session · recorded done in the project backlog"; m.next.noteErr || m.next.note != want {
+		t.Errorf("after a success: note = %q (err %v), want %q", m.next.note, m.next.noteErr, want)
+	}
+	if len(m.project.todos) != 1 {
+		t.Fatalf("project backlog has %d todos after a send, want the one record", len(m.project.todos))
+	}
+	td := m.project.todos[0]
+	if !td.Done || td.DoneAt.IsZero() || !strings.HasPrefix(td.Prompt, "Next list item N-001 (") {
+		t.Errorf("recorded %+v, want a done, stamped copy citing N-001", td)
+	}
+}
+
+// TestNextListSendMarksAnOpenCopyDone: when the backlog already holds an open
+// copy of the item (made by ⤓ Add to backlog), a send closes that copy rather
+// than adding a second row — it is the prompt that was just sent, and leaving
+// it open would invite sending the same work twice.
+func TestNextListSendMarksAnOpenCopyDone(t *testing.T) {
+	m, _ := nextModel(t, sampleNextList)
+	m = openNext(t, m)
+	it, _ := m.next.highlighted()
+	ref, ok := m.addNextItem(it, annots{})
+	if !ok {
+		t.Fatalf("setup add failed: %q", m.next.note)
+	}
+
+	next, _ := m.Update(dropResultMsg{desc: "a new claude session", mode: dropRun, nextItem: &it})
+	m = next.(model)
+	if len(m.project.todos) != 1 {
+		t.Fatalf("project backlog has %d todos, want the one copy closed rather than a second added", len(m.project.todos))
+	}
+	if td := m.project.todos[0]; td.ID != ref.id || !td.Done {
+		t.Errorf("after the send: %+v, want the open copy %s marked done", td, ref.id)
 	}
 }
 

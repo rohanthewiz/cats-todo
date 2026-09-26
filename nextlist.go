@@ -44,6 +44,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -618,21 +619,24 @@ func nextItemCite(id string) string {
 
 // nextSend is a Next List item on its way to an agent: the prompt the picker
 // sends (a Todo, because every drop path speaks Todo, but one with no ID and
-// no store) and the item's own ID, which the result reports back.
+// no store) and the item itself, which the result carries back so a success
+// can be reported by ID and recorded in the backlog (recordNextSend).
 type nextSend struct {
-	id   string
+	item nextItem
 	todo Todo
 }
 
 // sendFromNext is ✉ Send (shift+enter): open the target picker on the
 // highlighted item, as a prompt that exists only for this drop.
 //
-// The item is not saved to a backlog first, which is where this parts from the
-// form's ✉ Send (save, then drop). Saving would leave a backlog row for work
-// the file already tracks, and an esc out of the picker would leave it there
-// with nothing sent. So the prompt rides in nextDrop instead of a todoRef, and
-// with no row there is nothing to mark done after the drop: the item is closed
-// in the file, by the agent that did it or by the next session wrap.
+// The item is not saved to a backlog before the picker, which is where this
+// parts from the form's ✉ Send (save, then drop): an esc out of the picker
+// would leave a row behind with nothing sent. So the prompt rides in nextDrop
+// instead of a todoRef, and the backlog is written only once the drop has
+// succeeded — a done copy, recording what was sent and when (recordNextSend).
+// The end state is the form's; only the order differs. The item itself is
+// still closed in the file, by the agent that did it or by the next session
+// wrap.
 //
 // The refusals are the list's own (startDrop's), said on this page's heading
 // rather than in the status line, which is not on this screen. A Next List
@@ -659,7 +663,7 @@ func (m model) sendNextItem(it nextItem) (tea.Model, tea.Cmd) {
 		m.next.say("cats control socket unavailable — can't send to a session", true)
 		return m, nil
 	}
-	m.nextDrop = &nextSend{id: it.ID, todo: Todo{Title: nextItemTitle(it), Prompt: nextItemPrompt(it)}}
+	m.nextDrop = &nextSend{item: it, todo: Todo{Title: nextItemTitle(it), Prompt: nextItemPrompt(it)}}
 	m.dropTodo = todoRef{}
 	m.pickForSchedule = false
 	m.targets, m.targetList = m.buildTargets()
@@ -676,7 +680,7 @@ func (m model) sendNextItem(it nextItem) (tea.Model, tea.Cmd) {
 // was written about; the launch's own directory is the fallback, and the same
 // directory in every case but a --global launch from outside a project.
 func (m model) chooseNextTarget(target dropTarget, mode dropMode) (tea.Model, tea.Cmd) {
-	id, td := m.nextDrop.id, m.nextDrop.todo
+	it, td := m.nextDrop.item, m.nextDrop.todo
 	m.nextDrop = nil
 	m.dropping = true
 	m.stage = stageNextList
@@ -696,7 +700,7 @@ func (m model) chooseNextTarget(target dropTarget, mode dropMode) (tea.Model, te
 	client, desc := m.client, targetDesc(target)
 	return m, func() tea.Msg {
 		note, err := performDrop(client, act)
-		return dropResultMsg{desc: desc, mode: mode, nextID: id, err: err, note: note}
+		return dropResultMsg{desc: desc, mode: mode, nextItem: &it, err: err, note: note}
 	}
 }
 
@@ -704,6 +708,10 @@ func (m model) chooseNextTarget(target dropTarget, mode dropMode) (tea.Model, te
 // the user may have left the page by the time a slow new-session drop lands;
 // the page's heading gets it because that is the line in view while they are
 // still on it.
+//
+// A success is also recorded in the backlog (recordNextSend), and the line
+// says so the way the form's send says "marked done". A failure writes nothing:
+// there is nothing sent to record.
 func (m model) finishNextDrop(msg dropResultMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		line := "send failed: " + msg.err.Error()
@@ -711,10 +719,47 @@ func (m model) finishNextDrop(msg dropResultMsg) (tea.Model, tea.Cmd) {
 		m.next.say(line, true)
 		return m, nil
 	}
-	line := msg.nextID + " " + dropDoneStatus(msg)
+	it := *msg.nextItem
+	line := it.ID + " " + dropDoneStatus(msg)
+	if note := m.recordNextSend(it); note != "" {
+		line += " · " + note
+	}
 	m.setStatus(line, false)
 	m.next.say(line, false)
 	return m, nil
+}
+
+// recordNextSend leaves a done prompt for a sent item in the backlog, as a
+// record of what was sent and when (its DoneAt), and returns the words the
+// success line adds, or "" when there was nothing to record into.
+//
+// It mirrors the form's ✉ Send, which saves and then marks done:
+//
+//	open copy of the item in the backlog?  (nextBacklogCopy — cited by ID)
+//	  yes → mark that copy done   — it is the prompt that was just sent, and
+//	                                 leaving it open would invite a second send
+//	  no  → add the item (value carried, as ⤓ Add does), then mark it done
+//
+// Best effort, like the drop result's own setDone: the send already happened,
+// so a failed write is said in the line but does not turn the success red. No
+// backlog at all (errNoBacklog) is not a failure — a --global-less launch
+// outside a project simply has nowhere to keep the record.
+func (m *model) recordNextSend(it nextItem) string {
+	ref, _, ok := m.nextBacklogCopy(it)
+	if !ok {
+		var err error
+		if ref, err = m.saveNextItem(it, annots{}); err != nil {
+			if errors.Is(err, errNoBacklog) {
+				return ""
+			}
+			return "not recorded: " + err.Error()
+		}
+	}
+	if err := m.storeFor(ref.scope).setDone(ref.id, true); err != nil {
+		return "not marked done: " + err.Error()
+	}
+	m.rebuildList()
+	return "recorded done in the " + strings.ToLower(ref.scope.String()) + " backlog"
 }
 
 // updateNextList is the page's key loop: the list's keys, the bar's chords, and
