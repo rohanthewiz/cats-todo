@@ -681,10 +681,19 @@ func (m model) beginBatchTarget() (tea.Model, tea.Cmd) {
 	}
 	m.pickForBatch = true
 	m.targets, m.targetList = m.buildTargets()
-	// Land on the row the draft already has, so enter keeps the choice.
+	// Land on the row the draft already has, so enter keeps the choice. A
+	// draft aimed at a pane in another project finds its row folded away, so
+	// the picker opens unfolded for it: the choice already made is the one
+	// row it must never hide.
+	same := func(t dropTarget) bool {
+		return t.kind == m.batch.target.kind && t.command == m.batch.target.command &&
+			t.worktree == m.batch.target.worktree && t.pane == m.batch.target.pane
+	}
+	if m.batch.target.kind == targetExistingPane && !slices.ContainsFunc(m.targets, same) {
+		m.targets, m.targetList = m.buildTargetsFor(true)
+	}
 	for i, t := range m.targets {
-		if t.kind == m.batch.target.kind && t.command == m.batch.target.command &&
-			t.worktree == m.batch.target.worktree && t.pane == m.batch.target.pane {
+		if same(t) {
 			m.targetList.selectRef(i)
 			break
 		}

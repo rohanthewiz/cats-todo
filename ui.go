@@ -100,6 +100,11 @@ type dropTargetKind int
 const (
 	targetNewSession dropTargetKind = iota
 	targetExistingPane
+	// targetMore is not a destination: it is the "more drop targets" row that
+	// stands in for the running agents in other projects until it is chosen,
+	// and chooseTarget expands the picker on it rather than dropping. It never
+	// reaches performDrop, a batch draft or a schedule.
+	targetMore
 )
 
 // dropTarget is one selectable destination in the target picker.
@@ -113,8 +118,11 @@ type dropTarget struct {
 	// than a third kind: every step of the drop is identical, down to the
 	// waiting and the paste — only the directory the tab is rooted at differs.
 	worktree bool
-	label    string
-	desc     string
+	// elsewhere marks a running pane in another workspace than this one — the
+	// rows the picker folds behind targetMore until asked for.
+	elsewhere bool
+	label     string
+	desc      string
 }
 
 // dropMode is the per-drop submit choice. Dropping a prompt is asking for the
@@ -4443,7 +4451,21 @@ var newSessionAgents = []struct {
 // interleaved per agent, so the second block reads as one answer to one
 // question ("somewhere isolated, instead") and the default highlight stays on
 // the plain first row.
+//
+// Running agents in other workspaces are folded behind one "more drop targets"
+// row (targetMore) unless all is set: a prompt is written about this project,
+// so a pane rooted in another is rarely where it belongs, and a busy machine's
+// dozen sessions would otherwise bury this project's two. Choosing the row
+// rebuilds the picker with all set (see expandTargets). A pane whose workspace
+// cannot be told — no workspace ID on it, or none for this launch — is never
+// folded, since hiding it would be a guess.
 func (m model) buildTargets() ([]dropTarget, fuzzyList) {
+	return m.buildTargetsFor(false)
+}
+
+// buildTargetsFor is buildTargets with the other-workspace fold chosen: all
+// shows every running pane, false folds the elsewhere ones behind targetMore.
+func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 	wsLabel := firstNonEmpty(m.ctx.WorkspaceLabel, baseName(m.ctx.projectDir()), "the current workspace")
 
 	// The launchable agents, gathered before any row is built so the worktree
@@ -4544,8 +4566,14 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 		if labels, err := m.client.workspaceLabels(); err == nil {
 			wsLabels = labels
 		}
+		hidden := 0
 		for _, p := range agents {
 			wsID := paneWorkspaceID(p)
+			elsewhere := wsID != "" && m.ctx.WorkspaceID != "" && wsID != m.ctx.WorkspaceID
+			if elsewhere && !all {
+				hidden++
+				continue
+			}
 			loc := firstNonEmpty(wsLabels[wsID], baseName(p.Cwd))
 			here := ""
 			if wsID != "" && wsID == m.ctx.WorkspaceID {
@@ -4566,11 +4594,25 @@ func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 				desc += " · the session's " + lost + " can't be set on a running " + p.Agent + " and won't be applied"
 			}
 			targets = append(targets, dropTarget{
-				kind:  targetExistingPane,
-				pane:  p.Pane,
-				agent: p.Agent,
-				label: fmt.Sprintf("%s · %s%s", p.Agent, firstNonEmpty(loc, "session"), here),
-				desc:  desc,
+				kind:      targetExistingPane,
+				pane:      p.Pane,
+				agent:     p.Agent,
+				elsewhere: elsewhere,
+				label:     fmt.Sprintf("%s · %s%s", p.Agent, firstNonEmpty(loc, "session"), here),
+				desc:      desc,
+			})
+		}
+		// Last, so the fold never sits between this project's rows and the
+		// highlight's default: it is the way out of the list, not a choice in it.
+		if hidden > 0 {
+			noun := "agents"
+			if hidden == 1 {
+				noun = "agent"
+			}
+			targets = append(targets, dropTarget{
+				kind:  targetMore,
+				label: fmt.Sprintf("… More drop targets (%d running %s in other projects)", hidden, noun),
+				desc:  "show the agent sessions running in other workspaces",
 			})
 		}
 	}
@@ -4642,10 +4684,17 @@ func (m model) updateTarget(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 	// Choosing a batch's target drops nothing, so a drop in flight is no
 	// reason to refuse it.
+	idx := m.targetList.selectedIndex()
+	if idx >= 0 && idx < len(m.targets) && m.targets[idx].kind == targetMore {
+		// Unfolding the list sends nothing, so a drop in flight is no reason
+		// to refuse it.
+		m.expandTargets()
+		return m, nil
+	}
 	if m.dropping && !m.pickForBatch {
 		return m, nil
 	}
-	idx := m.targetList.selectedIndex()
+	idx = m.targetList.selectedIndex()
 	if idx < 0 || idx >= len(m.targets) {
 		return m, nil
 	}
@@ -4689,6 +4738,21 @@ func (m model) chooseTarget(mode dropMode) (tea.Model, tea.Cmd) {
 		images:     m.storeFor(m.dropTodo.scope).imagePaths(td),
 		anchorPane: m.ctx.OwnPaneID,
 	})
+}
+
+// expandTargets is choosing the "more drop targets" row: the picker is rebuilt
+// with every running pane in it, and the highlight lands on the first of the
+// rows that were folded, since those are the ones just asked to see. The
+// width is pushed again because the list is a new one (see applySizes).
+func (m *model) expandTargets() {
+	m.targets, m.targetList = m.buildTargetsFor(true)
+	for i, t := range m.targets {
+		if t.elsewhere {
+			m.targetList.selectRef(i)
+			break
+		}
+	}
+	m.applySizes()
 }
 
 // dropDoneStatus is the line a successful drop reports, shared by backlog and

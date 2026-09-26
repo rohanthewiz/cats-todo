@@ -58,7 +58,10 @@ into the editor, or a brand-new entry when the list is empty — and `shift+ente
 drops the prompt into an agent. That opens the target picker, where `enter`
 hands the prompt over **and lets it run**, and `shift+enter` does the same drop
 but **pauses**, leaving the prompt sitting unsubmitted in the agent's input.
-Either way the todo is marked done. Inside the editor `enter` inserts a newline — the prompt
+Either way the todo is marked done. The picker lists new sessions and the
+agents running in this project; agents running in other projects are folded
+into one **… More drop targets** row at the bottom, and choosing it lists them
+too. Inside the editor `enter` inserts a newline — the prompt
 is a text editor, so enter means there what it means in every other one — and
 `shift+enter` (or `cmd+s`) saves. Outside cats it still manages backlogs; only drops need the
 socket.
