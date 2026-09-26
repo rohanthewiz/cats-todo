@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-060
+**Next ID:** N-062
 
 ## Open
 
@@ -130,8 +130,9 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - **N-041** · raised `2026-0924-1939-nextlist-hover-card` · value medium
   Live-test the Next List hover card (`nexthover.go`) in cats: the 400ms
   dwell and the warm window across rows, that the card closes on a key, a
-  click and on leaving the rows, and that the 62-cell box and its 7-row cap
-  read well on real items (sub-bullets kept, `…` on long ones). Also check
+  click and on leaving the rows, and that the 76-cell box and its 15-row cap
+  (raised from 62 cells and 7 rows) read well on real items (sub-bullets
+  kept, `…` on long ones) and shrink on a short pane. Also check
   that asking for all motion on the page causes no lag. Only the tests have
   exercised it.
 
@@ -220,6 +221,21 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   ✖ Confirm delete too. Also check that the box stays placed while a running
   batch's progress re-sorts the rows under it. Only the tests have
   exercised it.
+
+- **N-060** · raised `2026-0926-1520-next-card-and-target-fold` · value medium
+  Live-test the drop picker's fold in cats (`buildTargetsFor`, `ui.go`):
+  with agents open in two or three workspaces, only this project's agents
+  and the new-session rows show, the `… More drop targets (N running agents
+  in other projects)` row is last, and choosing it (enter or a click)
+  unfolds the list with the highlight on the first revealed agent, in the
+  backlog, Next List, schedule and batch pickers. Only the tests (a fake
+  control socket in `droptargets_test.go`) have exercised it.
+
+- **N-061** · raised `2026-0926-1520-next-card-and-target-fold` · value low
+  The drop picker's filter only searches the rows it lists, so typing a
+  folded agent's project name finds nothing until the More row is chosen.
+  Decide whether a non-empty query should search the folded agents too
+  (unfold on type, or match them and show them under the fold).
 
 ## Roadmap
 
