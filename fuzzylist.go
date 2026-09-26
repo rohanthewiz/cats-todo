@@ -75,7 +75,16 @@ type listItem struct {
 	// the list because the list is rebuilt from the backlogs on every change,
 	// while the selection is keyed by todo and survives that rebuild.
 	marked bool
-	ref    int
+	// queryOnly and browseOnly split a list into what it shows at rest and what
+	// a search can reach. A queryOnly row is listed only while the query is
+	// non-empty, a browseOnly row only while it is empty. The drop picker uses
+	// the pair for its fold: agents in other projects are queryOnly, so typing
+	// one's project name finds it, and the "… More drop targets" row that
+	// stands for them is browseOnly, since the search already covers what it
+	// would reveal. A list that sets neither behaves as it always has.
+	queryOnly  bool
+	browseOnly bool
+	ref        int
 }
 
 // annotMark is one annotation on one row: the glyph to draw and the two styles
@@ -198,6 +207,9 @@ func (l *fuzzyList) filter() {
 
 	if q == "" {
 		for _, it := range l.items {
+			if it.queryOnly {
+				continue
+			}
 			l.filtered = append(l.filtered, scoredItem{item: it})
 		}
 		l.clampCursor()
@@ -206,7 +218,7 @@ func (l *fuzzyList) filter() {
 
 	var sel []listItem
 	for _, it := range l.items {
-		if it.selectable {
+		if it.selectable && !it.browseOnly {
 			sel = append(sel, it)
 		}
 	}
@@ -467,10 +479,14 @@ func (l *fuzzyList) editQuery(msg tea.Msg) tea.Cmd {
 
 // counts reports how many selectable rows survive the current query (matched)
 // out of how many the list holds (total). Separators are neither: a heading
-// that always renders would make every "3/3" read as a lie.
+// that always renders would make every "3/3" read as a lie. The total is what
+// the current mode can list: at rest the queryOnly rows are left out (the
+// picker would read "3/5" with nothing typed), and while searching the
+// browseOnly ones are, so "1/5" counts every row the query was tried against.
 func (l fuzzyList) counts() (matched, total int) {
+	searching := strings.TrimSpace(l.input.Value()) != ""
 	for _, it := range l.items {
-		if it.selectable {
+		if it.selectable && !(searching && it.browseOnly) && !(!searching && it.queryOnly) {
 			total++
 		}
 	}

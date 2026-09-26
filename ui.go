@@ -121,8 +121,12 @@ type dropTarget struct {
 	// elsewhere marks a running pane in another workspace than this one — the
 	// rows the picker folds behind targetMore until asked for.
 	elsewhere bool
-	label     string
-	desc      string
+	// folded is an elsewhere row the picker holds behind targetMore. It is
+	// still in the list, as a queryOnly row, so the filter can find it by its
+	// project's name; it is listed at rest only after the fold is opened.
+	folded bool
+	label  string
+	desc   string
 }
 
 // dropMode is the per-drop submit choice. Dropping a prompt is asking for the
@@ -4465,6 +4469,16 @@ var newSessionAgents = []struct {
 // rebuilds the picker with all set (see expandTargets). A pane whose workspace
 // cannot be told — no workspace ID on it, or none for this launch — is never
 // folded, since hiding it would be a guess.
+//
+// The fold hides rows from the list at rest, not from the search. A folded
+// pane is built like any other and marked folded (a queryOnly row), so typing
+// another project's name finds its agent without the More row first; the More
+// row is browseOnly and steps aside while a query is typed. Clearing the query
+// folds them away again. Choosing More is still how to see them all at rest.
+//
+//	query ""        this project's rows · … More drop targets (2 …)
+//	query "yonder"  claude · yonder            ← a folded row, matched
+//	More chosen     every row, no fold row, no queryOnly marks
 func (m model) buildTargets() ([]dropTarget, fuzzyList) {
 	return m.buildTargetsFor(false)
 }
@@ -4576,9 +4590,9 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 		for _, p := range agents {
 			wsID := paneWorkspaceID(p)
 			elsewhere := wsID != "" && m.ctx.WorkspaceID != "" && wsID != m.ctx.WorkspaceID
-			if elsewhere && !all {
+			folded := elsewhere && !all
+			if folded {
 				hidden++
-				continue
 			}
 			loc := firstNonEmpty(wsLabels[wsID], baseName(p.Cwd))
 			here := ""
@@ -4604,6 +4618,7 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 				pane:      p.Pane,
 				agent:     p.Agent,
 				elsewhere: elsewhere,
+				folded:    folded,
 				label:     fmt.Sprintf("%s · %s%s", p.Agent, firstNonEmpty(loc, "session"), here),
 				desc:      desc,
 			})
@@ -4625,7 +4640,8 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 
 	items := make([]listItem, len(targets))
 	for i, t := range targets {
-		items[i] = listItem{name: t.label, desc: t.desc, selectable: true, ref: i}
+		items[i] = listItem{name: t.label, desc: t.desc, selectable: true, ref: i,
+			queryOnly: t.folded, browseOnly: t.kind == targetMore}
 	}
 	return targets, newFuzzyList("Filter targets…", items)
 }

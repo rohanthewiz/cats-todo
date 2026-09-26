@@ -200,12 +200,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   backlog, Next List, schedule and batch pickers. Only the tests (a fake
   control socket in `droptargets_test.go`) have exercised it.
 
-- **N-061** · raised `2026-0926-1520-next-card-and-target-fold` · value low
-  The drop picker's filter only searches the rows it lists, so typing a
-  folded agent's project name finds nothing until the More row is chosen.
-  Decide whether a non-empty query should search the folded agents too
-  (unfold on type, or match them and show them under the fold).
-
 - **N-062** · raised `2026-0926-1840-dimmer-greys-and-next-list-backlog-record` · value medium
   Live-test in cats the two Next List backlog changes from this session.
   First, a successful ✉ Send (shift+enter or the menu) should leave a done
@@ -257,6 +251,15 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-061** · closed 2026-09-26 · raised `2026-0926-1520-next-card-and-target-fold`
+  — The filter now searches the folded agents, and nothing unfolds. The
+  folded panes are built into the picker, marked `folded`, as `queryOnly`
+  rows, a new `listItem` flag: `fuzzyList.filter` lists them only while the
+  query is non-empty. The More row is `browseOnly`, so it steps aside while
+  a query is typed. `counts` totals what the current mode can list. Clearing
+  the query folds them away again. The batch composer's "draft aims at a
+  folded pane" check ignores folded rows. README updated. Test:
+  `TestTargetFilterSearchesFoldedAgents`.
 - **N-011** · closed 2026-09-26 · raised `2026-0912-2234-carried-indent-and-release`
   — Answered yes: the upper line is trimmed. `promptCarriedIndent`'s second
   result is now `bare`, meaning only spaces stand left of the caret. A blank

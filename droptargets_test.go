@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/rohanthewiz/cats-todo/internal/ctlproto"
 	"github.com/rohanthewiz/cats/wire"
 )
@@ -83,13 +84,13 @@ func TestBuildTargetsFoldsOtherProjects(t *testing.T) {
 
 	m.targets, m.targetList = m.buildTargets()
 	var panes []uint32
-	for _, tg := range m.targets {
-		if tg.kind == targetExistingPane {
+	for _, sc := range m.targetList.filtered {
+		if tg := m.targets[sc.item.ref]; tg.kind == targetExistingPane {
 			panes = append(panes, tg.pane)
 		}
 	}
 	if len(panes) != 1 || panes[0] != 1 {
-		t.Fatalf("folded picker offers panes %v, want just this project's pane 1", panes)
+		t.Fatalf("folded picker lists panes %v, want just this project's pane 1", panes)
 	}
 	last := m.targets[len(m.targets)-1]
 	if last.kind != targetMore || !strings.Contains(last.label, "2 running agents") {
@@ -128,5 +129,71 @@ func TestBuildTargetsFoldsOtherProjects(t *testing.T) {
 		if tg.kind == targetMore {
 			t.Error("a launch with no workspace ID folded panes it cannot place")
 		}
+	}
+}
+
+// TestTargetFilterSearchesFoldedAgents pins N-061: the filter searches the
+// folded agents too. Before, it matched only the listed rows, so
+// typing another project's name found nothing until the More row was chosen.
+// A query now lists the matching folded pane and hides the More row (the
+// search already covers what it would reveal); clearing the query folds the
+// pane away again and brings the More row back.
+func TestTargetFilterSearchesFoldedAgents(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	m, _, _ := newModelInTemp(t)
+	m.ctx.WorkspaceID = "w1"
+	m.client = fakeCatsSocket(t,
+		[]wire.PaneInfo{
+			{Pane: 1, Handle: "w1:p1", PaneMeta: wire.PaneMeta{Agent: "claude", Cwd: "/here"}},
+			{Pane: 2, Handle: "w2:p2", PaneMeta: wire.PaneMeta{Agent: "claude", Cwd: "/there"}},
+			{Pane: 3, Handle: "w3:p3", PaneMeta: wire.PaneMeta{Agent: "claude", Cwd: "/yonder"}},
+		},
+		[]wire.WorkspaceEntry{{ID: "w1", Name: "here"}, {ID: "w2", Name: "there"}, {ID: "w3", Name: "yonder"}},
+	)
+	m.targets, m.targetList = m.buildTargets()
+	m.stage = stageTarget
+
+	listed := func() (panes []uint32, more bool) {
+		for _, sc := range m.targetList.filtered {
+			switch tg := m.targets[sc.item.ref]; tg.kind {
+			case targetExistingPane:
+				panes = append(panes, tg.pane)
+			case targetMore:
+				more = true
+			}
+		}
+		return panes, more
+	}
+
+	for _, r := range "yonder" {
+		next, _ := m.updateTarget(tea.KeyPressMsg{Code: r, Text: string(r)})
+		m = next.(model)
+	}
+	panes, more := listed()
+	if len(panes) != 1 || panes[0] != 3 {
+		t.Fatalf("query \"yonder\" lists panes %v, want the folded pane 3", panes)
+	}
+	if more {
+		t.Error("the More row is listed while searching")
+	}
+	if matched, total := m.targetList.counts(); matched != 1 || total != 4 {
+		t.Errorf("counts = %d/%d, want 1/4 — every row but the More row was searched", matched, total)
+	}
+
+	// enter drops into the matched folded pane like any other row.
+	if idx := m.targetList.selectedIndex(); idx < 0 || m.targets[idx].pane != 3 {
+		t.Fatalf("highlight on %d, want the matched pane 3", idx)
+	}
+
+	for range "yonder" {
+		next, _ := m.updateTarget(tea.KeyPressMsg{Code: tea.KeyBackspace})
+		m = next.(model)
+	}
+	panes, more = listed()
+	if len(panes) != 1 || panes[0] != 1 || !more {
+		t.Errorf("cleared query lists panes %v, More %v; want pane 1 and the More row", panes, more)
+	}
+	if matched, total := m.targetList.counts(); matched != total {
+		t.Errorf("counts = %d/%d at rest, want all listed rows counted and no more", matched, total)
 	}
 }

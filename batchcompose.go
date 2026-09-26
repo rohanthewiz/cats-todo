@@ -684,12 +684,13 @@ func (m model) beginBatchTarget() (tea.Model, tea.Cmd) {
 	// Land on the row the draft already has, so enter keeps the choice. A
 	// draft aimed at a pane in another project finds its row folded away, so
 	// the picker opens unfolded for it: the choice already made is the one
-	// row it must never hide.
+	// row it must never hide. A folded row is in m.targets (the search can
+	// reach it) but not listed at rest, so it does not count as found.
 	same := func(t dropTarget) bool {
 		return t.kind == m.batch.target.kind && t.command == m.batch.target.command &&
 			t.worktree == m.batch.target.worktree && t.pane == m.batch.target.pane
 	}
-	if m.batch.target.kind == targetExistingPane && !slices.ContainsFunc(m.targets, same) {
+	if m.batch.target.kind == targetExistingPane && !slices.ContainsFunc(m.targets, func(t dropTarget) bool { return same(t) && !t.folded }) {
 		m.targets, m.targetList = m.buildTargetsFor(true)
 	}
 	for i, t := range m.targets {

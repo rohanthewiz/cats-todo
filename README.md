@@ -61,7 +61,10 @@ but **pauses**, leaving the prompt sitting unsubmitted in the agent's input.
 Either way the todo is marked done. The picker lists new sessions and the
 agents running in this project; agents running in other projects are folded
 into one **… More drop targets** row at the bottom, and choosing it lists them
-too. Inside the editor `enter` inserts a newline — the prompt
+too. The fold hides them from the list, not from the filter: typing another
+project's name finds its agent straight away, and the More row steps aside
+while you type, since the search already reaches what it would show. Clearing
+the query folds them away again. Inside the editor `enter` inserts a newline — the prompt
 is a text editor, so enter means there what it means in every other one — and
 `shift+enter` (or `cmd+s`) saves. Outside cats it still manages backlogs; only drops need the
 socket.
