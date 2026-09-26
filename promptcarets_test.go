@@ -369,8 +369,8 @@ func TestCaretsMultiLinePaste(t *testing.T) {
 // terminal's answer arrives as a tea.ClipboardMsg some time after the chord.
 // While carets are up it must go to every one of them, not just the library's
 // single caret. That is what forwarding it straight to the textarea used to do.
-// The chord's local pasteboard read is not driven here, because it would read
-// the real macOS clipboard. Both roads end in pasteIntoForm.
+// The chord's local pasteboard read has its own test,
+// TestCaretsTakeTheLocalPasteboard. Both roads end in pasteIntoForm.
 func TestCaretsTakeTheTerminalsClipboardAnswer(t *testing.T) {
 	m := caretsOver(t, "one\ntwo")
 	m.pendingPaste = true
@@ -381,6 +381,62 @@ func TestCaretsTakeTheTerminalsClipboardAnswer(t *testing.T) {
 	}
 	if !got.carets.on {
 		t.Error("the clipboard answer ended the mode")
+	}
+}
+
+// TestCaretsTakeTheLocalPasteboard: the Cmd+V chord's other road. Where there is
+// a pasteboard to read (macOS), the chord reads it directly:
+// updatePromptCarets → pasteFormClipboardInMode → pasteFormClipboard →
+// pasteIntoForm. stubClipboard stands in for the pasteboard, so the test never
+// touches the real one. Both spellings of the chord are driven because the
+// terminal chooses which one arrives (see cmdKey).
+func TestCaretsTakeTheLocalPasteboard(t *testing.T) {
+	for name, key := range cmdKey('v') {
+		t.Run(name+"/one line per caret spreads", func(t *testing.T) {
+			stubClipboard(t, "a\nb\n", true, nil)
+			next, _ := caretsOver(t, "one\ntwo").Update(key)
+			got := next.(model)
+			// The trailing newline a line copy brings is dropped before
+			// counting (pasteLinesAtCarets), so two lines meet two carets.
+			if want := "aone\nbtwo"; got.promptArea.Value() != want {
+				t.Errorf("value = %q, want %q — one pasteboard line per caret", got.promptArea.Value(), want)
+			}
+			if !got.carets.on {
+				t.Error("the paste ended the mode")
+			}
+			// A local read answers at once. pendingPaste is set only beside
+			// the OSC 52 request (tea.ReadClipboard), so it is the tell that
+			// the read fell through to the terminal as well. The returned Cmd
+			// is not checked: watchAutosave arms its tick after any edit.
+			if got.pendingPaste {
+				t.Error("a local read also asked the terminal over OSC 52")
+			}
+		})
+
+		t.Run(name+"/a count mismatch pastes the whole text at every caret", func(t *testing.T) {
+			stubClipboard(t, "x\ny\nz", true, nil)
+			next, _ := caretsOver(t, "one\ntwo").Update(key)
+			if want := "x\ny\nzone\nx\ny\nztwo"; next.(model).promptArea.Value() != want {
+				t.Errorf("value = %q, want %q", next.(model).promptArea.Value(), want)
+			}
+		})
+
+		t.Run(name+"/an empty pasteboard is refused in words and keeps the mode", func(t *testing.T) {
+			// handled is true even here (pasteFormClipboardInMode): without
+			// that, the chord would fall to default and end the mode.
+			stubClipboard(t, "", true, nil)
+			next, _ := caretsOver(t, "one\ntwo").Update(key)
+			got := next.(model)
+			if got.promptArea.Value() != "one\ntwo" {
+				t.Errorf("value = %q, want it untouched", got.promptArea.Value())
+			}
+			if !got.carets.on {
+				t.Error("an empty pasteboard ended the mode")
+			}
+			if !strings.Contains(got.formNote, "no text") {
+				t.Errorf("form note = %q, want it to say the clipboard is empty", got.formNote)
+			}
+		})
 	}
 }
 

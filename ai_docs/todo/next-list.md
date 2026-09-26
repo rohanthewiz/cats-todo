@@ -44,14 +44,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 
 ## Open
 
-- **N-005** · raised `2026-0912-2110-multi-caret-enter-paste-tab-indent` · value low
-  Add a test for the Cmd+V chord's *local pasteboard* road into the column
-  mode's carets (`pasteFormClipboard` → `pasteFormClipboardInMode` →
-  `pasteLinesAtCarets`). `readClipboardText` (`clipboard.go`) is a swappable
-  `var` and `stubClipboard` (`promptsel_test.go`) already stubs it, but no
-  test stubs the clipboard with the column mode on. The OSC 52 road is
-  covered. *Lapsed* in `2026-0922-0943-info-annotation`.
-
 - **N-011** · raised `2026-0912-2234-carried-indent-and-release` · value low
   Enter with the caret *inside* an indent (`"  |  x"`) leaves the spaces left
   of the caret as trailing whitespace on the upper line (`"  "` / `"    x"`).
@@ -279,6 +271,14 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-005** · closed 2026-09-26 · raised `2026-0912-2110-multi-caret-enter-paste-tab-indent`
+  — `TestCaretsTakeTheLocalPasteboard` (`promptcarets_test.go`) drives the
+  Cmd+V chord's local pasteboard road with the column mode on, under both
+  `super+v` and `meta+v`, with `stubClipboard` in place of the pasteboard.
+  It checks that one line per caret spreads (a trailing newline is dropped
+  first), that a count mismatch pastes the whole text at every caret, and
+  that an empty pasteboard is refused in words without ending the mode. It
+  also checks that a local read never falls through to the OSC 52 request.
 - **N-059** · closed 2026-09-25 · raised `2026-0925-1739-batches-menu-and-loop-default`
   — Released v0.40.0: both version files bumped, `chore(release): v0.40.0`
   tagged `v0.40.0` and pushed with the code. It carries the Batches page's
