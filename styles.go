@@ -21,8 +21,8 @@ const (
 	colPanel  = "#2b322c" // the recessed surface an inert button sits on
 	colChrome = "#3b453d" // the raised surface a live button sits on
 	colMuted  = "#9db0a2" // secondary text — group headings
-	colDim    = "#7d8f83" // tertiary text — descriptions, counts
-	colFaint  = "#5f6f64" // quietest text — footers, completed prompts
+	colDim    = "#899b8f" // tertiary text — descriptions, counts (lifted from #7d8f83: read too dim)
+	colFaint  = "#6a7b6f" // quietest text — footers, completed prompts (lifted from #5f6f64)
 	colOk     = "#6ac47a"
 	colWarn   = "#e0b64e"
 	colErr    = "#e57373"
@@ -44,7 +44,7 @@ const (
 	//
 	// It is chosen on lightness rather than on hue, because lightness is what
 	// separates the three dots at a glance in a single cell. The ramp runs
-	// standard 78% → critical 67% → low 53% → the closed rows' 40%: low sits
+	// standard 78% → critical 67% → low 53% → the closed rows' 45%: low sits
 	// plainly below active work and plainly above the tier that means "not work
 	// any more", which is exactly what "whenever" should look like.
 	//
