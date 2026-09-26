@@ -16,7 +16,7 @@
 //	│ N-001 · Open                                             │  ← ID and section
 //	│ Hands-on pass in a rebuilt Cats.app. Merged from checks: │  ← the item's text,
 //	│ - hover cards: the 400ms dwell;                          │    line breaks kept,
-//	│ - DEC 1004: blur a window.                               │    wrapped, up to 5
+//	│ - DEC 1004: blur a window.                               │    wrapped, up to 13
 //	│ value medium · raised 2026-0904-1753-a-dwell             │  ← the header's fields
 //	╰──────────────────────────────────────────────────────────╯
 //
@@ -42,12 +42,15 @@ import (
 // few more words per line out of a fixed row budget. Still a preference — a
 // narrow pane gets a narrower card, down to hoverCardMin.
 //
-// Seven rows in all is the most the card spends: one for the ID, five for the
-// text, one for the fields. A short item spends fewer, since every part drops
-// out when it has nothing to say.
+// Fifteen rows in all is the most the card spends: one for the ID, thirteen
+// for the text, one for the fields. That is enough for most items to show
+// whole (seven rows cut nearly every one short, which sent the reader to the
+// form anyway). A short item spends fewer, since every part drops out when it
+// has nothing to say, and a short pane gets fewer text rows (see nextCardFor)
+// so the box never runs past its edge.
 const (
-	nextCardWidth     = 62
-	nextCardMaxRows   = 7
+	nextCardWidth     = 76
+	nextCardMaxRows   = 15
 	nextCardBodyLines = nextCardMaxRows - 2 // minus the ID row and the fields row
 )
 
@@ -106,7 +109,11 @@ func (m model) nextCardFor(row, x, y int) (hoverCard, bool) {
 	if w < hoverCardMin || m.height < 6 {
 		return hoverCard{}, false
 	}
-	lines := nextCardLines(m.next.items[idx], w-chrome)
+	// The body gives up rows before the card overflows a short pane: the box
+	// is its rows plus two border rows, and one row is left so the card can
+	// sit off the pointer's line rather than over it.
+	bodyMax := min(nextCardBodyLines, m.height-3-(nextCardMaxRows-nextCardBodyLines))
+	lines := nextCardLinesMax(m.next.items[idx], w-chrome, max(bodyMax, 1))
 	card := hoverCard{open: true, row: row, lines: lines, w: w, h: len(lines) + 2}
 	card.x, card.y = placeBelowRight(x, y, card.w, card.h, m.width, m.height)
 	return card, true
@@ -125,6 +132,12 @@ func (m model) nextCardFor(row, x, y int) (hoverCard, bool) {
 // and it carries the section, since the heading that says Open or Roadmap has
 // usually scrolled out of sight by the time a long list is being read.
 func nextCardLines(it nextItem, inner int) []string {
+	return nextCardLinesMax(it, inner, nextCardBodyLines)
+}
+
+// nextCardLinesMax is nextCardLines with the text held to bodyMax rows, for a
+// pane too short to take the full budget.
+func nextCardLinesMax(it nextItem, inner, bodyMax int) []string {
 	var lines []string
 	row := func(s string, style lipgloss.Style) {
 		// Padded to the box's full interior so the card composites opaque
@@ -138,12 +151,12 @@ func nextCardLines(it nextItem, inner int) []string {
 	}
 	row(truncate(head, inner), hoverTitleStyle)
 
-	for _, ln := range nextCardBody(it.Text, inner) {
+	for _, ln := range nextCardBody(it.Text, inner, bodyMax) {
 		row(ln, hoverBodyStyle)
 	}
 
 	// The header's fields, in words, on one row: two short facts do not earn
-	// a labelled table's two rows out of seven. Either drops out when the file
+	// a labelled table's two rows out of the budget. Either drops out when the file
 	// did not record it, and the row goes with them.
 	var fields []string
 	if it.Value != "" {
@@ -158,14 +171,14 @@ func nextCardLines(it nextItem, inner int) []string {
 	return lines
 }
 
-// nextCardBody is an item's text as up to nextCardBodyLines wrapped lines,
+// nextCardBody is an item's text as up to bodyMax wrapped lines,
 // with an ellipsis on the last when there was more.
 //
 // Line breaks are kept, unlike on the row: an item's sub-bullets are the
 // structure of the thought, and the card is the one place on the page with
 // room to show them as bullets. Blank lines are dropped — a paragraph break is
-// not worth one of five rows.
-func nextCardBody(text string, inner int) []string {
+// not worth one of the card's rows.
+func nextCardBody(text string, inner, bodyMax int) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
@@ -177,7 +190,7 @@ func nextCardBody(text string, inner int) []string {
 		if strings.TrimSpace(ln) == "" {
 			continue
 		}
-		if len(out) == nextCardBodyLines {
+		if len(out) == bodyMax {
 			// More text than rows: say so rather than simply stopping, which is
 			// the difference between "that's all of it" and "press enter to
 			// read the rest in the form".

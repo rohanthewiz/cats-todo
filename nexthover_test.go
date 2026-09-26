@@ -55,7 +55,7 @@ func TestNextHoverCardShowsTheItem(t *testing.T) {
 	}
 }
 
-// TestNextHoverCardIsCapped pins the seven-row budget: a long item fills five
+// TestNextHoverCardIsCapped pins the fifteen-row budget: a long item fills 13
 // text rows and ends in the ellipsis that says there is more, and the card
 // never grows past nextCardMaxRows however much the item says.
 func TestNextHoverCardIsCapped(t *testing.T) {
@@ -77,10 +77,20 @@ func TestNextHoverCardIsCapped(t *testing.T) {
 		}
 	}
 
-	// A short item with no fields spends two rows, not seven.
+	// A short item with no fields spends two rows, not fifteen.
 	short := nextCardLines(nextItem{ID: "N-010", Text: "tiny"}, 40)
 	if len(short) != 2 {
 		t.Errorf("a short, field-less item got %d rows, want 2", len(short))
+	}
+
+	// A short pane's smaller text budget still keeps the ID and fields rows
+	// and still ends in the ellipsis.
+	tight := nextCardLinesMax(long, 40, 3)
+	if len(tight) != 5 {
+		t.Errorf("a 3-line text budget gave %d rows, want 5", len(tight))
+	}
+	if body := strings.TrimSpace(ansi.Strip(tight[3])); !strings.HasSuffix(body, "…") {
+		t.Errorf("last text row %q of a tight card does not say there is more", body)
 	}
 }
 

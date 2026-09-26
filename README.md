@@ -1314,7 +1314,7 @@ rest:
 ╰────────────────────────────────────────────────────────────╯
 ```
 
-The card is capped at **seven rows**: the ID and its section, up to five lines
+The card is capped at **fifteen rows**: the ID and its section, up to thirteen lines
 of text with the item's line breaks and sub-bullets kept, and one line of
 fields. A longer item ends in an ellipsis, and `enter` opens the whole item in
 the form. Unlike a backlog prompt's card, every item gets one, even one whose
