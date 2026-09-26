@@ -597,10 +597,11 @@ func (m *model) insertAtCarets(text string) {
 // carets on one row therefore carry the same indent, the row's, rather than the
 // second measuring the fragment the first break made.
 //
-// A row that is only spaces with its caret at the end moves its indent down
-// instead of copying it, as in the ordinary editor. That happens only when the
-// caret is alone on its row, because emptying the row would pull the column out
-// from under a neighbour. The carets are folded to cells first, so the neighbour
+// A caret with nothing but spaces to its left (a blank indented row, or a
+// caret inside an indent) moves those spaces down instead of copying them, as
+// in the ordinary editor. That happens only when the caret is alone on its
+// row, because cutting the row's head would pull the column out from under a
+// neighbour. The carets are folded to cells first, so the neighbour
 // test is the caret before and after in the sorted list. The splice's own fold
 // then finds nothing to merge, which keeps widths indexed like the carets.
 func (m *model) newlineAtCarets() {
@@ -612,13 +613,15 @@ func (m *model) newlineAtCarets() {
 		if r < 0 || r >= len(rows) {
 			continue // spliceAtCarets drops it too
 		}
-		n, blank := promptCarriedIndent([]rune(rows[r]), m.carets.cols[i])
+		n, bare := promptCarriedIndent([]rune(rows[r]), m.carets.cols[i])
 		widths[i] = n
 		carried = carried || n > 0
 		alone := (i == 0 || m.carets.rows[i-1] != r) &&
 			(i == len(m.carets.rows)-1 || m.carets.rows[i+1] != r)
-		if blank && alone {
-			rows[r], m.carets.cols[i] = "", 0
+		if bare && alone {
+			// Only spaces precede the caret, so its rune column is also a
+			// byte index and the cut keeps whatever text follows it.
+			rows[r], m.carets.cols[i] = rows[r][m.carets.cols[i]:], 0
 			emptied = true
 		}
 	}

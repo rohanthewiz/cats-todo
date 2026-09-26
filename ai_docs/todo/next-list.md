@@ -44,14 +44,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 
 ## Open
 
-- **N-011** · raised `2026-0912-2234-carried-indent-and-release` · value low
-  Enter with the caret *inside* an indent (`"  |  x"`) leaves the spaces left
-  of the caret as trailing whitespace on the upper line (`"  "` / `"    x"`).
-  `promptCarriedIndent` (`promptindent.go`) moves the indent down only when
-  the caret is at the end of a blank row. Decide whether the upper line
-  should be trimmed too. *Lapsed* in
-  `2026-0915-1836-prompt-editor-undo-v0.32.0`.
-
 - **N-012** · raised `2026-0912-2234-carried-indent-and-release` · value low
   Consider back-tagging the releases that have a `chore(release)` commit but
   no tag: v0.14.0, v0.21.1, v0.30.0, v0.30.1 and v0.30.2 (checked
@@ -265,6 +257,15 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-011** · closed 2026-09-26 · raised `2026-0912-2234-carried-indent-and-release`
+  — Answered yes: the upper line is trimmed. `promptCarriedIndent`'s second
+  result is now `bare`, meaning only spaces stand left of the caret. A blank
+  indented row and a caret inside an indent are both that one case, so enter
+  moves those spaces down instead of copying them: `"  |  x"` becomes `""` /
+  `"    x"`. The column mode does the same at a caret alone on its row. It
+  cuts the row's head and keeps the text after it (`newlineAtCarets`).
+  Tests: `TestPromptEnterInsideTheIndentLeavesNoTrailingSpaces`,
+  `TestCaretsEnterInsideTheIndentLeavesNoTrailingSpaces`.
 - **N-047** · closed 2026-09-26, `2026-0926-1840-dimmer-greys-and-next-list-backlog-record` · raised `2026-0925-1104-nextlist-context-menu`
   — A Next List row whose item has an open or frozen copy in the target
   backlog wears a green ⤓ after its value mark (`nextBacklogMark`). The page

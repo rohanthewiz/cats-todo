@@ -239,22 +239,31 @@ type promptCarry struct {
 // standing inside the indent splits it, and the new line gets only the part in
 // front of the caret, because the rest already travels with the text after it.
 //
-// blank reports that the row is nothing but those spaces, with the caret at its
-// end. That is the line an earlier carry left untouched. Enter there moves the
-// indent down instead of copying it, so the line left behind is empty rather
-// than holding invisible trailing spaces (the reason reindentPromptRows skips
-// blank rows).
+// bare reports that nothing but those spaces stands left of the caret. Enter
+// there moves the spaces down instead of copying them, so the line left behind
+// is empty rather than holding invisible trailing spaces (the reason
+// reindentPromptRows skips blank rows). Two shapes meet that test:
 //
-//	"  - a|"    → indent 2, blank false
-//	"  |  - a"  → indent 2, blank false   (only what is left of the caret)
-//	"    |"     → indent 4, blank true
-func promptCarriedIndent(row []rune, col int) (indent int, blank bool) {
+//   - a row that is only indent, with the caret at its end — the line an
+//     earlier carry left untouched;
+//   - a caret standing inside the indent of a row with text after it. A copy
+//     would leave the spaces left of the caret stranded on the upper line
+//     ("  |  x" → "  " / "    x"); moving them leaves "" / "    x", the
+//     same text a line opened above it would have produced.
+//
+// Both are the one rule, "left of the caret is only indent", so they are not
+// told apart. A caret at column 0 carries nothing and moves nothing.
+//
+//	"  - a|"    → indent 2, bare false
+//	"  |  - a"  → indent 2, bare true    (only what is left of the caret)
+//	"    |"     → indent 4, bare true
+//	"|    x"    → indent 0, bare false
+func promptCarriedIndent(row []rune, col int) (indent int, bare bool) {
 	col = min(max(col, 0), len(row))
 	for indent < col && row[indent] == ' ' {
 		indent++
 	}
-	// indent == len(row) also means col == len(row), since indent <= col.
-	return indent, indent > 0 && indent == len(row)
+	return indent, indent > 0 && indent == col
 }
 
 // newlineCarryingIndent is enter in the prompt with the column mode off: a line
@@ -276,10 +285,10 @@ func (m *model) newlineCarryingIndent() bool {
 	caret := promptCaretOffset(m.promptArea)
 	row, _ := promptRowRange(rows, caret, caret)
 	start, _ := promptRowSpan(rows, row, row)
-	n, blank := promptCarriedIndent([]rune(rows[row]), caret-start)
+	n, bare := promptCarriedIndent([]rune(rows[row]), caret-start)
 	from := caret
-	if blank {
-		from -= n // the blank line's spaces move down rather than being copied
+	if bare {
+		from -= n // spaces with nothing before them move down rather than being copied
 	}
 	m.replacePromptRunes(from, caret, "\n"+strings.Repeat(" ", n))
 	if n > 0 {

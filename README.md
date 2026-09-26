@@ -2202,8 +2202,9 @@ indent back in one press and puts you at the margin, or press `shift+tab` to ste
 out one level. Only the `backspace` straight after counts. Once you have typed
 anything, `backspace` deletes one character again. Pressing `enter` on a line
 that holds nothing but that indent moves the indent down to the new line, so
-blank lines are left truly empty. A caret inside the indent carries only the
-spaces to its left. A paste goes in exactly as copied, because pasted text
+blank lines are left truly empty. A caret inside the indent works the same
+way: the spaces to its left move down with the text, so the line keeps its
+indent and the line left above it is empty rather than a row of spaces. A paste goes in exactly as copied, because pasted text
 brings its own indentation.
 
 The indent is **spaces, not a tab character**. The editor turns a tab character

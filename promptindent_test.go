@@ -269,6 +269,46 @@ func TestPromptEnterOnABlankIndentMovesItDown(t *testing.T) {
 	}
 }
 
+// TestPromptEnterInsideTheIndentLeavesNoTrailingSpaces: enter with the caret
+// inside an indent used to copy the spaces left of it, stranding them on the
+// upper line as trailing whitespace ("  |  x" → "  " / "    x"). They move
+// down now, as on a blank indented line: the text keeps its full indent and
+// the line above is empty (N-011).
+func TestPromptEnterInsideTheIndentLeavesNoTrailingSpaces(t *testing.T) {
+	m := typeInForm(t, promptAt(t, "a\n    x", 4), enterKey(0))
+	if want := "a\n\n    x"; m.promptArea.Value() != want {
+		t.Errorf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := promptCaretOffset(m.promptArea), len("a\n\n  "); got != want {
+		t.Errorf("caret at %d, want %d — still between the two halves of the indent", got, want)
+	}
+
+	// The backspace straight after takes the moved spaces off the new line,
+	// as it takes any carried indent.
+	m = typeInForm(t, m, backspaceKey)
+	if want := "a\n\n  x"; m.promptArea.Value() != want {
+		t.Errorf("after backspace value = %q, want %q", m.promptArea.Value(), want)
+	}
+}
+
+// TestCaretsEnterInsideTheIndentLeavesNoTrailingSpaces: the column mode's
+// enter follows the same rule at every caret alone on its row.
+func TestCaretsEnterInsideTheIndentLeavesNoTrailingSpaces(t *testing.T) {
+	m := caretsOver(t, "    one\n    two")
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyRight})
+	m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyRight})
+	if got, want := m.carets.cols, []int{2, 2}; !slices.Equal(got, want) {
+		t.Fatalf("setup: carets at columns %v, want %v", got, want)
+	}
+	m = typeInForm(t, m, enterKey(0))
+	if want := "\n    one\n\n    two"; m.promptArea.Value() != want {
+		t.Fatalf("value = %q, want %q", m.promptArea.Value(), want)
+	}
+	if got, want := m.carets.cols, []int{2, 2}; !slices.Equal(got, want) {
+		t.Errorf("carets at columns %v, want %v", got, want)
+	}
+}
+
 // TestPromptBackspaceTakesBackTheCarriedIndent: one backspace straight after the
 // enter removes the whole carried indent. The next backspace is an ordinary one
 // again and joins the lines.
