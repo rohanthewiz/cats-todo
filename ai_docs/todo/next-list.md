@@ -106,15 +106,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   and `applyPaneSetup` doesn't watch for it. A pane that has consented once
   won't show it.
 
-- **N-046** · raised `2026-0925-1104-nextlist-context-menu` · value medium
-  Live-test the Next List context menu (`nextmenu.go`) in cats. Check the
-  right-click on an item, both ⧉ Copy rows (OSC 52 and `pbcopy`), that
-  ⚙ Session… and ◫ Images… open over the draft with esc landing on it, that
-  ◷ Schedule… adds the item and lands in the list's scheduler, and that the
-  ⤓ Add rows grey out once an open copy is in the backlog. Also check that
-  the 15-line box fits, or flips above the pointer, in a short pane. Only the
-  tests have exercised it.
-
 - **N-048** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
   Live-test batches in cats. Check an all-at-once batch onto new worktrees
   (the tabs open one after another, each prompt lands whole, and each is
@@ -274,6 +265,20 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-046** · closed 2026-09-27, `2026-0927-0110-next-list-marks-and-menu-live` · raised `2026-0925-1104-nextlist-context-menu`
+  — Driven live through `catctl probe`. The right-click opened all 15
+  rows. ⧉ Copy ID put `N-002` on the pasteboard, and ⧉ Copy as prompt the
+  whole cited prompt. ⚙ Session… and ◫ Images… opened over the draft, and esc
+  landed on it. A second esc went to the *prompt list*, off the page, which
+  was fixed in `511feaf`: a draft made from an item now cancels back to the
+  Next List with the highlight kept (`TestNextListDraftEscReturnsToThePage`).
+  ◷ Schedule… added the item (6 → 7) and opened the scheduler, whose esc
+  lands on the prompt list with the new row highlighted, as the README says.
+  With an open copy in the backlog the ⤓ Add rows grey out (`#728377` against
+  `#d6ddd6`). The box fits below the pointer in a 30-row pane and flips above
+  it for a low row. At 20 and 24 rows neither side fits, so it pins to the
+  top with every row showing. ✔ Save on such a draft still lands on the
+  prompt list, which was left alone.
 - **N-062** · closed 2026-09-27, `2026-0927-0110-next-list-marks-and-menu-live` · raised `2026-0926-1840-dimmer-greys-and-next-list-backlog-record`
   — Driven live through `catctl probe`. A successful send left a done copy
   and read `… · recorded done in the project backlog` (run and paste). An esc
