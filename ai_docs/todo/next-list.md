@@ -66,14 +66,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   default…`, and `/effort` sent ~0.5s later printed its line whole. The
   400ms timing question stays open until N-070 is decided.
 
-- **N-026** · raised `2026-0915-1836-prompt-editor-undo-v0.32.0` · value medium
-  Hand-test undo in a cats pane: that Cmd+z actually arrives (cats forwards
-  Cmd), the menu row, and undo after a `@` insert and after a spelling
-  correction, the two cross-stage paths only the commit point covers. Since
-  `2026-0924-2007-redo-and-switch-confirm`, redo too: that shift+cmd+z
-  arrives as one of the bound spellings, and ctrl+y where Cmd is eaten.
-  *Lapsed* in `2026-0922-0943-info-annotation`.
-
 - **N-033** · raised `2026-0924-1146-info-mark-blue-chip` · value low
   Check the info chip by eye. Look at an info row in cats, both plain and
   highlighted, plus the bar and the menu. If the fullwidth `ｉ` looks thin or
@@ -284,6 +276,17 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-026** · closed 2026-09-27, `2026-0927-0037-probe-driven-live-tests` · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
+  — Driven live through `catctl probe`, which sends the same `key` message
+  (mods bit 8 for Cmd) the cats page sends. cmd+z undid a word at a time,
+  and shift+cmd+z, ctrl+y, ctrl+z and ctrl+shift+z all did their jobs. The
+  menu's ↶ Undo and ↷ Redo rows (printing `cmd+z` and `shift+cmd+z`) did the
+  same on a click. Undo after an `@` insert went back to the typed `@`, and
+  after a spelling fix (`teh` → `the` from the ctrl+l panel) back to `teh`.
+  Redo put both back. The page forwards ⌘Z/⌘⇧Z to a kitty pane
+  (cats `cmd/catway/web/js/20-keys.js:214`). In Cats.app the Edit menu's
+  Undo/Redo key equivalents don't swallow them; cats checked that in
+  `2026-0727-1706-cmdz-undo-forwarding-and-esc-leader-chaining` with r-ed.
 - **N-023** · closed 2026-09-27, `2026-0927-0037-probe-driven-live-tests` · raised `2026-0915-1637-prompt-editor-paste-line-cap`
   — Driven in a live cats pane through `catctl probe` (catway's browser
   socket: keys, paste and clicks, with the screen captured in ANSI so the
