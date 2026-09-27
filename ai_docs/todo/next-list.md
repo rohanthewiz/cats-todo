@@ -56,7 +56,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   is long enough after `/model` and `/effort`, not just after `/clear`. The
   new-session path needed 2s (`newSessionSettle`). *Lapsed* in
   `2026-0922-0943-info-annotation`.
-  **Needs the user** (2026-09-27, `2026-0927-0100-live-probe-drops`): the
+  **Needs the user** (2026-09-27, `2026-0927-0032-drop-settings-side-effect-v0.42.1`): the
   live run was stopped after one manual `/model haiku` + `/effort low`,
   because in Claude Code 2.1.283 each of them is **saved as the default for
   new sessions** in `~/.claude/settings.json` (see N-070), and the session
@@ -220,13 +220,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   on colBg and colPanel, that finished prompts and footers still read as
   quiet, and that the Next List card's yellow stays a tint, not a color.
 
-- **N-069** · raised `2026-0926-2228-headless-install-offer` · value medium
-  Push `56c5c4d` and cut v0.42.1. cats seeds fresh installs from the default
-  branch, so until the headless-offer fix is on GitHub a seeded install still
-  spends the one-time backlog offer on catway's log (cats' N-044 tracks the
-  same thing).
-
-- **N-070** · raised `2026-0927-0100-live-probe-drops` · value high
+- **N-070** · raised `2026-0927-0032-drop-settings-side-effect-v0.42.1` · value high
   A drop's `/model` and `/effort` now change the user's defaults. In Claude
   Code 2.1.283 `/model X` answers `Set model to … and saved as your default
   for new sessions` (its help: "Your pick becomes the default for new
@@ -284,6 +278,10 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-069** · closed 2026-09-27, `2026-0927-0032-drop-settings-side-effect-v0.42.1` · raised `2026-0926-2228-headless-install-offer`
+  — Released v0.42.1: both version files bumped, `chore(release): v0.42.1`
+  (`a2bae17`) tagged `v0.42.1` and pushed with `56c5c4d`, so a seeded cats
+  install now builds the fix that leaves the backlog offer unspent.
 - **N-067** · closed 2026-09-26, `2026-0926-2211-two-line-footers-and-gofmt-n067` · raised `2026-0926-2057-card-width-tint-and-brighter-greys`
   — `gofmt -w hangup.go` added the blank `//` line before the
   `- SIGHUP asks the program to quit` bullet. `gofmt -l .` is now empty.
