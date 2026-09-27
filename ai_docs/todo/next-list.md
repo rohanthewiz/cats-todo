@@ -72,12 +72,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   odd in the fallback font, the fallbacks are a plain `i` padded inside the
   chip, or the `ℹ️` emoji (blue square, but its "i" isn't italic).
 
-- **N-034** · raised `2026-0924-1231-prompt-editor-autosave` · value medium
-  Try autosave in a live cats pane. Only the tests have exercised it so far.
-  Check that the `autosaved HH:MM` note is readable, that it appears while
-  typing without moving the caret, and that esc after an autosaved add
-  leaves no row behind.
-
 - **N-038** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value medium
   Live-test the Next List's ✉ Send (`shift+enter`, `nextlist.go`
   `sendFromNext`) in cats: a new session, a worktree session and a running
@@ -276,6 +270,16 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-034** · closed 2026-09-27, `2026-0927-0100-live-autosave-and-next-send` · raised `2026-0924-1231-prompt-editor-autosave`
+  — Driven live through `catctl probe`, with `autosaveSeconds: 15` in a
+  scratch config. Typing one key a second through the tick, the note
+  `autosaved HH:MM` came up on its own row under the ⚙ line, in the same
+  muted tone as the 📎 and ⚙ lines (`#92a498`). The prompt rows and the
+  caret did not move, only the footer dropped a row, and the next key cleared
+  the note as designed. After the first write the add became an edit, so the
+  footer lost `ctrl+g scope`, which is right. esc after an autosaved add left
+  no row (`cancelled · autosaved changes taken back`). esc after an
+  autosaved edit (`ZZZ` on disk) put the original text back.
 - **N-026** · closed 2026-09-27, `2026-0927-0037-probe-driven-live-tests` · raised `2026-0915-1836-prompt-editor-undo-v0.32.0`
   — Driven live through `catctl probe`, which sends the same `key` message
   (mods bit 8 for Cmd) the cats page sends. cmd+z undid a word at a time,
