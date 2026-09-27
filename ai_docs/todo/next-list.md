@@ -171,15 +171,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   backlog, Next List, schedule and batch pickers. Only the tests (a fake
   control socket in `droptargets_test.go`) have exercised it.
 
-- **N-062** · raised `2026-0926-1840-dimmer-greys-and-next-list-backlog-record` · value medium
-  Live-test in cats the two Next List backlog changes from this session.
-  First, a successful ✉ Send (shift+enter or the menu) should leave a done
-  prompt in the backlog, or close an open copy made by ⤓ Add, and the
-  heading should read `… · recorded done in the project backlog`. An esc
-  from the picker or a failed send should write nothing. Second, the green
-  ⤓ row mark should appear on items with an open copy, keep the text column
-  straight next to 🔷 and ◆, and update right after a menu Add.
-
 - **N-064** · raised `2026-0926-2033-prompt-editor-double-click-word` · value low
   Live-check the prompt editor's double-click in a real cats pane (and a
   plain terminal). Tests drive `MouseClickMsg` pairs directly; confirm the mux
@@ -283,6 +274,15 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-062** · closed 2026-09-27, `2026-0927-0110-next-list-marks-and-menu-live` · raised `2026-0926-1840-dimmer-greys-and-next-list-backlog-record`
+  — Driven live through `catctl probe`. A successful send left a done copy
+  and read `… · recorded done in the project backlog` (run and paste). An esc
+  from the picker, and a send whose pane was closed under the open picker
+  (`send failed: cats error: unknown pane 332`), both left the backlog as it
+  was. After ⤓ Add from the menu, the green ⤓ (`#4db380`) showed on the row
+  at once. The probe's `read` found the text starting on cell 13 for a ◆ ⤓
+  row, a bare row and a 🔷 ⤓ row alike. Done copies earn no mark, as
+  designed.
 - **N-038** · closed 2026-09-27, `2026-0927-0100-live-autosave-and-next-send` · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0`
   — Driven live through `catctl probe`, in a scratch project with its own
   next-list.md and backlog. esc from the picker went back to the page with
