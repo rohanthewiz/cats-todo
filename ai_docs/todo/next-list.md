@@ -106,24 +106,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   and `applyPaneSetup` doesn't watch for it. A pane that has consented once
   won't show it.
 
-- **N-056** · raised `2026-0925-1409-batch-loop-phase3` · value medium
-  Live-test batch loops in cats. Only the tests have driven one, with made-up
-  pane states. Check:
-  - a same-session loop of three into a new session: each prompt waits for
-    the last, and the status line walks `on 1/3` → `2/3 sent`;
-  - that cats reports *working* soon enough, and for long enough, for the
-    1-second poll to see it (`loopStartWait` is 45s, the between grace 3s),
-    with a quick prompt as well as a long one;
-  - `/compact` and `/clear` as the between command;
-  - fresh each onto worktrees;
-  - a permission question mid-prompt (*blocked*) holding the loop;
-  - quitting the manager mid-loop and reopening it (`‖ paused`, then
-    resumed), and a loop left over an hour (stopped, "not resumed");
-  - a scheduled drop (a prompt or a batch) into a claude pane whose agent is
-    quit before it fires: marked missed, "the scheduled pane's agent has
-    exited", and nothing typed at the shell (N-020);
-  - ■ Stop from the page.
-
 - **N-066** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
   Eyeball the brightened grey ramp in cats (`styles.go`): `colMuted`,
   `colDim` and `colFaint` each rose ~9 points per channel, and
@@ -250,6 +232,30 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-056** · closed 2026-09-27, `2026-0927-0127-scheduled-batches-and-loops-live` · raised `2026-0925-1409-batch-loop-phase3`
+  — Driven live through `catctl probe` with real claude sessions.
+  - A same-session loop of three into a new session, `/clear` between:
+    `1/3 sent` → `sent /clear — waiting on it` → `2/3 sent … waiting for
+    it to finish`. Each prompt waited for the last.
+  - `/compact` between: waited ~13s for the compaction, then `2/2 sent,
+    finished`.
+  - Fresh each onto worktrees: one checkout and session per prompt, the
+    second only after the first finished. Removed afterwards.
+  - Blocked: the agent stopped on a permission question mid-prompt (a read
+    outside its dir), and the loop held at 2/3 until Enter answered it.
+  - The manager was quit mid-loop and reopened. The new one took the loop
+    over on its tick and finished it. The record screen, open meanwhile,
+    kept its opening copy and read `paused … no manager is driving it` over
+    the finished loop. Fixed in `11b250a` (`TestBatchViewFollowsTheRecord`).
+  - A scheduled drop into a claude pane whose agent was quit (`/exit`, shell
+    left): the row read `missed 01:27`, the status `the scheduled pane's
+    agent has exited — send manually`, and nothing reached the shell. cats
+    kept reporting `agent: claude` for a few seconds after the exit. The
+    label had cleared by the fire; a fire inside that window would pass the
+    check.
+  - ■ Stop from the menu (N-058). The chord is the same action.
+  - Quick prompts registered as working and then idle in time. The
+    one-hour lapse was not waited out, and the tests cover it.
 - **N-053** · closed 2026-09-27, `2026-0927-0127-scheduled-batches-and-loops-live` · raised `2026-0925-1344-batch-scheduling-phase2`
   — Driven live through `catctl probe`. A batch scheduled `in 1m` onto a
   new worktree fired on time: a `todo/n-006-…` checkout, the prompt worked
