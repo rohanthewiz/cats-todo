@@ -187,7 +187,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   past a few hundred lines. The fix is a textarea that renders only the
   rows in view: a fork, or an upstream patch.
 
-- **N-072** · raised `2026-0927-0100-live-autosave-and-next-send` · value high
+- **N-072** · raised `2026-0927-0053-live-autosave-and-next-send` · value high
   Claude Code 2.1.283 hands a dropped prompt to the model as pasted text,
   not as the user's request. `pane.send_input` is a bracketed paste, and
   Claude Code tags pasted input `<pasted_content>` (flag-gated, `FP()` in
@@ -250,7 +250,7 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
-- **N-064** · closed 2026-09-27, `2026-0927-0125-picker-fold-and-double-click-live` · raised `2026-0926-2033-prompt-editor-double-click-word`
+- **N-064** · closed 2026-09-27, `2026-0927-0104-picker-fold-and-double-click-live` · raised `2026-0926-2033-prompt-editor-double-click-word`
   — Driven live through `catctl probe`, whose `mouse` op sends the page's
   press-and-release pair. In a prompt holding `alpha bravo charlie delta`,
   two clicks on `charlie` 0, 150 and 350ms apart painted it in the selection
@@ -259,7 +259,7 @@ below were found done or overtaken while seeding.
   `doubleClickWindow`. A plain terminal (Terminal.app, iTerm) was not driven.
   It needs a person at the mouse, and it goes through the same bubbletea
   mouse parsing the tests cover.
-- **N-060** · closed 2026-09-27, `2026-0927-0125-picker-fold-and-double-click-live` · raised `2026-0926-1520-next-card-and-target-fold`
+- **N-060** · closed 2026-09-27, `2026-0927-0104-picker-fold-and-double-click-live` · raised `2026-0926-1520-next-card-and-target-fold`
   — Driven live through `catctl probe`, with claude panes in three
   workspaces: the scratch project's own, a decoy `ct-other`, and this
   session's. The backlog, Next List, schedule and batch pickers each listed
@@ -271,7 +271,7 @@ below were found done or overtaken while seeding.
   others. Each picker was left with esc. On the way, an ↑ from the top row
   (it does not wrap) and an enter scheduled one drop by accident, and it was
   cleared from the list (ctrl+s, empty box, enter).
-- **N-046** · closed 2026-09-27, `2026-0927-0110-next-list-marks-and-menu-live` · raised `2026-0925-1104-nextlist-context-menu`
+- **N-046** · closed 2026-09-27, `2026-0927-0058-next-list-marks-and-menu-live` · raised `2026-0925-1104-nextlist-context-menu`
   — Driven live through `catctl probe`. The right-click opened all 15
   rows. ⧉ Copy ID put `N-002` on the pasteboard, and ⧉ Copy as prompt the
   whole cited prompt. ⚙ Session… and ◫ Images… opened over the draft, and esc
@@ -285,7 +285,7 @@ below were found done or overtaken while seeding.
   it for a low row. At 20 and 24 rows neither side fits, so it pins to the
   top with every row showing. ✔ Save on such a draft still lands on the
   prompt list, which was left alone.
-- **N-062** · closed 2026-09-27, `2026-0927-0110-next-list-marks-and-menu-live` · raised `2026-0926-1840-dimmer-greys-and-next-list-backlog-record`
+- **N-062** · closed 2026-09-27, `2026-0927-0058-next-list-marks-and-menu-live` · raised `2026-0926-1840-dimmer-greys-and-next-list-backlog-record`
   — Driven live through `catctl probe`. A successful send left a done copy
   and read `… · recorded done in the project backlog` (run and paste). An esc
   from the picker, and a send whose pane was closed under the open picker
@@ -294,7 +294,7 @@ below were found done or overtaken while seeding.
   at once. The probe's `read` found the text starting on cell 13 for a ◆ ⤓
   row, a bare row and a 🔷 ⤓ row alike. Done copies earn no mark, as
   designed.
-- **N-038** · closed 2026-09-27, `2026-0927-0100-live-autosave-and-next-send` · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0`
+- **N-038** · closed 2026-09-27, `2026-0927-0053-live-autosave-and-next-send` · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0`
   — Driven live through `catctl probe`, in a scratch project with its own
   next-list.md and backlog. esc from the picker went back to the page with
   the highlight kept (N-003), and the backlog stayed `[]`. A running pane,
@@ -307,7 +307,7 @@ below were found done or overtaken while seeding.
   `todo/n-002-…` in a new workspace, and claude in the checkout with the
   paste waiting. The workspace, worktree and branch were removed afterwards.
   What claude then *did* with a drop is another matter, raised as N-072.
-- **N-034** · closed 2026-09-27, `2026-0927-0100-live-autosave-and-next-send` · raised `2026-0924-1231-prompt-editor-autosave`
+- **N-034** · closed 2026-09-27, `2026-0927-0053-live-autosave-and-next-send` · raised `2026-0924-1231-prompt-editor-autosave`
   — Driven live through `catctl probe`, with `autosaveSeconds: 15` in a
   scratch config. Typing one key a second through the tick, the note
   `autosaved HH:MM` came up on its own row under the ⚙ line, in the same
