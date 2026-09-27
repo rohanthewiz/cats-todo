@@ -71,6 +71,10 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   highlighted, plus the bar and the menu. If the fullwidth `ｉ` looks thin or
   odd in the fallback font, the fallbacks are a plain `i` padded inside the
   chip, or the `ℹ️` emoji (blue square, but its "i" isn't italic).
+  Seen 2026-09-27 on the annotation bar in cats' web page (Chrome, light
+  theme, `2026-0927-0145-hover-card-live-and-release`): the `ｉ` draws as an italic i in a slate box, and it reads
+  as a chip. The list rows (plain and highlighted) and the menu were not
+  looked at, and the user's own theme is still theirs to judge.
 
 - **N-039** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value low
   Check the value marks and the annotation bar by eye in cats: that 🔷 draws
@@ -78,17 +82,11 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   that the bare tier's reverse-lit radio is visible. At 100 cells the bar keeps
   the Value/Priority labels and drops the checkbox words (the words need 104);
   swap the two tiers if the words turn out to matter more.
-
-- **N-041** · raised `2026-0924-1939-nextlist-hover-card` · value medium
-  Live-test the Next List hover card (`nexthover.go`) in cats: the 400ms
-  dwell and the warm window across rows, that the card closes on a key, a
-  click and on leaving the rows, and that the 88-cell box and its 15-row cap
-  (raised from 62, then 76 cells, and 7 rows) read well on real items
-  (sub-bullets kept, `…` on long ones) and shrink on a short pane. The title
-  now carries the value (`N-001 · Open · value medium`), the foot only
-  `raised …`, and the body is a pale yellow (`colCardBody`). Also check
-  that asking for all motion on the page causes no lag. Only the tests have
-  exercised it.
+  Seen 2026-09-27 in cats' web page (light theme, `2026-0927-0145-hover-card-live-and-release`): the `│` rules
+  are faint but read as dividers. 🔷 draws as a flat slate diamond, wider
+  than ◆, and a grid `read` found the text column on the same cell for
+  🔷, ◆ and bare rows. The bare tier's radio was not seen, because the pane
+  was wide.
 
 - **N-043** · raised `2026-0924-2007-redo-and-switch-confirm` · value medium
   Live-test the switch confirm (`panesetup.go`) in cats. Drop a prompt with
@@ -211,6 +209,21 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-041** · closed 2026-09-27, `2026-0927-0145-hover-card-live-and-release` · raised `2026-0924-1939-nextlist-hover-card`
+  — Driven live with real pointer motion: Chrome on cats' own page
+  (`http://127.0.0.1:8422/?ws=<id>` opens a separate window on one
+  workspace) through the Claude-in-Chrome tools, with keys from `catctl
+  probe`. A rest on a row brought the card up (`N-003 · Open · value
+  high`, the body in the card tint, `raised …` foot). It closed on a click,
+  on a key (↓), and on leaving the rows. The warm window worked: from an open
+  card, moving to another row showed that row's card at once. On a long item
+  with sub-bullets the card kept the bullets with hanging indents, stopped
+  the body at 13 rows with `…`, came to 15 rows in all, and was about 88
+  cells wide. There was no lag with the page asking for all motion. The
+  short-pane shrink was not driven; `TestNextHoverCardIsCapped` and a
+  throwaway test at heights 24–60 found a card on every row. Beware in the
+  rig: Chrome's pointer lands lower than the screenshot says, and more so
+  further down, so aim by what gets highlighted.
 - **N-074** · closed 2026-09-27, `2026-0927-0138-loop-view-and-gone-target` · raised `2026-0927-0111-batches-menu-and-batch-runs-live`
   — ▶ Drop now checks a running-pane target against pane.list on the press
   (`batchTargetGoneWhy`, `a57c04a`), and refuses in words: `the target
