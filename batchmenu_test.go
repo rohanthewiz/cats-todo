@@ -265,3 +265,37 @@ func batchesPageAgain(m model) model {
 	m.openBatchesPage()
 	return m
 }
+
+// TestBatchViewFollowsTheRecord: a status line about a batch, arriving while
+// its record screen is up, refreshes the screen and the rows under it. The
+// screen kept the copy it opened with, so a loop finished by another tick
+// read "paused … no manager is driving it" there, and esc went back to a
+// page still showing it running (N-056, seen live).
+func TestBatchViewFollowsTheRecord(t *testing.T) {
+	lp := Batch{ID: "lp", State: batchRunning, Deliver: deliverLoop, Dropped: time.Now(),
+		Items: []BatchItem{{Title: "one"}, {Title: "two"}}}
+	m := batchesPageWith(t, lp)
+	next, _ := m.beginBatchView()
+	m = next.(model)
+	if m.stage != stageBatchView || m.batches.view.State != batchRunning {
+		t.Fatalf("stage %v view %v, want the running record on screen", m.stage, m.batches.view.State)
+	}
+
+	// Another tick finishes the loop on disk.
+	done := m.batches.view
+	done.State = batchDone
+	if err := batchStoreFor(m.project).put(done); err != nil {
+		t.Fatal(err)
+	}
+	m.batchStatus("loop one: 2/2 sent, finished", false)
+
+	if m.batches.view.State != batchDone {
+		t.Errorf("record screen still shows %v after the status, want done", m.batches.view.State)
+	}
+	if b, ok := m.highlightedBatch(); !ok || b.State != batchDone {
+		t.Errorf("page row under the screen = %+v, want the done record", b)
+	}
+	if !strings.Contains(m.viewBatchView(), "one") || strings.Contains(m.viewBatchView(), "no manager is driving it") {
+		t.Errorf("record screen:\n%s", m.viewBatchView())
+	}
+}

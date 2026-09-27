@@ -321,6 +321,29 @@ func (m *model) batchStatus(line string, isErr bool) {
 	case stageBatches:
 		m.reloadBatches()
 		m.batches.say(line, isErr)
+	case stageBatchView:
+		// The record screen shows a copy taken when it opened. A loop moving
+		// on under it (a step sent, a take-over, the end) left that copy
+		// behind, and its Now line, which is worked out live from m.loops,
+		// then read "paused … no manager is driving it" over a loop another
+		// tick had just finished. A live run showed it (N-056). The rows are
+		// re-read too, so esc lands on a page that is not stale either.
+		m.reloadBatches()
+		m.refreshBatchView()
+		m.batches.say(line, isErr)
+	}
+}
+
+// refreshBatchView swaps the record screen's copy for the batch as just
+// re-read, found by ID and scope. A batch deleted meanwhile (in another pane)
+// keeps its last copy on screen: the view is a read of what it was, and esc
+// back to the page shows it gone.
+func (m *model) refreshBatchView() {
+	for _, b := range m.batches.rows {
+		if b.ID == m.batches.view.ID && b.scope == m.batches.view.scope {
+			m.batches.view = b
+			return
+		}
 	}
 }
 
