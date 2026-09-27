@@ -153,12 +153,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   batch's progress re-sorts the rows under it. Only the tests have
   exercised it.
 
-- **N-064** · raised `2026-0926-2033-prompt-editor-double-click-word` · value low
-  Live-check the prompt editor's double-click in a real cats pane (and a
-  plain terminal). Tests drive `MouseClickMsg` pairs directly; confirm the mux
-  delivers both presses and the release between them fast enough to land
-  inside `doubleClickWindow` (500ms), and that the word highlight paints.
-
 - **N-066** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
   Eyeball the brightened grey ramp in cats (`styles.go`): `colMuted`,
   `colDim` and `colFaint` each rose ~9 points per channel, and
@@ -256,6 +250,15 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-064** · closed 2026-09-27, `2026-0927-0125-picker-fold-and-double-click-live` · raised `2026-0926-2033-prompt-editor-double-click-word`
+  — Driven live through `catctl probe`, whose `mouse` op sends the page's
+  press-and-release pair. In a prompt holding `alpha bravo charlie delta`,
+  two clicks on `charlie` 0, 150 and 350ms apart painted it in the selection
+  background (`#4a6656`, read from the ANSI capture), and 650ms apart
+  painted nothing, so cats delivers both presses inside the 500ms
+  `doubleClickWindow`. A plain terminal (Terminal.app, iTerm) was not driven.
+  It needs a person at the mouse, and it goes through the same bubbletea
+  mouse parsing the tests cover.
 - **N-060** · closed 2026-09-27, `2026-0927-0125-picker-fold-and-double-click-live` · raised `2026-0926-1520-next-card-and-target-fold`
   — Driven live through `catctl probe`, with claude panes in three
   workspaces: the scratch project's own, a decoy `ct-other`, and this
