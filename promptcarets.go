@@ -606,6 +606,10 @@ func (m *model) insertAtCarets(text string) {
 // then finds nothing to merge, which keeps widths indexed like the carets.
 func (m *model) newlineAtCarets() {
 	rows := strings.Split(m.promptArea.Value(), "\n")
+	// One new line per caret, all or none (promptcap.go).
+	if !m.newlinesFitPrompt(len(rows), len(m.carets.rows)) {
+		return
+	}
 	m.foldCaretsToCells(rows)
 	widths := make([]int, len(m.carets.rows))
 	emptied, carried := false, false

@@ -363,6 +363,14 @@ func snippetInsertion(value []rune, caret int, s promptSnippet, eatSlash bool) (
 func (m *model) insertSnippet(s promptSnippet, eatSlash bool) string {
 	value := []rune(m.promptArea.Value())
 	start, end, text := snippetInsertion(value, promptCaretOffset(m.promptArea), s, eatSlash)
+	// The insert goes through SetValue, which would cut the prompt's own tail
+	// past the editor's line limit (promptcap.go), so it is refused whole.
+	lines := strings.Count(string(value), "\n") + 1 -
+		strings.Count(string(value[start:end]), "\n") + promptLineBreaks(text, false)
+	if lines > promptMaxLines {
+		return fmt.Sprintf("not inserted — it would make the prompt %s lines, and the editor holds at most %s",
+			thousands(lines), thousands(promptMaxLines))
+	}
 	m.replacePromptRunes(start, end, text)
 	if s.isCommand() {
 		return "inserted " + s.commandWord()

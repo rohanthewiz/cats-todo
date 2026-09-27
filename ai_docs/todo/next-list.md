@@ -62,12 +62,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   scroll, click and sweep. Watch whether the caret stays in view on the long
   prompt. *Lapsed* in `2026-0915-1836-prompt-editor-undo-v0.32.0`.
 
-- **N-025** · raised `2026-0915-1637-prompt-editor-paste-line-cap` · value low
-  Pastes past the library's 10000-line `maxLines` are still truncated
-  silently (bubbles `textarea.go` `maxLines = 10000`). Contract 4 ("refuse in
-  words") suggests a status note if that is ever hit. *Lapsed* in
-  `2026-0915-1836-prompt-editor-undo-v0.32.0`.
-
 - **N-026** · raised `2026-0915-1836-prompt-editor-undo-v0.32.0` · value medium
   Hand-test undo in a cats pane: that Cmd+z actually arrives (cats forwards
   Cmd), the menu row, and undo after a `@` insert and after a spelling
@@ -251,6 +245,16 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-025** · closed 2026-09-26 · raised `2026-0915-1637-prompt-editor-paste-line-cap`
+  — Edits past the 10,000-line limit are refused whole with a note, and
+  never trimmed (`promptcap.go`). The limit had more roads than the paste:
+  every SetValue edit (the column mode, enter, an inserted prompt) cut the
+  prompt's own tail. Guards: `pasteFitsPrompt` (bracketed paste and the Cmd+V
+  read, one caret or all; a replaced selection's breaks count as room),
+  `newlinesFitPrompt` (enter, one caret or every caret), `insertSnippet`, and
+  `beginEditRef`, which will not open a stored prompt already past the limit.
+  `promptMaxLines` mirrors the library's unexported `maxLines`, pinned by
+  `TestPromptMaxLinesMatchesTheLibrary`. README updated.
 - **N-061** · closed 2026-09-26 · raised `2026-0926-1520-next-card-and-target-fold`
   — The filter now searches the folded agents, and nothing unfolds. The
   folded panes are built into the picker, marked `folded`, as `queryOnly`

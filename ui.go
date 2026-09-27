@@ -901,6 +901,11 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// editor is the only place here that has one, which is why it is the
 		// only stage named; everything else falls through to forward unchanged.
 		if m.stage == stageForm && m.formFocus == formFieldPrompt {
+			// Past the editor's line limit the library would cut the paste
+			// without a word; it is refused whole instead (promptcap.go).
+			if !m.pasteFitsPrompt(msg.Content) {
+				return m, nil
+			}
 			if m.carets.on {
 				// Every caret takes it, the way every caret takes a typed
 				// character — a paste is an insertion, and the mode is about
@@ -2693,6 +2698,12 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	// A prompt past the editor's line limit would open cut, and the first save
+	// would store the cut copy (promptcap.go), so it is not opened at all.
+	if why := promptOverCapWhy(td.Prompt); why != "" {
+		m.setStatus(why, true)
+		return m, nil
+	}
 	m.formMode = formEdit
 	m.formScope = ref.scope
 	m.editID = ref.id
@@ -3382,6 +3393,10 @@ func (m model) pasteFormClipboard() (tea.Model, tea.Cmd) {
 // for a bracketed paste. Otherwise a paste reaching the textarea would land at
 // the one caret the library knows about and quietly skip all the others.
 func (m model) pasteIntoForm(text string) (tea.Model, tea.Cmd) {
+	// The same limit as a bracketed paste (see the tea.PasteMsg case).
+	if m.formFocus == formFieldPrompt && !m.pasteFitsPrompt(text) {
+		return m, nil
+	}
 	if m.carets.on && m.formFocus == formFieldPrompt {
 		m.insertAtCarets(text)
 		if m.carets.on {

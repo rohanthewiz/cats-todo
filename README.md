@@ -2146,6 +2146,16 @@ macOS there is no local pasteboard to read, so the chord asks the terminal over
 OSC 52 — a read many terminals refuse — and reports an empty answer rather than
 pretending.
 
+**The editor holds at most 10,000 lines.** The limit is the text library's,
+and it enforces it by cutting whatever does not fit, silently. Here that would
+be a paste missing its tail, or a prompt missing its own last lines, and the
+next save would store the cut copy. So nothing is trimmed to fit. A paste, an
+`enter` (at one caret or at every caret) or an inserted prompt that would go
+past the limit is refused whole, and the note under the editor says how long
+the prompt would have become. A stored prompt that is already longer, which
+only `add` or an import can make, is not opened in the editor at all: the status
+line says why, and `ctrl+v` still shows it whole.
+
 Copying is not all a swept run is worth. **Right-click inside the highlight** and
 a menu offers the rest — split a markdown list into one backlog prompt per bullet
 (also `ctrl+x`), sort the swept lines, or put a caret on each of them and type
@@ -2207,8 +2217,9 @@ anything, `backspace` deletes one character again. Pressing `enter` on a line
 that holds nothing but that indent moves the indent down to the new line, so
 blank lines are left truly empty. A caret inside the indent works the same
 way: the spaces to its left move down with the text, so the line keeps its
-indent and the line left above it is empty rather than a row of spaces. A paste goes in exactly as copied, because pasted text
-brings its own indentation.
+indent and the line left above it is empty rather than a row of spaces. A
+paste goes in exactly as copied, because pasted text brings its own
+indentation.
 
 The indent is **spaces, not a tab character**. The editor turns a tab character
 into four spaces on every edit, the screen and the click targets are measured in

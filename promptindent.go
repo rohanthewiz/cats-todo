@@ -282,6 +282,12 @@ func (m *model) newlineCarryingIndent() bool {
 	if m.promptArea.MaxHeight > 0 && len(rows) >= m.promptArea.MaxHeight {
 		return false
 	}
+	// The library's hard limit, which its InsertNewline does not check, but
+	// the SetValue below would enforce by cutting the prompt's last line. The
+	// key is answered (true) with the note, so it does not reach the library.
+	if !m.newlinesFitPrompt(len(rows), 1) {
+		return true
+	}
 	caret := promptCaretOffset(m.promptArea)
 	row, _ := promptRowRange(rows, caret, caret)
 	start, _ := promptRowSpan(rows, row, row)
