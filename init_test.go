@@ -219,6 +219,31 @@ func TestInstallOfferRunsOnceThenStaysQuiet(t *testing.T) {
 	}
 }
 
+// TestInstallOfferWaitsOutAHeadlessInstall: when cats installs cats-todo in
+// the background (a fresh-machine seed or a peer sync), the offer says nothing
+// and is not spent. The first install a person watches still gets it.
+func TestInstallOfferWaitsOutAHeadlessInstall(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "cfg") // fresh
+	t.Setenv(configDirEnvVar, cfg)
+
+	t.Setenv(hostHeadlessEnvVar, "1")
+	env, out := initTestEnv("", false)
+	runInstallOffer(env)
+	if out.Len() != 0 {
+		t.Errorf("a headless install printed the offer into a log: %q", out.String())
+	}
+	if _, err := os.Stat(cfg); err == nil {
+		t.Fatal("a headless install spent the offer (config dir / marker written)")
+	}
+
+	t.Setenv(hostHeadlessEnvVar, "")
+	env2, out2 := initTestEnv("", false)
+	runInstallOffer(env2)
+	if out2.Len() == 0 {
+		t.Fatal("the first watched install after a headless one said nothing")
+	}
+}
+
 // TestInstallOfferQuietForExistingUsers: someone who was using cats-todo before
 // the offer existed has a config dir but no marker, and must not be greeted as
 // a new user on their next upgrade.

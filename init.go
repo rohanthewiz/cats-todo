@@ -274,7 +274,18 @@ func askYesNo(env initEnv, question string) (bool, error) {
 //   - initialize the plugin's own checkout. Without the host's help the
 //     working directory is the plugin root, and a backlog there belongs to
 //     cats-todo's repo, not to the user's project.
+//
+// A headless install (the host sets CATS_PLUGIN_BUILD_HEADLESS) is a third
+// case, and it is checked before the marker. Such an install is cats seeding
+// cats-todo on a fresh machine, or a peer sync. Both run inside the cats
+// daemon, and the output goes to a log nobody reads as it happens. Marking the
+// offer made there would spend its one chance on a hint no one sees, so the
+// offer returns untouched and waits for the first install or update a person
+// watches (e.g. an update from the plugins dialog, which runs in a tab).
 func runInstallOffer(env initEnv) {
+	if hostBuildIsHeadless() {
+		return
+	}
 	marker, err := installOfferMarkerPath()
 	if err != nil {
 		// No resolvable config dir (no home) — nothing to record the offer in, so
@@ -337,6 +348,20 @@ const (
 	installCwdEnvVar     = "CATS_TODO_INSTALL_CWD"
 	hostInstallCwdEnvVar = "CATS_PLUGIN_INSTALL_CWD"
 )
+
+// hostHeadlessEnvVar is set to "1" by the cats plugin host (its
+// plugin.HeadlessEnvVar) on a build that no person is watching. A missing
+// terminal alone cannot tell this apart from a scripted install, whose user
+// does read the output. See runInstallOffer.
+const hostHeadlessEnvVar = "CATS_PLUGIN_BUILD_HEADLESS"
+
+// hostBuildIsHeadless reports whether this build step runs under a headless
+// host install. Any non-empty value counts, so a host that ever sends "true"
+// instead of "1" still holds the offer back. Holding it back once too often
+// costs nothing; spending it on a log costs the offer.
+func hostBuildIsHeadless() bool {
+	return os.Getenv(hostHeadlessEnvVar) != ""
+}
 
 // isPluginRoot reports whether dir is a plugin checkout (it carries a plugin
 // manifest) rather than a project someone wants a backlog in.
