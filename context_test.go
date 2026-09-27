@@ -334,3 +334,25 @@ func TestPaneWorkspaceID(t *testing.T) {
 		t.Errorf("paneWorkspaceID(no handle) = %q, want empty", got)
 	}
 }
+
+// TestPaneTopic: a pane's topic is its custom name, else the agent's terminal
+// title with the status glyph cut. A title that only names the agent gives
+// nothing, since the row's label already does (N-075).
+func TestPaneTopic(t *testing.T) {
+	for _, c := range []struct {
+		name, title, agent, want string
+	}{
+		{"", "✳ File count in ai_docs/todo", "claude", "File count in ai_docs/todo"},
+		{"", "⠐ Fix the flaky drop test", "claude", "Fix the flaky drop test"},
+		{"", "✳ Claude Code", "claude", ""},
+		{"", "codex", "codex", ""},
+		{"", "", "claude", ""},
+		{"reviewer", "✳ Something else", "claude", "reviewer"},
+		{"", "2026 plan", "claude", "2026 plan"},
+	} {
+		p := wire.PaneInfo{Name: c.name, PaneMeta: wire.PaneMeta{Title: c.title, Agent: c.agent}}
+		if got := paneTopic(p); got != c.want {
+			t.Errorf("paneTopic(name %q, title %q) = %q, want %q", c.name, c.title, got, c.want)
+		}
+	}
+}

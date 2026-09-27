@@ -212,6 +212,8 @@ func TestRunningPaneRowShowsContextFill(t *testing.T) {
 			{Pane: 1, Handle: "w1:p1", PaneMeta: wire.PaneMeta{Agent: "claude", AgentState: "idle",
 				AgentModel: "claude-opus-5 · high · 43k/1M", Cwd: "/here"}},
 			{Pane: 2, Handle: "w1:p2", PaneMeta: wire.PaneMeta{Agent: "codex", AgentState: "working", Cwd: "/here"}},
+			{Pane: 3, Handle: "w1:p3", PaneMeta: wire.PaneMeta{Agent: "claude", AgentState: "idle",
+				Title: "✳ Fix the flaky drop test", Cwd: "/here"}},
 		},
 		[]wire.WorkspaceEntry{{ID: "w1", Name: "here"}},
 	)
@@ -227,5 +229,10 @@ func TestRunningPaneRowShowsContextFill(t *testing.T) {
 	}
 	if !strings.HasPrefix(got[2], "[working] /here") {
 		t.Errorf("model-less row desc = %q, want it to start %q", got[2], "[working] /here")
+	}
+	// A titled session says what it is about, right after its state, so two
+	// claude panes in one project are told apart (N-075).
+	if want := "[idle] “Fix the flaky drop test” · /here"; got[3] != want {
+		t.Errorf("titled row desc = %q, want %q", got[3], want)
 	}
 }

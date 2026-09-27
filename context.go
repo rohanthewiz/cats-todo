@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/rohanthewiz/cats-todo/internal/integration"
 	"github.com/rohanthewiz/cats/wire"
@@ -299,4 +300,25 @@ func paneWorkspaceID(p wire.PaneInfo) string {
 		return ws
 	}
 	return ""
+}
+
+// paneTopic is what a running pane is about, for the drop picker's row: the
+// name someone gave the pane, or else the terminal title the agent keeps.
+// Claude Code titles its terminal after the conversation ("✳ Fix the flaky
+// drop test"), with a status glyph in front that changes as it works. The
+// glyph is cut, since it would make the row flicker and the state is already
+// on the row as [idle]/[working]. The bare "Claude Code" of a session that
+// has not started a topic says nothing the label doesn't, so it gives "".
+func paneTopic(p wire.PaneInfo) string {
+	if n := strings.TrimSpace(p.Name); n != "" {
+		return n
+	}
+	t := strings.TrimLeftFunc(p.Title, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	t = strings.TrimSpace(t)
+	if strings.EqualFold(t, "claude code") || strings.EqualFold(t, p.Agent) {
+		return ""
+	}
+	return t
 }

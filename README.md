@@ -121,7 +121,13 @@ new session for any other agent cats currently has running somewhere, then the
 same set again **on a new worktree**, and finally each live agent pane with its
 state and location.
 
-A live pane's row also carries what its agent is running under and how full
+A live pane's row names what the session is about, right after its state. That
+is the pane's own name if you gave it one, else the title Claude Code keeps for
+the conversation, minus its status glyph: `[idle] “Fix the flaky drop test” ·
+…`. It is what tells two agents in one project apart. A session that has no
+topic yet shows none.
+
+The row also carries what its agent is running under and how full
 its context is — `[idle] claude-opus-5 · high · 43k/1M · ~/projs/app` — the
 same string cats shows in its AGENTS hover card, read from the agent's own
 history and delivered in `pane.list`. It sits ahead of the directory because

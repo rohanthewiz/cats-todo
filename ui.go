@@ -4778,6 +4778,13 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 			if p.AgentModel != "" {
 				desc = p.AgentModel + " · " + desc
 			}
+			// What the session is about, which is what tells two agents in
+			// the same project apart. Before this, three claude panes in one
+			// workspace drew three identical rows (N-075). It goes first
+			// after the state because it is the part that differs.
+			if topic := paneTopic(p); topic != "" {
+				desc = "“" + topic + "” · " + desc
+			}
 			if p.AgentState != "" {
 				desc = "[" + p.AgentState + "] " + desc
 			}
