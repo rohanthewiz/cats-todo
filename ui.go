@@ -3536,8 +3536,26 @@ func (m model) cancelForm() (tea.Model, tea.Cmd) {
 	// Before backToList, which forgets what the autosave wrote and so what
 	// there is to take back.
 	m.revertAutosave()
+	// backToList also forgets formNextID, so where the draft came from is
+	// read first.
+	fromNext := m.formNextID != ""
 	m.backToList()
 	m.formErr = ""
+	if fromNext {
+		// A draft made from a Next List item goes back to that page, with the
+		// highlight still on the item, the way an esc out of the page's send
+		// picker does (leaveTarget). Throwing the draft away means "not this
+		// one after all", and the page is where the next choice gets made.
+		// The README's context-menu section counts on it too: ◷ Schedule… is
+		// "the one row that leaves the page". The other rows open the draft,
+		// and they would leave it as well if esc sent them to the list.
+		//
+		// The ⤓ marks are re-read because the revert may have just deleted
+		// an autosaved copy of this very item.
+		m.stage = stageNextList
+		m.next.resize(m.width, m.height)
+		m.next.inBacklog = m.nextBacklogIDs()
+	}
 	return m, nil
 }
 

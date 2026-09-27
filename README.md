@@ -1298,7 +1298,8 @@ already holding the item. The title is its ID and opening words. The prompt
 starts with `Next list item N-014 (ai_docs/todo/next-list.md):` and is followed
 by the item's text as written, sub-bullets included, so the agent that gets it
 knows which item it is working on and can close it in the file. Nothing is
-written until you save; `esc` there throws the draft away.
+written until you save. `esc` there throws the draft away and brings you back
+to this page, with the highlight still on the item.
 
 `shift+enter` (or `alt+enter`, or **✉ Send**) sends the item straight to an
 agent instead. It is the list's own drop chord, and it opens the same target

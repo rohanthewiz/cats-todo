@@ -177,6 +177,45 @@ func TestNextListEnterDraftsAPrompt(t *testing.T) {
 	}
 }
 
+// TestNextListDraftEscReturnsToThePage: esc on a draft made from an item goes
+// back to the Next List with the highlight on that item, and writes nothing.
+// It used to land on the prompt list, which a live run (N-046) caught. After a
+// ⚙ Session… from the page's menu, that meant two escs took the user off the
+// page they were browsing.
+func TestNextListDraftEscReturnsToThePage(t *testing.T) {
+	m, _ := nextModel(t, sampleNextList)
+	m = openNext(t, m)
+	m = pressNext(t, m, "down") // N-002
+	m = pressNext(t, m, "enter")
+	if m.stage != stageForm {
+		t.Fatalf("stage=%v, want the draft form", m.stage)
+	}
+
+	next, _ := m.cancelForm()
+	m = next.(model)
+	if m.stage != stageNextList {
+		t.Fatalf("esc on the draft landed on stage %v, want the Next List", m.stage)
+	}
+	if it, ok := m.next.highlighted(); !ok || it.ID != "N-002" {
+		t.Errorf("highlight on %+v, want N-002 kept", it)
+	}
+	if m.formNextID != "" {
+		t.Errorf("formNextID %q outlived the draft", m.formNextID)
+	}
+	if len(m.project.todos) != 0 {
+		t.Errorf("a cancelled draft wrote %d todos", len(m.project.todos))
+	}
+
+	// A plain add form still goes back to the prompt list.
+	m.stage = stageList
+	next, _ = m.beginAdd()
+	m = next.(model)
+	next, _ = m.cancelForm()
+	if m = next.(model); m.stage != stageList {
+		t.Errorf("esc on a plain add landed on stage %v, want the list", m.stage)
+	}
+}
+
 // TestNextListRefresh is the page's ↻ button: an edit made to the file in
 // another pane shows up on ctrl+r (and on a click of the chip), and the
 // highlight stays on the item it was on even when rows above it moved.
