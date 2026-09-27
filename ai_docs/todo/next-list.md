@@ -153,15 +153,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   batch's progress re-sorts the rows under it. Only the tests have
   exercised it.
 
-- **N-060** · raised `2026-0926-1520-next-card-and-target-fold` · value medium
-  Live-test the drop picker's fold in cats (`buildTargetsFor`, `ui.go`):
-  with agents open in two or three workspaces, only this project's agents
-  and the new-session rows show, the `… More drop targets (N running agents
-  in other projects)` row is last, and choosing it (enter or a click)
-  unfolds the list with the highlight on the first revealed agent, in the
-  backlog, Next List, schedule and batch pickers. Only the tests (a fake
-  control socket in `droptargets_test.go`) have exercised it.
-
 - **N-064** · raised `2026-0926-2033-prompt-editor-double-click-word` · value low
   Live-check the prompt editor's double-click in a real cats pane (and a
   plain terminal). Tests drive `MouseClickMsg` pairs directly; confirm the mux
@@ -265,6 +256,18 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-060** · closed 2026-09-27, `2026-0927-0125-picker-fold-and-double-click-live` · raised `2026-0926-1520-next-card-and-target-fold`
+  — Driven live through `catctl probe`, with claude panes in three
+  workspaces: the scratch project's own, a decoy `ct-other`, and this
+  session's. The backlog, Next List, schedule and batch pickers each listed
+  only the two new-session rows and `claude · ct-live (this project)`, with
+  `… More drop targets (2 running agents in other projects)` last. Enter on
+  it (backlog, schedule) and a click on it (Next List, batch) both unfolded
+  the list, with the highlight on the first revealed agent. The unfolded
+  list is in workspace order, so this project's agent sits between the two
+  others. Each picker was left with esc. On the way, an ↑ from the top row
+  (it does not wrap) and an enter scheduled one drop by accident, and it was
+  cleared from the list (ctrl+s, empty box, enter).
 - **N-046** · closed 2026-09-27, `2026-0927-0110-next-list-marks-and-menu-live` · raised `2026-0925-1104-nextlist-context-menu`
   — Driven live through `catctl probe`. The right-click opened all 15
   rows. ⧉ Copy ID put `N-002` on the pasteboard, and ⧉ Copy as prompt the
