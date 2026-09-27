@@ -29,6 +29,7 @@ package main
 
 import (
 	"strings"
+	"time"
 	"unicode"
 
 	"charm.land/bubbles/v2/key"
@@ -610,4 +611,151 @@ func (m *model) deletePromptSelection() bool {
 	m.replacePromptRunes(lo, hi, "")
 	m.clearPromptSel()
 	return true
+}
+
+// --- Double-click ---------------------------------------------------------------
+
+// promptDoubleClick answers whether the press that has just placed the caret is
+// the second half of a double-click, and records it as the first half of the
+// next pair when it is not.
+//
+// Terminals report presses one at a time with no click count, so the pairing is
+// ours, and it is done on the caret offset the press produced rather than on the
+// raw cell. Two presses a cell apart on the same letter are one gesture to the
+// hand; two presses on the same cell after the view scrolled between them are
+// not. The offset is the thing the eye was aiming at, so it is what must match.
+//
+// A pair that fires is spent: the stamp is cleared so a third quick press is a
+// plain click again (caret here, highlight gone) instead of a second double that
+// would re-select the same word and make the gesture impossible to leave.
+func (m *model) promptDoubleClick() bool {
+	off := promptCaretOffset(m.promptArea)
+	if !m.promptClickAt.IsZero() && off == m.promptClickOff &&
+		time.Since(m.promptClickAt) < doubleClickWindow {
+		m.promptClickAt = time.Time{}
+		return true
+	}
+	m.promptClickAt, m.promptClickOff = time.Now(), off
+	return false
+}
+
+// selectPromptWord selects the word the caret sits on: the anchor goes to the
+// word's first rune and the caret to just past its last, which is the same
+// shape a shift+alt+→ sweep leaves, so copy, typing-over and the menu all read
+// it without knowing how it was made.
+//
+// The caret moves by column within its own logical row, never through
+// setPromptCaretOffset. A word never crosses a newline, and the press that
+// placed the caret left it on the clicked, visible line — so a column move
+// keeps the view exactly where the user was looking, where a walk from the
+// top of the value would scroll it.
+func (m *model) selectPromptWord() {
+	caret := promptCaretOffset(m.promptArea)
+	lo, hi := promptWordSpan([]rune(m.promptArea.Value()), caret)
+	if hi <= lo {
+		return // on a line break or an empty value: leave the bare caret
+	}
+	rowStart := caret - m.promptArea.Column()
+	m.promptSel = promptSel{anchor: lo, active: true}
+	m.promptSelDrag = false
+	m.promptArea.SetCursorColumn(hi - rowStart)
+}
+
+// promptWordClass buckets a rune for double-click selection. A double-click
+// selects the maximal run of runes of one class around the pointer:
+//
+//	"call fooBar_2(x, y)  // done"
+//	      └─word─┘           a double-click on any letter of fooBar_2
+//	                  └┘     one between the two spaces selects both
+//	              └┘        one on "(" selects "(" alone — see below
+//
+// Words are letters, digits, combining marks and '_' — the identifier alphabet,
+// since a prompt is as often about code as prose. Blanks are spaces and tabs, so
+// a double-click in an indent selects the indent. Everything else is
+// punctuation. The line break is its own class and is never selected: a word
+// ends at the edge of its line.
+type promptWordClass int
+
+const (
+	wordClassBreak promptWordClass = iota
+	wordClassWord
+	wordClassBlank
+	wordClassPunct
+)
+
+func classifyPromptRune(r rune) promptWordClass {
+	switch {
+	case r == '\n':
+		return wordClassBreak
+	case r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.Mn, r):
+		return wordClassWord
+	case r == ' ' || r == '\t':
+		return wordClassBlank
+	}
+	return wordClassPunct
+}
+
+// promptWordSpan is the half-open rune range [lo, hi) a double-click at offset
+// off selects in runes. lo == hi means there is nothing to select.
+//
+// Two readings of "the rune under the pointer" need care:
+//
+//   - A press past the end of a line puts the caret *after* the last rune (on
+//     the '\n', or at the end of the value). Aimed at the tail of a line, the
+//     hand meant the word the line ends with, so the rune before is used.
+//   - An apostrophe between two word runes is part of the word ("don't",
+//     "user's"), the way prose editors read it; anywhere else it is punctuation,
+//     so a quoted 'term' still selects without its quotes.
+//
+// Punctuation selects a single rune rather than a run. Runs of punctuation in a
+// prompt are mostly glued-together delimiters — "()", "`**" — where the hand
+// wants one of them, and a single rune is also the least surprising reading of
+// a double-click that missed the word it was aimed at.
+func promptWordSpan(runes []rune, off int) (lo, hi int) {
+	n := len(runes)
+	if n == 0 {
+		return 0, 0
+	}
+	off = min(max(off, 0), n)
+	if (off == n || runes[off] == '\n') && off > 0 && runes[off-1] != '\n' {
+		off--
+	}
+	if off >= n {
+		return off, off
+	}
+	// inWord treats an apostrophe as a word rune only when both neighbours are.
+	inWord := func(i int) bool {
+		if i < 0 || i >= n {
+			return false
+		}
+		if r := runes[i]; r == '\'' || r == '’' {
+			return i > 0 && i < n-1 &&
+				classifyPromptRune(runes[i-1]) == wordClassWord &&
+				classifyPromptRune(runes[i+1]) == wordClassWord
+		}
+		return classifyPromptRune(runes[i]) == wordClassWord
+	}
+	switch {
+	case inWord(off):
+		lo, hi = off, off+1
+		for lo > 0 && inWord(lo-1) {
+			lo--
+		}
+		for hi < n && inWord(hi) {
+			hi++
+		}
+	case classifyPromptRune(runes[off]) == wordClassBlank:
+		lo, hi = off, off+1
+		for lo > 0 && classifyPromptRune(runes[lo-1]) == wordClassBlank {
+			lo--
+		}
+		for hi < n && classifyPromptRune(runes[hi]) == wordClassBlank {
+			hi++
+		}
+	case classifyPromptRune(runes[off]) == wordClassPunct:
+		lo, hi = off, off+1
+	default: // a line break
+		return off, off
+	}
+	return lo, hi
 }

@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-064
+**Next ID:** N-066
 
 ## Open
 
@@ -205,6 +205,18 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   took ~30s in a test (`promptcap_test.go` works around it). The same cost reaches enter,
   undo and the line tools on prompts with thousands of lines. N-024 fixed the
   per-display-line half of this, but not the per-row half.
+
+- **N-064** · raised `2026-0926-2033-prompt-editor-double-click-word` · value low
+  Live-check the prompt editor's double-click in a real cats pane (and a
+  plain terminal). Tests drive `MouseClickMsg` pairs directly; confirm the mux
+  delivers both presses and the release between them fast enough to land
+  inside `doubleClickWindow` (500ms), and that the word highlight paints.
+
+- **N-065** · raised `2026-0926-2033-prompt-editor-double-click-word` · value low
+  Round out mouse selection in the prompt editor: a triple-click selecting the
+  line, and a drag that starts from a double-click extending by whole words.
+  Today a third quick press is a plain click, and a double-click never arms a
+  sweep (`selectPromptWord` clears `promptSelDrag`). Not asked for.
 
 ## Roadmap
 

@@ -2121,7 +2121,12 @@ formats are `.png`, `.jpg`/`.jpeg`, `.gif` and `.webp`, up to 10 MiB each.
 In the editor, holding `shift` with any caret motion **selects**: `shift+←`/`→`
 by the character, `shift+alt+←`/`→` by the word, `shift+home`/`end` to the ends
 of the line, `shift+↑`/`↓` — or `shift+alt+↑`/`↓` — across lines, and sweeping
-with the mouse button held down selects too. `ctrl+c` copies what is highlighted, and only while
+with the mouse button held down selects too. A **double-click** selects the word
+under the pointer — letters, digits and `_`, so `fooBar_2` comes whole, and an
+apostrophe inside a word (`don't`) stays with it. On blanks it takes the run of
+spaces; on punctuation, that one character; past the end of a line, the word the
+line ends with. The two presses have to land on the same character within half a
+second, and a third quick press is an ordinary click again. `ctrl+c` copies what is highlighted, and only while
 something is (with nothing selected it still quits, as it does everywhere else).
 Typing replaces the selection the way it does in every other editor: the next
 character, newline or paste lands *on* the highlighted run rather than beside

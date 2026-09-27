@@ -903,3 +903,111 @@ func TestPromptCmdVFallsBackToTheTerminal(t *testing.T) {
 		t.Error("the answer was consumed but the model is still waiting for one")
 	}
 }
+
+// TestPromptDoubleClickSelectsTheWord: two presses on the same character select
+// the word under them, and the highlight is left standing — the second press
+// must not arm a sweep, or the release that follows would be the only thing
+// between a jittery hand and a selection shrunk to one letter.
+func TestPromptDoubleClickSelectsTheWord(t *testing.T) {
+	m := withForm(t, "", "alpha beta gamma", 100, 40)
+	gutter := promptGutterWidth(m.promptArea)
+
+	m = clickForm(m, gutter+7, formPromptRow)
+	m = releaseForm(t, m, gutter+7, formPromptRow)
+	if got := m.selectedPromptText(); got != "" {
+		t.Fatalf("the first press selected %q, want nothing", got)
+	}
+	m = clickForm(m, gutter+7, formPromptRow)
+	if got := m.selectedPromptText(); got != "beta" {
+		t.Errorf("double-click on beta selected %q, want %q", got, "beta")
+	}
+	if m.promptSelDrag {
+		t.Error("the second press of a double-click should not arm a sweep")
+	}
+	if got := promptCaretOffset(m.promptArea); got != 10 {
+		t.Errorf("caret at %d after the double-click, want 10 (the end of beta)", got)
+	}
+	m = releaseForm(t, m, gutter+7, formPromptRow)
+	if got := m.selectedPromptText(); got != "beta" {
+		t.Errorf("after the release %q is selected, want %q", got, "beta")
+	}
+
+	// A third quick press is a plain click again: the pair was spent.
+	m = clickForm(m, gutter+7, formPromptRow)
+	if got := m.selectedPromptText(); got != "" {
+		t.Errorf("a third press selected %q, want the highlight gone", got)
+	}
+}
+
+// TestPromptDoubleClickNeedsTheSameCharacter: two quick presses on different
+// characters are two clicks, not a double — the second just moves the caret.
+func TestPromptDoubleClickNeedsTheSameCharacter(t *testing.T) {
+	m := withForm(t, "", "alpha beta gamma", 100, 40)
+	gutter := promptGutterWidth(m.promptArea)
+
+	m = clickForm(m, gutter+1, formPromptRow)
+	m = releaseForm(t, m, gutter+1, formPromptRow)
+	m = clickForm(m, gutter+12, formPromptRow)
+	if got := m.selectedPromptText(); got != "" {
+		t.Errorf("presses on alpha then gamma selected %q, want nothing", got)
+	}
+}
+
+// TestPromptDoubleClickSlowIsTwoClicks: the window is what makes it a double.
+func TestPromptDoubleClickSlowIsTwoClicks(t *testing.T) {
+	m := withForm(t, "", "alpha beta gamma", 100, 40)
+	gutter := promptGutterWidth(m.promptArea)
+
+	m = clickForm(m, gutter+7, formPromptRow)
+	m = releaseForm(t, m, gutter+7, formPromptRow)
+	m.promptClickAt = m.promptClickAt.Add(-2 * doubleClickWindow)
+	m = clickForm(m, gutter+7, formPromptRow)
+	if got := m.selectedPromptText(); got != "" {
+		t.Errorf("two slow presses selected %q, want nothing", got)
+	}
+}
+
+// TestPromptDoubleClickOnALaterLine: the word is found on the clicked row, and
+// the selection's offsets count the rows above it.
+func TestPromptDoubleClickOnALaterLine(t *testing.T) {
+	m := withForm(t, "", "first line\nsecond word here", 100, 40)
+	gutter := promptGutterWidth(m.promptArea)
+
+	for range 2 {
+		m = clickForm(m, gutter+9, formPromptRow+1)
+		m = releaseForm(t, m, gutter+9, formPromptRow+1)
+	}
+	if got := m.selectedPromptText(); got != "word" {
+		t.Errorf("double-click on the second line selected %q, want %q", got, "word")
+	}
+}
+
+func TestPromptWordSpan(t *testing.T) {
+	cases := []struct {
+		text string
+		off  int
+		want string
+	}{
+		{"alpha beta", 0, "alpha"},
+		{"alpha beta", 4, "alpha"},
+		{"alpha beta", 7, "beta"},
+		{"call fooBar_2(x)", 7, "fooBar_2"},
+		{"call fooBar_2(x)", 13, "("},
+		{"a   b", 2, "   "},
+		{"don't stop", 1, "don't"},
+		{"say 'term' now", 4, "'"},
+		{"say 'term' now", 6, "term"},
+		{"end of line\nnext", 11, "line"}, // past the end of a line
+		{"tail", 4, "tail"},               // past the end of the value
+		{"one\n\ntwo", 4, ""},             // an empty line
+		{"", 0, ""},
+		{"héllo wörld", 8, "wörld"},
+	}
+	for _, c := range cases {
+		runes := []rune(c.text)
+		lo, hi := promptWordSpan(runes, c.off)
+		if got := string(runes[lo:hi]); got != c.want {
+			t.Errorf("promptWordSpan(%q, %d) = %q, want %q", c.text, c.off, got, c.want)
+		}
+	}
+}

@@ -354,6 +354,14 @@ type model struct {
 	// flag serving both would let a release meant for one end the other.
 	promptSel     promptSel
 	promptSelDrag bool
+	// The last press inside the editor — when, and the caret offset it put the
+	// caret at — so the next one can tell whether it is the second half of a
+	// double-click (promptsel.go, promptDoubleClick). Kept apart from the
+	// list's lastClickRow/lastClickAt: those pair presses on a *row*, these on
+	// a *character*, and a click on the list followed by one in the editor must
+	// never add up to a double.
+	promptClickAt  time.Time
+	promptClickOff int
 	// The editor's context menu (promptmenu.go) — right-click, and what the
 	// swept run is worth. Its zero value is "closed", which is what lets every
 	// caller test one field; it lives and dies with the gesture that opened it.
@@ -1610,6 +1618,14 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	case msg.Y >= formPromptRow && msg.Y < formPromptRow+m.promptArea.Height():
 		cmd := m.focusForm(formFieldPrompt)
 		m.placePromptCursor(msg.X, msg.Y-formPromptRow)
+		// The second press of a double-click selects the word under it. The
+		// first press has already done its ordinary work (placed the caret,
+		// armed a sweep, since released), so the pair reads as "caret here,
+		// then the word here" — the same sequence every desktop editor shows.
+		if m.promptDoubleClick() {
+			m.selectPromptWord()
+			return m, cmd
+		}
 		m.anchorPromptSel()
 		m.promptSelDrag = true
 		return m, cmd
