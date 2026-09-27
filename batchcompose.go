@@ -957,6 +957,10 @@ func (m model) dropBatch() (tea.Model, tea.Cmd) {
 		m.batchSay(why, true)
 		return m, nil
 	}
+	if why := m.batchTargetGoneWhy(); why != "" {
+		m.batchSay(why, true)
+		return m, nil
+	}
 	b, err := m.buildBatch()
 	if err != nil {
 		m.batchSay(err.Error(), true)
@@ -978,6 +982,40 @@ func (m model) dropBatch() (tea.Model, tea.Cmd) {
 	}
 	m.clearSpentMarks()
 	return m.launchBatch(b)
+}
+
+// batchTargetGoneWhy checks a running-pane target against pane.list at the
+// moment ▶ Drop now is pressed, and says why it cannot be dropped into, or "".
+//
+// The target is whatever the composer opened with, and a composer can open on
+// a pane that has since closed. ⧉ Duplicate and ✎ Edit copy the old record's
+// target, and a live run found one aimed at a pane closed an hour before
+// (N-074). Without this check every step failed with `unknown pane 356` and
+// left a ✗ record behind. The scheduled fire already checks the same thing
+// (scheduledPaneAgent). This is the composer's own drop catching it before
+// anything is written, in the same words for the same two cases.
+//
+// It is here, and not in batchDropWhy, because that one also greys the
+// button on every frame, and this costs a round trip to cats. A socket error
+// says nothing either way: the drop goes ahead and reports whatever the
+// socket then says.
+func (m model) batchTargetGoneWhy() string {
+	t := m.batch.target
+	if t.kind != targetExistingPane || m.client == nil {
+		return ""
+	}
+	panes, err := m.client.paneList()
+	if err != nil {
+		return ""
+	}
+	p, ok := findPane(panes, t.pane)
+	switch {
+	case !ok:
+		return "the target pane is gone — enter on the Target row to pick another"
+	case !isDropAgent(p):
+		return "the target pane's agent has exited — enter on the Target row to pick another"
+	}
+	return ""
 }
 
 // scheduleBatch is ◷ Schedule (ctrl+s): validate the When row, build the

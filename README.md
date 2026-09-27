@@ -1114,8 +1114,11 @@ was delivered, and stays counted as delivered. **⧉ Duplicate**
 (there or on the page) opens a composer with the batch's settings and whichever
 of its prompts are **still open**, which after a partial drop is exactly the
 ones that didn't land; the ones that did are done, and reopening them on the list
-(`ctrl+t`) is how a finished batch is run again. **✖ Delete** removes the record
-(never the prompts) on a second press.
+(`ctrl+t`) is how a finished batch is run again. A duplicate keeps the old
+target, and a running pane may have closed since. ▶ Drop now checks the pane
+is still there with an agent in it, and says so on the composer instead of
+failing every step. **✖ Delete** removes the record (never the prompts) on a
+second press.
 
 **Right-click a batch** for the same actions as a menu, on the batch that was
 pointed at. It uses the same box and keys as the list's menu:

@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rohanthewiz/cats/wire"
 )
 
 // --- The pure layer ------------------------------------------------------------
@@ -815,5 +816,48 @@ func TestBatchesPageRowsFitThePane(t *testing.T) {
 				t.Errorf("width %d line %d is %d cells: %q", w, i, cw, ln)
 			}
 		}
+	}
+}
+
+// TestComposerRefusesAGoneTargetPane: ▶ Drop now checks a running-pane target
+// against pane.list first. A composer opened by ⧉ Duplicate or ✎ Edit carries
+// the old record's pane. When that pane had closed, every step used to fail
+// with "unknown pane" and leave a ✗ record (N-074). Now the press refuses in
+// words and writes nothing. A pane whose agent has exited is refused the same
+// way, and a live agent pane passes the check.
+func TestComposerRefusesAGoneTargetPane(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		panes []wire.PaneInfo
+		want  string
+	}{
+		{"gone", nil, "the target pane is gone"},
+		{"agent exited", []wire.PaneInfo{{Pane: 9}}, "agent has exited"},
+		{"alive", []wire.PaneInfo{{Pane: 9, PaneMeta: wire.PaneMeta{Agent: "claude"}}}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m, project, _ := batchModel(t, 120, 30)
+			m.client = fakeCatsSocket(t, c.panes, nil)
+			m = openComposer(t, m)
+			m.toggleBatchCand(candIndex(t, m, "Fix flaky drop test"))
+			m.batch.deliver = deliverCombined
+			m.batch.target = dropTarget{kind: targetExistingPane, pane: 9, agent: "claude", label: "claude · old"}
+
+			if got := m.batchTargetGoneWhy(); c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {
+				t.Fatalf("batchTargetGoneWhy = %q, want %q", got, c.want)
+			}
+			if c.want == "" {
+				return
+			}
+			next, _ := m.dropBatch()
+			m = next.(model)
+			if !strings.Contains(m.batch.note, c.want) || m.stage != stageBatchCompose {
+				t.Errorf("stage %v note %q, want a refusal on the composer", m.stage, m.batch.note)
+			}
+			bs := batchStoreFor(project)
+			if err := bs.load(); err != nil || len(bs.batches) != 0 {
+				t.Errorf("a refused drop wrote %d records (%v)", len(bs.batches), err)
+			}
+		})
 	}
 }
