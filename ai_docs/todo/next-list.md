@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-073
+**Next ID:** N-074
 
 ## Open
 
@@ -143,16 +143,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
     exited", and nothing typed at the shell (N-020);
   - ■ Stop from the page.
 
-- **N-058** · raised `2026-0925-1739-batches-menu-and-loop-default` · value medium
-  Live-test the Batches page's right-click menu (`batchmenu.go`) in cats.
-  Check the right-click on a plan (✎ Edit… opens the composer) and on a
-  record (☰ Open record), ■ Stop on a running loop, and the two-press
-  Delete. After the first press, the heading still says "press ctrl+x
-  again". Decide whether a mouse user needs it to name the menu's
-  ✖ Confirm delete too. Also check that the box stays placed while a running
-  batch's progress re-sorts the rows under it. Only the tests have
-  exercised it.
-
 - **N-066** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
   Eyeball the brightened grey ramp in cats (`styles.go`): `colMuted`,
   `colDim` and `colFaint` each rose ~9 points per channel, and
@@ -208,6 +198,17 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   inside the paste; or (c) accept it and document it. Recommendation: (a),
   with (b) as a cheap interim for the Next List's framing.
 
+- **N-073** · raised `2026-0927-0111-batches-menu-and-batch-runs-live` · value medium
+  A same-session loop pulls the view to the agent's pane on every step.
+  Each step goes through `performDropAt`, which ends in `focusPane`
+  (`agent.focus`). Someone who went back to the Batches page to watch a
+  loop is taken to the agent's tab again when the next prompt goes, and any
+  menu open on the page closes (hiding the tab resizes it). That is right
+  for a single drop, and for a loop's first step, but not for the later
+  steps into the same pane. Suggestion: focus on a loop's first step only,
+  and never on a scheduled fire, since nobody asked for the view to move.
+  Found live while checking N-058.
+
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -250,6 +251,19 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-058** · closed 2026-09-27, `2026-0927-0111-batches-menu-and-batch-runs-live` · raised `2026-0925-1739-batches-menu-and-loop-default`
+  — Driven live through `catctl probe` with real loops into a claude pane.
+  The right-click shows ✎ Edit… on a scheduled batch and on a plan (it opens
+  the composer), ☰ Open record on a finished one (the record view), and
+  ■ Stop on a running loop. That stopped it mid-pause: no second prompt
+  went, and the heading said the pane carries on. ✕ Unschedule turned a
+  scheduled batch into a plan (◌). The two-press delete worked from the
+  menu. Decided: yes, the armed note now names both second presses,
+  `press ctrl+x again, or ✖ Confirm delete on the menu, …` (`5aa4480`).
+  The box and the re-sort: `reloadBatches` never touches the menu, and
+  presses go by batch ID (tested). But live, the menu never outlived a loop
+  step, because each step's drop moves the view to the agent's tab, and
+  hiding the manager's tab closes its menus. Raised as N-073.
 - **N-064** · closed 2026-09-27, `2026-0927-0104-picker-fold-and-double-click-live` · raised `2026-0926-2033-prompt-editor-double-click-word`
   — Driven live through `catctl probe`, whose `mouse` op sends the page's
   press-and-release pair. In a prompt holding `alpha bravo charlie delta`,
