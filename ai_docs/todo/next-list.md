@@ -253,7 +253,7 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
-- **N-067** · closed 2026-09-26, no session doc · raised `2026-0926-2057-card-width-tint-and-brighter-greys`
+- **N-067** · closed 2026-09-26, `2026-0926-2211-two-line-footers-and-gofmt-n067` · raised `2026-0926-2057-card-width-tint-and-brighter-greys`
   — `gofmt -w hangup.go` added the blank `//` line before the
   `- SIGHUP asks the program to quit` bullet. `gofmt -l .` is now empty.
 - **N-068** · closed 2026-09-26, `2026-0926-2141-prompt-click-linear-n068` · raised `2026-0926-2129-caret-offset-rebuild-n063`
