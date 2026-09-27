@@ -211,11 +211,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   on colBg and colPanel, that finished prompts and footers still read as
   quiet, and that the Next List card's yellow stays a tint, not a color.
 
-- **N-067** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
-  `gofmt -l` flags `hangup.go`: its doc comment needs a blank `//` line
-  before the `- SIGHUP asks the program to quit` bullet (from `32cd847`).
-  A one-line fix; left alone because it was not this session's change.
-
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -258,6 +253,9 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-067** · closed 2026-09-26, no session doc · raised `2026-0926-2057-card-width-tint-and-brighter-greys`
+  — `gofmt -w hangup.go` added the blank `//` line before the
+  `- SIGHUP asks the program to quit` bullet. `gofmt -l .` is now empty.
 - **N-068** · closed 2026-09-26, `2026-0926-2141-prompt-click-linear-n068` · raised `2026-0926-2129-caret-offset-rebuild-n063`
   — A click in the prompt is linear in its lines. `promptLines` (`ui.go`)
   builds the display-line table on a probe grown one row at a time

@@ -43,6 +43,7 @@ var errTerminalGone = errors.New("terminal hung up")
 //     shutdown still writes fails fast with EIO on a hung-up tty rather than
 //     blocking. The read that failed was the reader goroutine's last, so
 //     nothing is left reading when shutdown closes the reader.
+//
 //   - SIGHUP asks the program to quit (p.Quit) instead. A kill here would race:
 //     shutdown(kill=true) cancels the cancelreader but skips waitForReadLoop,
 //     then Closes the reader's cancel pipe while the woken reader goroutine is
