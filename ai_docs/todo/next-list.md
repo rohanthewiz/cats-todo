@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-072
+**Next ID:** N-073
 
 ## Open
 
@@ -71,14 +71,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   highlighted, plus the bar and the menu. If the fullwidth `ｉ` looks thin or
   odd in the fallback font, the fallbacks are a plain `i` padded inside the
   chip, or the `ℹ️` emoji (blue square, but its "i" isn't italic).
-
-- **N-038** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value medium
-  Live-test the Next List's ✉ Send (`shift+enter`, `nextlist.go`
-  `sendFromNext`) in cats: a new session, a worktree session and a running
-  pane, in both run and paste mode. Check that esc from the picker lands back
-  on the page with the highlight kept, that the heading shows
-  `N-0xx dropped → …`, and that a new session opens in the list's project.
-  Only the tests have exercised it.
 
 - **N-039** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value low
   Check the value marks and the annotation bar by eye in cats: that 🔷 draws
@@ -228,6 +220,27 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   past a few hundred lines. The fix is a textarea that renders only the
   rows in view: a fork, or an upstream patch.
 
+- **N-072** · raised `2026-0927-0100-live-autosave-and-next-send` · value high
+  Claude Code 2.1.283 hands a dropped prompt to the model as pasted text,
+  not as the user's request. `pane.send_input` is a bracketed paste, and
+  Claude Code tags pasted input `<pasted_content>` (flag-gated, `FP()` in
+  the binary), whose instructions the model is told to follow only where
+  the user's own words ask. A drop is all paste, so Opus 5.5 said: "Your
+  message contains only pasted text, with nothing you wrote around it, so I
+  haven't acted on it yet." Measured on fresh panes: realistic read-only
+  tasks were done by Opus (framed as a Next List item or not) and by a
+  fresh Haiku session. A synthetic "reply with only ALPHA11" was declined
+  by Opus and Haiku once framed as `Next list item N-001 (…):`, but done
+  bare. Sonnet 5 did it either way. Haiku declined a realistic Next List
+  item in a pane whose conversation was already about pasted content. The
+  risk is highest where nobody watches: a scheduled drop or a batch loop
+  sees the pane go idle after a question and counts the prompt as sent.
+  **Needs the user** (the road is cats' wire): (a) a typed send in cats,
+  key events with shift+enter for newlines, so the message is the user's;
+  (b) cats-todo leads every drop with an explicit ask, which still sits
+  inside the paste; or (c) accept it and document it. Recommendation: (a),
+  with (b) as a cheap interim for the Next List's framing.
+
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -270,6 +283,19 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-038** · closed 2026-09-27, `2026-0927-0100-live-autosave-and-next-send` · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0`
+  — Driven live through `catctl probe`, in a scratch project with its own
+  next-list.md and backlog. esc from the picker went back to the page with
+  the highlight kept (N-003), and the backlog stayed `[]`. A running pane,
+  run mode: `N-001 dropped → claude · recorded done in the project
+  backlog`, the prompt arrived whole and submitted, and a done copy was
+  written with the value carried. A running pane, paste mode: `N-002 pasted →
+  claude · press enter there to run · …`, with the text left in the input
+  box. A new session: the tab opened in the list's project, and the prompt
+  landed and was worked on. A worktree session, paste mode: branch
+  `todo/n-002-…` in a new workspace, and claude in the checkout with the
+  paste waiting. The workspace, worktree and branch were removed afterwards.
+  What claude then *did* with a drop is another matter, raised as N-072.
 - **N-034** · closed 2026-09-27, `2026-0927-0100-live-autosave-and-next-send` · raised `2026-0924-1231-prompt-editor-autosave`
   — Driven live through `catctl probe`, with `autosaveSeconds: 15` in a
   scratch config. Typing one key a second through the tick, the note
