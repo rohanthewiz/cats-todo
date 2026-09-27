@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-070
+**Next ID:** N-071
 
 ## Open
 
@@ -56,6 +56,15 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   is long enough after `/model` and `/effort`, not just after `/clear`. The
   new-session path needed 2s (`newSessionSettle`). *Lapsed* in
   `2026-0922-0943-info-annotation`.
+  **Needs the user** (2026-09-27, `2026-0927-0100-live-probe-drops`): the
+  live run was stopped after one manual `/model haiku` + `/effort low`,
+  because in Claude Code 2.1.283 each of them is **saved as the default for
+  new sessions** in `~/.claude/settings.json` (see N-070), and the session
+  may not edit that file to put it back. What it did show on a warm pane:
+  the *Switch model?* dialog comes up with the wording `panesetup.go`
+  matches, Enter on it prints `Set model to Haiku 4.5 and saved as your
+  default…`, and `/effort` sent ~0.5s later printed its line whole. The
+  400ms timing question stays open until N-070 is decided.
 
 - **N-023** · raised `2026-0915-1637-prompt-editor-paste-line-cap` · value low
   Hand-test in cats: paste a few hundred lines, then type, press enter,
@@ -216,6 +225,22 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   branch, so until the headless-offer fix is on GitHub a seeded install still
   spends the one-time backlog offer on catway's log (cats' N-044 tracks the
   same thing).
+
+- **N-070** · raised `2026-0927-0100-live-probe-drops` · value high
+  A drop's `/model` and `/effort` now change the user's defaults. In Claude
+  Code 2.1.283 `/model X` answers `Set model to … and saved as your default
+  for new sessions` (its help: "Your pick becomes the default for new
+  sessions"), and `/effort X` writes `effortLevel` / `modelSettings` the
+  same way. So an existing-pane drop with a model or effort set silently
+  rewrites `~/.claude/settings.json`, and every later session starts on the
+  prompt's model. Found live while starting N-017. **Needs the user**:
+  (a) keep sending them and say so on the picker row and in the status
+  note; (b) stop sending them to running panes and list model/effort as
+  unapplied, as permission mode is (`paneUnapplied`); or (c) look for a
+  session-only road (the binary has a `for this session only` branch; what
+  selects it was not found). Recommendation: (b) until a session-only road
+  is found, since a drop should not change settings the user never opened.
+  Blocks N-017, N-043 and N-044, which all need live `/model` runs.
 
 ## Roadmap
 
