@@ -161,27 +161,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   inside the paste; or (c) accept it and document it. Recommendation: (a),
   with (b) as a cheap interim for the Next List's framing.
 
-- **N-073** · raised `2026-0927-0111-batches-menu-and-batch-runs-live` · value medium
-  A same-session loop pulls the view to the agent's pane on every step.
-  Each step goes through `performDropAt`, which ends in `focusPane`
-  (`agent.focus`). Someone who went back to the Batches page to watch a
-  loop is taken to the agent's tab again when the next prompt goes, and any
-  menu open on the page closes (hiding the tab resizes it). That is right
-  for a single drop, and for a loop's first step, but not for the later
-  steps into the same pane. Suggestion: focus on a loop's first step only,
-  and never on a scheduled fire, since nobody asked for the view to move.
-  Found live while checking N-058.
-
-- **N-074** · raised `2026-0927-0111-batches-menu-and-batch-runs-live` · value low
-  ⧉ Duplicate keeps a running-pane target even after that pane has gone.
-  ▶ Drop now then fails every step with `cats error: unknown pane 356`
-  and records a ✗ batch. The scheduled fire re-checks its pane
-  (`the scheduled pane is gone — send manually`), but the composer's own
-  drop does not. The Target row could say the pane is gone when the
-  composer opens (or when a pane.list shows it missing), and Drop now
-  could refuse in words the way it refuses all at once into a running
-  pane.
-
 - **N-075** · raised `2026-0927-0111-batches-menu-and-batch-runs-live` · value low
   Several claude panes in the same project show as identical picker rows
   (`claude · ct-live (this project)  [idle] claude-haiku-… · 36k/200k ·
@@ -232,6 +211,25 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-074** · closed 2026-09-27, `2026-0927-0138-loop-view-and-gone-target` · raised `2026-0927-0111-batches-menu-and-batch-runs-live`
+  — ▶ Drop now checks a running-pane target against pane.list on the press
+  (`batchTargetGoneWhy`, `a57c04a`), and refuses in words: `the target
+  pane is gone — enter on the Target row to pick another`, or that its
+  agent has exited. Nothing is written. It is in `dropBatch` rather than
+  `batchDropWhy`, which greys the button on every frame and must not cost a
+  socket round trip. Test: `TestComposerRefusesAGoneTargetPane`, with the
+  fake control socket. Checked live: a duplicate of the batch aimed at the
+  closed pane 356 was refused. The Target row still names the old pane
+  until then. ◷ Schedule is not checked, because the fire checks.
+- **N-073** · closed 2026-09-27, `2026-0927-0138-loop-view-and-gone-target` · raised `2026-0927-0111-batches-menu-and-batch-runs-live`
+  — A same-session loop now moves the view on its first landing only
+  (`9ffbf76`). `pendingAction.keepView` makes `performDropAt` skip its
+  `focusPane`, and `loopAction` sets it once any run has landed
+  (`Batch.landedOnce`). Fresh-each steps still open their own tabs, and
+  cats focuses a new tab itself. Test: `TestLoopSameSessionRunsInOrder`
+  checks the first step moves the view and a later one does not. A
+  scheduled single drop still moves the view when it fires; that was left
+  as it is.
 - **N-056** · closed 2026-09-27, `2026-0927-0127-scheduled-batches-and-loops-live` · raised `2026-0925-1409-batch-loop-phase3`
   — Driven live through `catctl probe` with real claude sessions.
   - A same-session loop of three into a new session, `/clear` between:
