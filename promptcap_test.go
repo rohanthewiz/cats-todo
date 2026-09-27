@@ -35,8 +35,9 @@ func TestPromptMaxLinesMatchesTheLibrary(t *testing.T) {
 // It is refused whole now, with a note, and the value is untouched. A paste
 // that lands exactly on the limit still goes in.
 func TestPromptPastePastTheLimitIsRefused(t *testing.T) {
-	// withForm leaves the caret at the end, where SetValue put it. promptAt
-	// would walk it there row by row, which the library makes quadratic.
+	// withForm leaves the caret at the end, where SetValue put it, which is
+	// all this test needs. (promptAt used to be too slow here: its caret walk
+	// was quadratic in the line count until N-063.)
 	value := linesOf(promptMaxLines - 1)
 	m := withForm(t, "", value, 100, 40)
 	m.focusForm(formFieldPrompt)

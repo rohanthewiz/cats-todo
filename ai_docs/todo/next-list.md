@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-068
+**Next ID:** N-069
 
 ## Open
 
@@ -198,16 +198,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   ⤓ row mark should appear on items with an open copy, keep the text column
   straight next to 🔷 and ◆, and update right after a menu Add.
 
-- **N-063** · raised `2026-0926-1928-indent-trim-fold-search-line-cap-v0.41.0` · value low
-  Moving the caret in code is quadratic in the prompt's line count.
-  `setPromptCaretOffset` (`spellpanel.go`) hops one `CursorDown` per logical
-  row, and each hop runs the library's `repositionView` →
-  `cursorLineNumber`, which walks every row above the caret through the wrap
-  memo, hashing each. Walking one caret to the end of a 9,999-line prompt
-  took ~30s in a test (`promptcap_test.go` works around it). The same cost reaches enter,
-  undo and the line tools on prompts with thousands of lines. N-024 fixed the
-  per-display-line half of this, but not the per-row half.
-
 - **N-064** · raised `2026-0926-2033-prompt-editor-double-click-word` · value low
   Live-check the prompt editor's double-click in a real cats pane (and a
   plain terminal). Tests drive `MouseClickMsg` pairs directly; confirm the mux
@@ -225,6 +215,17 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   `gofmt -l` flags `hangup.go`: its doc comment needs a blank `//` line
   before the `- SIGHUP asks the program to quit` bullet (from `32cd847`).
   A one-line fix; left alone because it was not this session's change.
+
+- **N-068** · raised `2026-0926-2129-caret-offset-rebuild-n063` · value low
+  A click in the prompt is quadratic in its display-line count.
+  `placePromptCursor` (`ui.go`) builds the display-line map with
+  `promptLines`, which walks the whole value one `CursorDown` at a time, and
+  each step runs the library's `repositionView` → `cursorLineNumber` over
+  every row above. So a click in a 2,000-line prompt costs ~1.3s (1,000
+  lines ~0.35s). The N-063 rebuild does not carry over, because the map
+  needs every display line's start. A fix would compute the wrap per row
+  once (the rows above never change during the walk), or drive `LineInfo`
+  per row instead of per step.
 
 ## Roadmap
 
@@ -268,6 +269,20 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-063** · closed 2026-09-26, `2026-0926-2129-caret-offset-rebuild-n063` · raised `2026-0926-1928-indent-trim-fold-search-line-cap-v0.41.0`
+  — `setPromptCaretOffset` (`spellpanel.go`) no longer walks the caret. It
+  rebuilds the value: `SetValue(suffix)`, `MoveToBegin`,
+  `InsertString(prefix)`, and the library's insert leaves the caret on the
+  offset. Then `SetHeight(Height())` runs the one `repositionView`. The line
+  count never changes, so the 10,000-line cap cannot truncate the re-insert.
+  A caret to the end of 9,999 lines went from ~30s to ~10ms (1,000 lines:
+  ~0.35s → ~1.6ms), and enter on a 20k-rune line is ~1.2ms. The view now
+  also scrolls to a caret set deep in a wrapped row, which the walk's final
+  `SetCursorColumn` left unrepositioned. Tests in `promptlimit_test.go`:
+  `TestPromptCaretOffsetIsLinearInRows`,
+  `TestPromptCaretOffsetKeepsTheValueAtTheCap`,
+  `TestPromptCaretOffsetScrollsLikeTheWalk` (the old walk kept as oracle).
+  The click path has the same cost and is raised as N-068.
 - **N-065** · closed 2026-09-26, `2026-0926-2123-drop-picker-context-fill-and-triple-click-n065` · raised `2026-0926-2033-prompt-editor-double-click-word`
   — A triple-click selects the logical line (the whole wrapped paragraph,
   newline left out), and a drag after a double- or triple-click extends by

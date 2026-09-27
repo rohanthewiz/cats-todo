@@ -468,63 +468,62 @@ func (m *model) replacePromptRunes(start, end int, with string) {
 // its value — the inverse of promptCaretOffset, which the textarea does not
 // offer either.
 //
-// The offset is turned into a logical row and a column within it, and the caret
-// is then walked down to that row. It has to be walked: the library exposes
-// SetCursorColumn but nothing that sets the row, and CursorDown steps one
-// *display* line, so a soft-wrapped row takes several steps to cross.
+// The library exposes SetCursorColumn but nothing that sets the row, and its
+// only row motion (CursorDown) is too slow to walk with. Every CursorDown ends
+// in repositionView → cursorLineNumber, which runs every row above the caret
+// through the wrap memo and hashes each one. A walk of one step per row is
+// therefore quadratic in the prompt's line count: 1,000 lines took ~0.35s,
+// 4,000 ~5s, and a 9,999-line prompt ~30s (N-063). Enter, undo/redo, indent,
+// the line moves, the column mode and Insert-a-prompt all come through here.
+// An earlier walk stepped one *display* line at a time and was also quadratic
+// in a long row's length (N-024). The row-hop that replaced it fixed that
+// half, but still paid one cursorLineNumber per row.
 //
-// The walk hops a whole logical row per step: CursorEnd first puts the caret
-// on the row's last display line, from which one CursorDown crosses into the
-// next row (the library's setCursorLineRelative moves to the next row exactly
-// when the caret is on its row's last display line). Stepping display line by
-// display line instead was quadratic on a long one-line prompt. Every step asks
-// the library for LineInfo, which looks the row's wrap up in a memo keyed by
-// the row's runes, and so hashes the whole row each time. A 20k-rune paste is
-// ~250 display lines of ~20k runes each. That made one enter after it cost
-// ~140ms, and undo, indent and line moves went through the same walk (N-024).
-// Hopping costs one step per logical row, whatever the rows' lengths.
+// So the caret is not walked at all. The value is rebuilt around it. The
+// library's insert leaves the caret at the end of what it inserted, so putting
+// in the suffix and then inserting the prefix before it lands the caret exactly
+// on the offset:
 //
-//	row 0  ┌───────────────────┐   old: ↓ ↓ ↓ … one step per display line
-//	       │ … soft-wrapped …  │
-//	       │ …            end ●│   new: CursorEnd, then one ↓
-//	row 1  │● target row       │
-//	       └───────────────────┘
+//	value:   p r e f i x | s u f f i x      (| = off)
+//	1. SetValue(suffix)   → | s u f f i x   (Reset: viewport to the top)
+//	2. MoveToBegin        → caret at row 0, col 0
+//	3. InsertString(prefix) → p r e f i x | s u f f i x
+//	4. SetHeight(Height)  → one repositionView scrolls the caret into view
+//
+// Each step is linear in the value, and step 4 is the only cursorLineNumber, so
+// the whole move is linear. Measured: a caret to the end of 9,999 lines went
+// from ~30s to ~10ms.
+//
+// Why this is safe:
+//   - The line count does not change, so the library's 10,000-line cap
+//     (maxLines), which truncates an insert, cannot cut anything. N-024
+//     rejected a rebuild because it "truncates differently at the cap", but
+//     that was a rebuild that also changed the value. This one puts back
+//     exactly the lines that were there.
+//   - The insert sanitizes its runes (tabs → spaces, control characters
+//     dropped). Everything in the value already went through that sanitizer
+//     when it was inserted, so running it again changes nothing.
+//   - The editor has no CharLimit (0, see newFormInputs) and no
+//     MaxContentHeight, so neither limit can refuse the re-insert.
+//   - The viewport ends where the old walk left it: MoveToBegin scrolled to
+//     the top, and each step down scrolled only as far as the caret needed.
+//     Reset's GotoTop followed by one repositionView is that same minimal
+//     scroll. It is one step better, too. The walk's final SetCursorColumn
+//     did not reposition, so a caret set deep inside a wrapped row could be
+//     scrolled out of view until the next key. Here the reposition comes last
+//     and sees the caret's real display line.
+//   - SetCursorColumn (inside the insert) clears lastCharOffset, the sticky
+//     column for ↑/↓, as the old final SetCursorColumn did.
+//
+// SetHeight(Height()) is only there to reach the unexported repositionView;
+// the height it sets is the one the editor already has.
 func setPromptCaretOffset(ta *textarea.Model, off int) {
-	rows := strings.Split(ta.Value(), "\n")
-	row, col := 0, max(off, 0)
-	for row < len(rows)-1 && col > len([]rune(rows[row])) {
-		col -= len([]rune(rows[row])) + 1
-		row++
-	}
+	runes := []rune(ta.Value())
+	off = min(max(off, 0), len(runes))
+	ta.SetValue(string(runes[off:]))
 	ta.MoveToBegin()
-	// Each hop must leave the row it started on. One that does not would mean
-	// the library's end-of-row rule has changed; the hops stop there, and the
-	// display-line walk below finishes the job the old, slow, sure way.
-	for ta.Line() < row {
-		at := ta.Line()
-		ta.CursorEnd()
-		ta.CursorDown()
-		if ta.Line() <= at {
-			break
-		}
-	}
-	// The display-line walk is the backstop and is normally reached already on
-	// the row, so it exits at once. Its bound is the one promptLines uses, and
-	// for the same reason: it guards against a walk that neither advances nor
-	// repeats, not a limit any real prompt reaches. The loop watches the row
-	// the caret reports rather than counting steps, and stops when a step moves
-	// nothing, which is what the last display line does.
-	for range 20000 {
-		if ta.Line() >= row {
-			break
-		}
-		atRow, atCol := ta.Line(), ta.LineInfo().StartColumn
-		ta.CursorDown()
-		if ta.Line() == atRow && ta.LineInfo().StartColumn == atCol {
-			break
-		}
-	}
-	ta.SetCursorColumn(col)
+	ta.InsertString(string(runes[:off]))
+	ta.SetHeight(ta.Height())
 }
 
 // spellRowsRow is the first line the panel's rows are drawn on: the heading (0),
