@@ -1133,7 +1133,8 @@ on a plan and **☰ Open record** on one that has gone, and the third reads
 and says why when pressed, in the chord's own words: Unschedule on a record,
 and Delete while this manager is still dropping or driving the batch. Delete
 keeps the page's two-press rule. The first press arms it, and the next menu on
-that batch reads **✖ Confirm delete**. ＋ New and ← Back are about the page,
+that batch reads **✖ Confirm delete**. The heading names both second presses,
+`ctrl+x` and that row, whichever road armed it. ＋ New and ← Back are about the page,
 not a batch, so they stay on the bar. A press acts on the batch the menu was
 opened on even if the rows re-sorted under it meanwhile (a running batch's
 progress re-reads them); one deleted in another pane is said rather than acted

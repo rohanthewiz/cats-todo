@@ -535,7 +535,12 @@ func (m model) deleteBatch() (tea.Model, tea.Cmd) {
 	}
 	if m.batches.armDelete != b.ID {
 		m.batches.armDelete = b.ID
-		m.batches.say("press ctrl+x again to delete the record of “"+truncate(b.displayName(), 40)+"” — its prompts are not touched", true)
+		// Both second presses are named, because the first may have come from
+		// the context menu. A hand on the mouse is then looking for a row, not
+		// a chord, and the row it needs has just changed its words to
+		// ✖ Confirm delete (batchmenu.go). The chord still leads: it is the
+		// road the heading has always taught, and it works from either start.
+		m.batches.say("press ctrl+x again, or ✖ Confirm delete on the menu, to delete the record of “"+truncate(b.displayName(), 40)+"” — its prompts are not touched", true)
 		return m, nil
 	}
 	m.batches.armDelete = ""

@@ -174,8 +174,9 @@ func TestBatchesMenuDeleteTakesTwoPresses(t *testing.T) {
 	if got := batchesMenuRow(t, m, batchesMenuDelete).label; got != "✖ Confirm delete" {
 		t.Errorf("armed delete row = %q", got)
 	}
-	// The armed note survives the right-click: it explains the row.
-	if !strings.Contains(m.batches.note, "again to delete") {
+	// The armed note survives the right-click: it explains the row, and it
+	// names the row, since a mouse user armed it from here (N-058).
+	if !strings.Contains(m.batches.note, "ctrl+x again") || !strings.Contains(m.batches.note, "✖ Confirm delete") {
 		t.Errorf("the arming note was cleared by opening the menu: %q", m.batches.note)
 	}
 	m = pressBatchesMenuAct(t, m, batchesMenuDelete)
