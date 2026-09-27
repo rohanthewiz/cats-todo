@@ -1323,19 +1323,19 @@ rest:
 
 ```
 ╭────────────────────────────────────────────────────────────╮
-│ N-001 · Open                                               │
+│ N-001 · Open · value medium                                │
 │ Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions │
 │ run inside Cats.app, where GUI launches get a minimal      │
 │ PATH. Merged from the hands-on checks:                     │
 │ - hover cards: the 400ms dwell, the 800ms warm window;     │
 │ - DEC 1004: blur a window with a card up…                  │
-│ value medium · raised 2026-0904-1753-a-dwell               │
+│ raised 2026-0904-1753-a-dwell                              │
 ╰────────────────────────────────────────────────────────────╯
 ```
 
-The card is capped at **fifteen rows**: the ID and its section, up to thirteen lines
-of text with the item's line breaks and sub-bullets kept, and one line of
-fields. A longer item ends in an ellipsis, and `enter` opens the whole item in
+The card is capped at **fifteen rows**: the ID, its section and its value,
+up to thirteen lines of text with the item's line breaks and sub-bullets kept,
+and one line saying when it was raised. A longer item ends in an ellipsis, and `enter` opens the whole item in
 the form. Unlike a backlog prompt's card, every item gets one, even one whose
 text fits on the row, because when it was raised and its value in words are
 things the row never shows. The page asks the terminal for all pointer motion

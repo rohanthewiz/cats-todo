@@ -49,7 +49,7 @@ import (
 // has nothing to say, and a short pane gets fewer text rows (see nextCardFor)
 // so the box never runs past its edge.
 const (
-	nextCardWidth     = 76
+	nextCardWidth     = 88
 	nextCardMaxRows   = 15
 	nextCardBodyLines = nextCardMaxRows - 2 // minus the ID row and the fields row
 )
@@ -145,28 +145,30 @@ func nextCardLinesMax(it nextItem, inner, bodyMax int) []string {
 		lines = append(lines, style.Width(inner+2).Render(s))
 	}
 
+	// The value rides in the title: it is the fact that decides whether this
+	// is the item to pick up, so it is read with the ID, before the text,
+	// rather than found after it. When the title must be cut short on a
+	// narrow card, truncate takes the value's end first, and the ID — which
+	// names the item — survives.
 	head := it.ID
 	if it.Section != "" {
 		head += " · " + it.Section
 	}
+	if it.Value != "" {
+		head += " · value " + it.Value
+	}
 	row(truncate(head, inner), hoverTitleStyle)
 
 	for _, ln := range nextCardBody(it.Text, inner, bodyMax) {
-		row(ln, hoverBodyStyle)
+		row(ln, nextCardBodyStyle)
 	}
 
-	// The header's fields, in words, on one row: two short facts do not earn
-	// a labelled table's two rows out of the budget. Either drops out when the file
-	// did not record it, and the row goes with them.
-	var fields []string
-	if it.Value != "" {
-		fields = append(fields, "value "+it.Value)
-	}
+	// When the item was raised stays at the foot, quiet: it is provenance
+	// (which session to read for context), not a reason to pick the item up,
+	// so it is the last thing asked. The row drops out when the file did not
+	// record it.
 	if it.Raised != "" {
-		fields = append(fields, "raised "+it.Raised)
-	}
-	if len(fields) > 0 {
-		row(truncate(strings.Join(fields, " · "), inner), hoverFieldStyle)
+		row(truncate("raised "+it.Raised, inner), hoverFieldStyle)
 	}
 	return lines
 }

@@ -40,10 +40,10 @@ func TestNextHoverCardShowsTheItem(t *testing.T) {
 	}
 	got := cardText(m)
 	for _, want := range []string{
-		"N-001 · Open",
+		"N-001 · Open · value medium",
 		"Hands-on pass in a rebuilt Cats.app.",
 		"- hover cards: the 400ms dwell;", // its own line, not flattened
-		"value medium · raised 2026-0904-1753-a-dwell",
+		"raised 2026-0904-1753-a-dwell",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("card missing %q:\n%s", want, got)

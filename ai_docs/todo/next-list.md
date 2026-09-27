@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-066
+**Next ID:** N-068
 
 ## Open
 
@@ -100,9 +100,11 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - **N-041** · raised `2026-0924-1939-nextlist-hover-card` · value medium
   Live-test the Next List hover card (`nexthover.go`) in cats: the 400ms
   dwell and the warm window across rows, that the card closes on a key, a
-  click and on leaving the rows, and that the 76-cell box and its 15-row cap
-  (raised from 62 cells and 7 rows) read well on real items (sub-bullets
-  kept, `…` on long ones) and shrink on a short pane. Also check
+  click and on leaving the rows, and that the 88-cell box and its 15-row cap
+  (raised from 62, then 76 cells, and 7 rows) read well on real items
+  (sub-bullets kept, `…` on long ones) and shrink on a short pane. The title
+  now carries the value (`N-001 · Open · value medium`), the foot only
+  `raised …`, and the body is a pale yellow (`colCardBody`). Also check
   that asking for all motion on the page causes no lag. Only the tests have
   exercised it.
 
@@ -217,6 +219,18 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   line, and a drag that starts from a double-click extending by whole words.
   Today a third quick press is a plain click, and a double-click never arms a
   sweep (`selectPromptWord` clears `promptSelDrag`). Not asked for.
+
+- **N-066** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
+  Eyeball the brightened grey ramp in cats (`styles.go`): `colMuted`,
+  `colDim` and `colFaint` each rose ~9 points per channel, and
+  `colCardBody` to `#d0ccae`. Check that the four text tiers still separate
+  on colBg and colPanel, that finished prompts and footers still read as
+  quiet, and that the Next List card's yellow stays a tint, not a color.
+
+- **N-067** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
+  `gofmt -l` flags `hangup.go`: its doc comment needs a blank `//` line
+  before the `- SIGHUP asks the program to quit` bullet (from `32cd847`).
+  A one-line fix; left alone because it was not this session's change.
 
 ## Roadmap
 

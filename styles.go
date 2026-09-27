@@ -20,9 +20,9 @@ const (
 	colTitle  = "#1d4330" // colAccent at three-eighths brightness — the title chip's field
 	colPanel  = "#2b322c" // the recessed surface an inert button sits on
 	colChrome = "#3b453d" // the raised surface a live button sits on
-	colMuted  = "#9db0a2" // secondary text — group headings
-	colDim    = "#899b8f" // tertiary text — descriptions, counts (lifted from #7d8f83: read too dim)
-	colFaint  = "#6a7b6f" // quietest text — footers, completed prompts (lifted from #5f6f64)
+	colMuted  = "#a6b9ab" // secondary text — group headings, card bodies (lifted from #9db0a2)
+	colDim    = "#92a498" // tertiary text — descriptions, counts (lifted from #7d8f83, then #899b8f: read too dim)
+	colFaint  = "#728377" // quietest text — footers, completed prompts (lifted from #5f6f64, then #6a7b6f)
 	colOk     = "#6ac47a"
 	colWarn   = "#e0b64e"
 	colErr    = "#e57373"
@@ -513,4 +513,21 @@ var (
 	hoverFieldStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colFaint)).Background(lipgloss.Color(colPanel)).
 			Padding(0, 1)
+
+	// The Next List hover card's body (nexthover.go). That card is read, not
+	// glanced at — up to thirteen lines of a follow-up's text — and colMuted
+	// was a touch dim for that much reading. colCardBody lifts it and warms it
+	// toward yellow, so the text reads as paper under the card's title rather
+	// than as another grey label. It stays below colFg, so the title/body/fields
+	// ramp still holds. A separate style rather than a change to hoverBodyStyle:
+	// the list's hover card and the flag-note pad share that one and weren't
+	// asked to change.
+	nextCardBodyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(colCardBody)).Background(lipgloss.Color(colPanel)).
+				Padding(0, 1)
 )
+
+// A pale, low-saturation yellow (53° 28% 75%): brighter than colMuted, a step
+// under colFg, and only just warm enough to read as a tint on colPanel.
+// Lifted from #cbc7a9 with the grey ramp.
+const colCardBody = "#d0ccae"
