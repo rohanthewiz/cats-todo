@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-076
+**Next ID:** N-077
 
 ## Open
 
@@ -159,14 +159,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   inside the paste; or (c) accept it and document it. Recommendation: (a),
   with (b) as a cheap interim for the Next List's framing.
 
-- **N-075** · raised `2026-0927-0111-batches-menu-and-batch-runs-live` · value low
-  Several claude panes in the same project show as identical picker rows
-  (`claude · ct-live (this project)  [idle] claude-haiku-… · 36k/200k ·
-  <path>`), so there is no telling which is which. Seen with three in one
-  workspace, where their tabs were named `local-agent`, `doomed` and
-  `claude: N-003…`. Adding the tab or pane title, or the pane's handle,
-  would tell them apart.
-
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -209,6 +201,20 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-076** · closed 2026-09-27, `2026-0927-0145-hover-card-live-and-release` · raised `2026-0927-0145-hover-card-live-and-release`
+  — Released v0.42.2: both version files bumped, `chore(release): v0.42.2`
+  tagged `v0.42.2` and pushed with the code. It carries tonight's fixes:
+  esc on a Next List draft goes back to the page, the armed delete names
+  the menu row, the record screen follows a moving batch, a loop moves the
+  view once, Drop now refuses a gone pane, and the picker's session topics.
+- **N-075** · closed 2026-09-27, `2026-0927-0145-hover-card-live-and-release` · raised `2026-0927-0111-batches-menu-and-batch-runs-live`
+  — A running pane's picker row now says what its session is about, right
+  after its state (`00e1594`). That is the pane's own name, else the title
+  Claude Code keeps for the conversation with the status glyph cut
+  (`paneTopic`, `context.go`), and nothing for a bare "Claude Code". Live:
+  two claude panes in one project read `“README.md line count report”` and
+  `“Report current git branch”`. Tests: `TestPaneTopic`, and a titled row in
+  `TestRunningPaneRowShowsContextFill`. README updated.
 - **N-041** · closed 2026-09-27, `2026-0927-0145-hover-card-live-and-release` · raised `2026-0924-1939-nextlist-hover-card`
   — Driven live with real pointer motion: Chrome on cats' own page
   (`http://127.0.0.1:8422/?ws=<id>` opens a separate window on one
