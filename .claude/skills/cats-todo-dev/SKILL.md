@@ -226,6 +226,34 @@ and the rest stay local.
 - `go test ./...` must be green before a commit; the repo's allowlist already permits
   `go build/test/list`.
 
+### Live tests without a person: `catctl probe`
+
+The "live-test in cats" items can mostly be driven headlessly. `catctl probe`
+attaches to catway's **browser** socket, not the control socket, and sends the same
+`key` / `paste` / `mouse` messages the cats page sends. Set it up like this:
+
+- **Find this session's catway.** Other checkouts run catways of their own, so look
+  for the child of `Cats.app/Contents/MacOS/catapp`: `lsof -nP -a -p <pid>
+  -iTCP -sTCP:LISTEN` (it was `127.0.0.1:8422`).
+- **Isolate.** Make a scratch git repo and a workspace for it
+  (`catctl workspace.create --params '{"name":…,"path":…}'`). Launch the manager
+  with `tab.create` and the argv `["/usr/bin/env","CATS_TODO_CONFIG_DIR=<scratch>",
+  "<repo>/bin/cats-todo"]`, so neither the real backlogs nor settings.json are
+  touched. Close the workspace afterwards.
+- **Drive.** `catctl probe --url ws://127.0.0.1:8422/ws --workspace <id> --cols 120
+  --rows 40 --script '…'`. The ops: `key:KeyA:c` (mods `c s a m`, and `m` is Cmd),
+  `type:`, `paste:` (`\n` for newlines), `mouse:PANE:X:Y[:BTN]` (2 = right),
+  `wheel:`, and `dump:PANE`. Row 0 is the line *after* the dump's `--- pane` header.
+  `capture:PANE:visible:ansi` shows the drawn caret and highlights as SGR 7
+  (reverse video).
+- **Wait before capturing.** A burst of keys can take a while to redraw. Capture
+  a few hundred ms later, or the screen shows an earlier state.
+- **Mouse.** No hover or motion op exists, so a hover card or a drag can't be
+  driven.
+- **Never send `/model` or `/effort` to a live claude pane in a test.** Since
+  Claude Code 2.1.283 each one is saved as the user's default in
+  `~/.claude/settings.json` (N-070).
+
 ## Docs and commit habits
 
 - **README.md is the spec**, written as prose that explains the *why* of each
