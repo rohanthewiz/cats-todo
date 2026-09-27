@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-069
+**Next ID:** N-070
 
 ## Open
 
@@ -210,6 +210,12 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   `colCardBody` to `#d0ccae`. Check that the four text tiers still separate
   on colBg and colPanel, that finished prompts and footers still read as
   quiet, and that the Next List card's yellow stays a tint, not a color.
+
+- **N-069** · raised `2026-0926-2228-headless-install-offer` · value medium
+  Push `56c5c4d` and cut v0.42.1. cats seeds fresh installs from the default
+  branch, so until the headless-offer fix is on GitHub a seeded install still
+  spends the one-time backlog offer on catway's log (cats' N-044 tracks the
+  same thing).
 
 ## Roadmap
 
