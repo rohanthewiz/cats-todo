@@ -106,16 +106,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   and `applyPaneSetup` doesn't watch for it. A pane that has consented once
   won't show it.
 
-- **N-053** · raised `2026-0925-1344-batch-scheduling-phase2` · value medium
-  Live-test scheduled batches in cats. Schedule one `in 2m` onto new
-  worktrees and watch it fire (the status line, each prompt marked done, the
-  record's Scheduled and Dropped times). Check the `⧉ HH:MM` mark on the list
-  rows and that it goes on ✕ Unschedule. Close the manager past a batch's
-  time and reopen it: the batch should read *missed* with the reason, and
-  enter on it should open the composer. Also schedule into a running pane,
-  close that pane, and let it fire: each step should fail with "the
-  scheduled pane is gone". Only the tests have exercised it.
-
 - **N-056** · raised `2026-0925-1409-batch-loop-phase3` · value medium
   Live-test batch loops in cats. Only the tests have driven one, with made-up
   pane states. Check:
@@ -260,6 +250,19 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-053** · closed 2026-09-27, `2026-0927-0127-scheduled-batches-and-loops-live` · raised `2026-0925-1344-batch-scheduling-phase2`
+  — Driven live through `catctl probe`. A batch scheduled `in 1m` onto a
+  new worktree fired on time: a `todo/n-006-…` checkout, the prompt worked
+  there, and the heading read `1/1 sent, finished · marked done`. The
+  worktree and branch were removed. A batch onto new sessions fired with a
+  record showing Scheduled and Dropped (01:15 / 01:15). The list rows wore
+  `⧉ HH:MM` while scheduled, and ✕ Unschedule (ctrl+u) took the mark off.
+  The manager was quit before a fire and reopened after the 2-minute
+  grace: the row read `missed 01:21`, and enter opened the composer with
+  `missed 01:21 — the manager was not open at 01:21 · set a new time, or
+  drop it now`. Scheduled into a running pane that was then closed, every
+  step read `✗ … — the scheduled pane is gone — send manually` (checked
+  under N-048, where it also turned up N-074).
 - **N-048** · closed 2026-09-27, `2026-0927-0111-batches-menu-and-batch-runs-live` · raised `2026-0925-1315-multi-drop-batches-phase1`
   — Driven live through `catctl probe`. All at once onto new worktrees: two
   workspaces opened one after the other, each prompt landed whole and ran
