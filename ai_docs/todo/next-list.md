@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-071
+**Next ID:** N-072
 
 ## Open
 
@@ -65,11 +65,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   matches, Enter on it prints `Set model to Haiku 4.5 and saved as your
   default…`, and `/effort` sent ~0.5s later printed its line whole. The
   400ms timing question stays open until N-070 is decided.
-
-- **N-023** · raised `2026-0915-1637-prompt-editor-paste-line-cap` · value low
-  Hand-test in cats: paste a few hundred lines, then type, press enter,
-  scroll, click and sweep. Watch whether the caret stays in view on the long
-  prompt. *Lapsed* in `2026-0915-1836-prompt-editor-undo-v0.32.0`.
 
 - **N-026** · raised `2026-0915-1836-prompt-editor-undo-v0.32.0` · value medium
   Hand-test undo in a cats pane: that Cmd+z actually arrives (cats forwards
@@ -236,6 +231,17 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   is found, since a drop should not change settings the user never opened.
   Blocks N-017, N-043 and N-044, which all need live `/model` runs.
 
+- **N-071** · raised `2026-0927-0037-probe-driven-live-tests` · value low
+  Arrow keys slow down linearly with the prompt's length: measured live,
+  ~7ms per key at 30 lines, ~20ms at 300 and ~50ms at 1,000. In process,
+  1,000 lines cost ~13ms in Update and ~10ms in View, and 3,000 lines cost
+  ~37ms + ~28ms. The cost is bubbles' textarea (v2.1.1): `Update` and
+  `View` both render every line of the value into the viewport
+  (`textarea.go:1329` and `:1455`) and let it slice. cats-todo adds almost
+  nothing on top. At a fast key repeat (~30ms), a held arrow falls behind
+  past a few hundred lines. The fix is a textarea that renders only the
+  rows in view: a fork, or an upstream patch.
+
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -278,6 +284,15 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-023** · closed 2026-09-27, `2026-0927-0037-probe-driven-live-tests` · raised `2026-0915-1637-prompt-editor-paste-line-cap`
+  — Driven in a live cats pane through `catctl probe` (catway's browser
+  socket: keys, paste and clicks, with the screen captured in ANSI so the
+  drawn caret shows). With 300 pasted lines the caret stayed in view after
+  typing at the end, enter, three PageUps (it rode the top row), a click on
+  a middle row (typing landed there), and a shift+↓ sweep of 35 rows past
+  the bottom (the view followed). Wheel over the prompt does nothing, since
+  the form has no wheel handling; that is not new. The one finding is speed,
+  raised as N-071.
 - **N-069** · closed 2026-09-27, `2026-0927-0032-drop-settings-side-effect-v0.42.1` · raised `2026-0926-2228-headless-install-offer`
   — Released v0.42.1: both version files bumped, `chore(release): v0.42.1`
   (`a2bae17`) tagged `v0.42.1` and pushed with `56c5c4d`, so a seeded cats
