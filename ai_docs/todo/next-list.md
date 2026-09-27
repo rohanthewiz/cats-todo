@@ -122,13 +122,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   and `applyPaneSetup` doesn't watch for it. A pane that has consented once
   won't show it.
 
-- **N-045** · raised `2026-0924-2029-notes-send-to-gonotes` · value low
-  `TestProgramExitsOnHangup/sighup` fails under `go test -race`: the helper
-  process exits 66, the race detector's code, so `runProgram` races with
-  itself on SIGHUP. It fails on a clean HEAD as well as with the notes send,
-  and passes without `-race`. The race report goes to the helper's pty, so
-  capturing it means teeing the drained pty bytes in the test.
-
 - **N-046** · raised `2026-0925-1104-nextlist-context-menu` · value medium
   Live-test the Next List context menu (`nextmenu.go`) in cats. Check the
   right-click on an item, both ⧉ Copy rows (OSC 52 and `pbcopy`), that
@@ -255,6 +248,18 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-045** · closed 2026-09-26, `2026-0926-2015-hangup-sighup-race-n045` · raised `2026-0924-2029-notes-send-to-gonotes`
+  — A bubbletea kill path race, not ours to fix upstream (still in v2.0.10).
+  SIGHUP cancelled the program's context, and bubbletea's
+  `shutdown(kill=true)` cancels the cancelreader but skips `waitForReadLoop`,
+  then Closes its cancel pipe while the woken reader goroutine is still in
+  `kqueueCancelReader.wait` calling `Fd` on it (cancelreader v0.2.2,
+  `cancelreader_bsd.go:109` vs `:141`). SIGHUP now sets a flag and calls
+  `p.Quit()`, the graceful path, which waits for the read loop first
+  (`terminalWatch.start`, `hangup.go`). EOF/EIO keeps the kill, since its read
+  loop has already ended. The report was captured with `GORACE=log_path=…`,
+  not by teeing the pty. It reproduced only with `-cpu` > 1 on a loaded
+  machine: 8 of 60 runs before the fix, 0 of 60 after.
 - **N-025** · closed 2026-09-26, `2026-0926-1928-indent-trim-fold-search-line-cap-v0.41.0` · raised `2026-0915-1637-prompt-editor-paste-line-cap`
   — Edits past the 10,000-line limit are refused whole with a note, and
   never trimmed (`promptcap.go`). The limit had more roads than the paste:

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 
 	tea "charm.land/bubbletea/v2"
@@ -33,19 +34,45 @@ var errTerminalGone = errors.New("terminal hung up")
 //     (EIO does surface as an error and ends Run, but it is folded into the
 //     same cause here so launch.go can tell a hangup from a normal quit.)
 //
-// Both are turned into cancelling one context handed to tea.WithContext.
-// bubbletea treats a cancelled external context as a kill: the event loop
-// returns, the final frame is skipped (stopRenderer(kill=true)), and what little
-// shutdown still writes fails fast with EIO on a hung-up tty rather than
-// blocking.
+// The two channels end the program by different roads, because bubbletea's
+// kill path is only safe once the input reader has stopped:
+//
+//   - A failed read cancels the context handed to tea.WithContext. bubbletea
+//     treats a cancelled external context as a kill: the event loop returns,
+//     the final frame is skipped (stopRenderer(kill=true)), and what little
+//     shutdown still writes fails fast with EIO on a hung-up tty rather than
+//     blocking. The read that failed was the reader goroutine's last, so
+//     nothing is left reading when shutdown closes the reader.
+//   - SIGHUP asks the program to quit (p.Quit) instead. A kill here would race:
+//     shutdown(kill=true) cancels the cancelreader but skips waitForReadLoop,
+//     then Closes the reader's cancel pipe while the woken reader goroutine is
+//     still in kqueueCancelReader.wait calling Fd on that same *os.File
+//     (cancelreader v0.2.2, bubbletea v2.0.8 through v2.0.10). The race
+//     detector kills the process with exit 66 for it. The graceful path waits
+//     for the read loop (bounded at 500ms) before it closes anything. Its
+//     final frame and terminal reset write to the tty, which either succeeds
+//     (a SIGHUP with the terminal still attached) or fails fast with EIO (a
+//     truly hung-up one).
+//
+//     SIGHUP ──▶ hup=true ──▶ p.Quit() ──▶ graceful shutdown (waits for reader)
+//     EOF/EIO ─▶ cancel(errTerminalGone) ──▶ kill (reader already done)
+//
+// gone() reports either one, so launch.go skips its post-Run output for both.
 type terminalWatch struct {
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 	sigs   chan os.Signal
+	// hup is set before the SIGHUP path's Quit, so it is visible once Run
+	// returns. A cancel cause cannot carry this: cancelling the context is the
+	// very kill being avoided.
+	hup atomic.Bool
 }
 
-// watchTerminal starts listening for SIGHUP. Call stop when Run returns so the
-// handler is released and the watcher goroutine exits.
+// watchTerminal installs the SIGHUP handler. Call start with the program once
+// it exists, and stop when Run returns so the handler is released and the
+// watcher goroutine exits. The handler goes in before the program is built so
+// a hangup during startup is not lost: it waits in the buffered channel until
+// start reads it.
 func watchTerminal() *terminalWatch {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	w := &terminalWatch{ctx: ctx, cancel: cancel, sigs: make(chan os.Signal, 1)}
@@ -53,14 +80,23 @@ func watchTerminal() *terminalWatch {
 	// Notify installs a real handler even when SIGHUP was ignored at startup,
 	// which is exactly the case that needs it.
 	signal.Notify(w.sigs, syscall.SIGHUP)
+	return w
+}
+
+// start turns a SIGHUP into a quit of p. It is split from watchTerminal
+// because the program is built from the watch's options, so it cannot exist
+// yet when the handler is installed. Quit is safe to call before Run has
+// reached its event loop: Send blocks until the loop takes the message, or
+// until the program's context ends.
+func (w *terminalWatch) start(p *tea.Program) {
 	go func() {
 		select {
 		case <-w.sigs:
-			cancel(errTerminalGone)
-		case <-ctx.Done():
+			w.hup.Store(true)
+			p.Quit()
+		case <-w.ctx.Done():
 		}
 	}()
-	return w
 }
 
 // options returns the ProgramOptions that wire the watch into bubbletea.
@@ -79,7 +115,7 @@ func (w *terminalWatch) options() []tea.ProgramOption {
 // gone reports whether the program ended because the terminal went away. In
 // that case there is nobody left to show an error to, and nothing to restore.
 func (w *terminalWatch) gone() bool {
-	return errors.Is(context.Cause(w.ctx), errTerminalGone)
+	return w.hup.Load() || errors.Is(context.Cause(w.ctx), errTerminalGone)
 }
 
 // stop releases the SIGHUP handler and ends the watcher goroutine.

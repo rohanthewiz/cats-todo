@@ -73,7 +73,11 @@ func TestProgramExitsOnHangup(t *testing.T) {
 		},
 		{
 			// SIGHUP with the master still open and still drained, so reads
-			// never fail: this isolates the signal path.
+			// never fail: this isolates the signal path. Run it under -race
+			// too: while SIGHUP cancelled the context, bubbletea's kill path
+			// closed the cancelreader under a still-running reader goroutine,
+			// and the helper died with the race detector's exit 66 (N-045;
+			// seen with -cpu > 1 on a loaded machine, about one run in eight).
 			name: "sighup",
 			hangUp: func(t *testing.T, _ int, cmd *exec.Cmd) bool {
 				if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {

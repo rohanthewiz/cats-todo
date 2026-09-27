@@ -42,6 +42,7 @@ func runProgram(m tea.Model) {
 
 	// The alt screen is declared by the model's View in bubbletea v2, not here.
 	p := tea.NewProgram(m, watch.options()...)
+	watch.start(p)
 	_, err := p.Run()
 
 	// A hung-up terminal has no screen to reset and no reader for an error, and
