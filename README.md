@@ -121,6 +121,17 @@ new session for any other agent cats currently has running somewhere, then the
 same set again **on a new worktree**, and finally each live agent pane with its
 state and location.
 
+A live pane's row also carries what its agent is running under and how full
+its context is — `[idle] claude-opus-5 · high · 43k/1M · ~/projs/app` — the
+same string cats shows in its AGENTS hover card, read from the agent's own
+history and delivered in `pane.list`. It sits ahead of the directory because
+the directory is the part a narrow pane cuts off, and because a session's fill
+decides the pick nearly as much as its state does: a long prompt dropped into a
+window that is nearly full gets compacted on arrival. It is part of the row's
+searchable text, so typing `opus` narrows the picker to the panes running it.
+Agents cats cannot resolve a model for (anything but Claude Code and Copilot,
+today) simply show none.
+
 Picking a row is two decisions in one key. `enter` — or a click on the row —
 **drops & runs**: the prompt is typed into the agent and submitted, because
 dropping a prompt is asking for the work to start, and the default should be

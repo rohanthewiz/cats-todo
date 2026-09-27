@@ -4634,6 +4634,19 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 			// location — picking an idle session over a busy one is usually
 			// the point of the choice.
 			desc := p.Cwd
+			// The agent's model, effort and context fill ("claude-opus-5 ·
+			// high · 43k/1M") — the string cats resolves from the agent's
+			// own history for its AGENTS hover card, carried whole in
+			// pane.list's agent_model. It sits ahead of the cwd because the
+			// cwd is the long, truncatable tail, and how full a session's
+			// context is decides the pick nearly as much as its state: a
+			// long prompt dropped into a near-full window gets compacted
+			// on arrival. Kept in desc (not a descMark) so the filter
+			// matches it too — typing "opus" or "fable" finds those panes.
+			// Empty for agents cats cannot resolve, which just omit it.
+			if p.AgentModel != "" {
+				desc = p.AgentModel + " · " + desc
+			}
 			if p.AgentState != "" {
 				desc = "[" + p.AgentState + "] " + desc
 			}

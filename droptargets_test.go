@@ -197,3 +197,35 @@ func TestTargetFilterSearchesFoldedAgents(t *testing.T) {
 		t.Errorf("counts = %d/%d at rest, want all listed rows counted and no more", matched, total)
 	}
 }
+
+// TestRunningPaneRowShowsContextFill pins the running-pane row carrying the
+// agent's model string — model, effort and context fill ("43k/1M"), as cats
+// resolves it for its AGENTS hover card — between the state and the cwd, so
+// how full a session is can be read before the pick. A pane cats resolved no
+// model for keeps the old "[state] cwd" shape.
+func TestRunningPaneRowShowsContextFill(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	m, _, _ := newModelInTemp(t)
+	m.ctx.WorkspaceID = "w1"
+	m.client = fakeCatsSocket(t,
+		[]wire.PaneInfo{
+			{Pane: 1, Handle: "w1:p1", PaneMeta: wire.PaneMeta{Agent: "claude", AgentState: "idle",
+				AgentModel: "claude-opus-5 · high · 43k/1M", Cwd: "/here"}},
+			{Pane: 2, Handle: "w1:p2", PaneMeta: wire.PaneMeta{Agent: "codex", AgentState: "working", Cwd: "/here"}},
+		},
+		[]wire.WorkspaceEntry{{ID: "w1", Name: "here"}},
+	)
+	targets, _ := m.buildTargets()
+	got := map[uint32]string{}
+	for _, tg := range targets {
+		if tg.kind == targetExistingPane {
+			got[tg.pane] = tg.desc
+		}
+	}
+	if want := "[idle] claude-opus-5 · high · 43k/1M · /here"; got[1] != want {
+		t.Errorf("claude row desc = %q, want %q", got[1], want)
+	}
+	if !strings.HasPrefix(got[2], "[working] /here") {
+		t.Errorf("model-less row desc = %q, want it to start %q", got[2], "[working] /here")
+	}
+}
