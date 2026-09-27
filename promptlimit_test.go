@@ -232,3 +232,206 @@ func TestPromptCaretOffsetScrollsLikeTheWalk(t *testing.T) {
 		}
 	}
 }
+
+// walkPromptLines is how promptLines measured the display lines before N-068:
+// CursorDown from the top, one display line per step, until a step stops
+// moving. It is quadratic in the line count, but it is the library's own
+// motion with nothing inferred, so it is kept as the oracle the probe build is
+// checked against.
+func walkPromptLines(ta textarea.Model) []promptLine {
+	var lines []promptLine
+	seen := map[promptLine]bool{}
+	probe := ta
+	probe.MoveToBegin()
+	for range 20000 {
+		key := promptLine{probe.Line(), probe.LineInfo().StartColumn}
+		if seen[key] {
+			break
+		}
+		seen[key] = true
+		lines = append(lines, key)
+		probe.CursorDown()
+	}
+	return lines
+}
+
+// clickValues are the shapes a display-line table can get wrong: plain rows,
+// empty rows (leading, doubled, trailing), rows that wrap many times, a row
+// that ends exactly on a wrap, wide runes, and runs of spaces the wrap eats.
+func clickValues() []string {
+	long := longOneLiner(300)
+	return []string{
+		"",
+		"one line",
+		"\nafter an empty first row\n\nand a doubled one\n",
+		long + "\nshort\n" + long,
+		strings.Repeat("abcdefghij", 12) + "\nnext",
+		"漢字の行が折り返す " + strings.Repeat("漢字 ", 40) + "\nascii",
+		"spaces      between      words " + strings.Repeat("x    ", 30),
+		linesOf(50),
+	}
+}
+
+// TestPromptLinesMatchesTheWalk: the probe build (one appended row at a time,
+// LineInfo per display line) must produce the same table, entry for entry,
+// as the old CursorDown walk. Several widths are used, so rows wrap at
+// different places. None of them fills a row to an exact multiple of the
+// text width, which is where the walk itself is wrong; that case has its own
+// test, TestPromptClickReachesPastAnExactlyFilledRow.
+func TestPromptLinesMatchesTheWalk(t *testing.T) {
+	for _, width := range []int{24, 45, 100} {
+		for i, v := range clickValues() {
+			ta := withForm(t, "", v, width, 30).promptArea
+			want := walkPromptLines(ta)
+			got, index := promptLines(ta)
+			if fmt.Sprint(got) != fmt.Sprint(want) {
+				t.Errorf("width %d value %d: table\n got %v\nwant %v", width, i, got, want)
+				continue
+			}
+			for j, l := range got {
+				if index[l] != j {
+					t.Errorf("width %d value %d: index[%v] = %d, want %d", width, i, l, index[l], j)
+				}
+			}
+		}
+	}
+}
+
+// walkPlacePromptCursor is placePromptCursor before N-068: the table from the
+// walk, then the caret stepped to the bottom, up to y0 and down to d, one
+// display line per step, then the same column arithmetic. It is the oracle for
+// where a click must leave the caret and the scroll.
+func walkPlacePromptCursor(m *model, x, row int) {
+	y0 := m.promptArea.ScrollYOffset()
+	lines := walkPromptLines(m.promptArea)
+	if len(lines) == 0 {
+		return
+	}
+	index := map[promptLine]int{}
+	for i, l := range lines {
+		index[l] = i
+	}
+	last := len(lines) - 1
+	y0 = min(y0, last)
+	d := min(y0+max(row, 0), last)
+	stepPromptTo(&m.promptArea, index, last)
+	stepPromptTo(&m.promptArea, index, y0)
+	stepPromptTo(&m.promptArea, index, d)
+	li := m.promptArea.LineInfo()
+	rowRunes := promptRowRunes(m.promptArea)
+	start := min(li.StartColumn, len(rowRunes))
+	avail := min(li.Width, len(rowRunes)-start)
+	if li.RowOffset+1 < li.Height && avail > 0 {
+		avail--
+	}
+	seg := rowRunes[start : start+max(avail, 0)]
+	m.promptArea.SetCursorColumn(start + colAtWidth(seg, x-promptGutterWidth(m.promptArea)))
+}
+
+// TestPromptClickMatchesTheWalk: a click must land the caret on the same row
+// and column, and leave the view scrolled to the same line, as the old walk
+// did. That is checked from views scrolled to the top, the middle and the
+// bottom, clicking every screen row (and one past the end) at the gutter,
+// mid-line and far right. Both sides render between steps, since the viewport
+// clamps a scroll to the content of its last frame. The widths (text widths
+// 25 and 74) keep clear of an exactly filled row, where the walk is wrong.
+func TestPromptClickMatchesTheWalk(t *testing.T) {
+	for i, v := range clickValues() {
+		for _, width := range []int{31, 80} {
+			base := withForm(t, "", v, width, 20)
+			n := len([]rune(v))
+			for _, from := range []int{0, n / 2, n} {
+				for row := range base.promptArea.Height() + 1 {
+					for _, x := range []int{0, 7, width} {
+						got := withForm(t, "", v, width, 20)
+						want := withForm(t, "", v, width, 20)
+						for _, mm := range []*model{&got, &want} {
+							_ = mm.promptArea.View()
+							setPromptCaretOffset(&mm.promptArea, from)
+							_ = mm.promptArea.View()
+						}
+						got.placePromptCursor(x, row)
+						walkPlacePromptCursor(&want, x, row)
+						g, w := &got.promptArea, &want.promptArea
+						if g.Line() != w.Line() || g.Column() != w.Column() || g.ScrollYOffset() != w.ScrollYOffset() {
+							t.Fatalf("value %d width %d from %d, click row %d x %d: caret %d:%d scroll %d, the walk gave %d:%d scroll %d",
+								i, width, from, row, x, g.Line(), g.Column(), g.ScrollYOffset(), w.Line(), w.Column(), w.ScrollYOffset())
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestPromptClickIsLinearInRows: a click walked the whole value one display
+// line at a time, and every step re-counted the lines above the caret, so a
+// click in a 2,000-line prompt took ~1.3s and one in 9,999 lines far longer
+// (N-068). The bound is loose enough for -race; the old walk misses it by
+// orders of magnitude.
+func TestPromptClickIsLinearInRows(t *testing.T) {
+	value := linesOf(promptMaxLines - 1)
+	m := withForm(t, "", value, 100, 40)
+	_ = m.promptArea.View()
+	setPromptCaretOffset(&m.promptArea, len([]rune(value))/2) // mid-value
+	_ = m.promptArea.View()
+	y0 := m.promptArea.ScrollYOffset()
+	start := time.Now()
+	m.placePromptCursor(promptGutterWidth(m.promptArea), 3)
+	took := time.Since(start)
+	if l := m.promptArea.Line(); l != y0+3 {
+		t.Fatalf("click on screen row 3 put the caret on row %d, want %d", l, y0+3)
+	}
+	if s := m.promptArea.ScrollYOffset(); s != y0 {
+		t.Errorf("click scrolled the view from %d to %d", y0, s)
+	}
+	if took > time.Second {
+		t.Errorf("a click in %d lines took %v, want well under a second", promptMaxLines-1, took)
+	}
+}
+
+// TestPromptClickReachesPastAnExactlyFilledRow: a row with no spaces whose
+// length is an exact multiple of the text width wraps into full lines plus one
+// empty display line after them (the library draws it; the caret goes there at
+// the row's end). The old table walk stopped short on such a row. From the row's
+// second-to-last line, CursorDown clamps the column to len-1, stays on the same
+// line, and the walk took that for the end of the value. The empty line and
+// every row below were missing, so a click on any of them landed somewhere
+// else (N-068). The probe build asks LineInfo per line and gets all of them.
+func TestPromptClickReachesPastAnExactlyFilledRow(t *testing.T) {
+	v := strings.Repeat("abcdefghij", 12) + "\nnext" // 120 runes, then a row
+	m := withForm(t, "", v, 30, 20)
+	if w := m.promptArea.Width(); w != 24 {
+		t.Fatalf("text width %d, want 24 so that 120 runes fill five lines exactly", w)
+	}
+	lines, _ := promptLines(m.promptArea)
+	want := []promptLine{{0, 0}, {0, 24}, {0, 48}, {0, 72}, {0, 96}, {0, 120}, {1, 0}}
+	if fmt.Sprint(lines) != fmt.Sprint(want) {
+		t.Fatalf("table %v, want %v", lines, want)
+	}
+
+	// Caret at the end, so the view (4 lines tall) shows display lines 3–6.
+	_ = m.promptArea.View()
+	setPromptCaretOffset(&m.promptArea, len([]rune(v)))
+	_ = m.promptArea.View()
+	y0 := m.promptArea.ScrollYOffset()
+	if y0 != 3 {
+		t.Fatalf("view scrolled to %d, want 3", y0)
+	}
+	gutter := promptGutterWidth(m.promptArea)
+	for _, tc := range []struct {
+		screenRow, row, col int
+	}{
+		{0, 0, 72 + 2}, // "…" two cells into the line starting at 72
+		{2, 0, 120},    // the empty line after the filled row
+		{3, 1, 2},      // "next", two cells in
+	} {
+		m.placePromptCursor(gutter+2, tc.screenRow)
+		if l, c := m.promptArea.Line(), m.promptArea.Column(); l != tc.row || c != tc.col {
+			t.Errorf("click on screen row %d: caret %d:%d, want %d:%d", tc.screenRow, l, c, tc.row, tc.col)
+		}
+		if s := m.promptArea.ScrollYOffset(); s != y0 {
+			t.Errorf("click on screen row %d scrolled the view to %d, want %d", tc.screenRow, s, y0)
+		}
+	}
+}

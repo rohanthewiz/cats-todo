@@ -1723,30 +1723,87 @@ type promptLine struct {
 //
 // The textarea soft-wraps, so a display line is not a logical line and the
 // mapping cannot be computed from the value alone without reimplementing the
-// library's private word-wrap. It is measured instead: a copy of the model is
-// walked from the top with the library's own line motion, one display line per
-// step, until stepping stops moving.
+// library's private word-wrap. It is measured instead, by asking the library's
+// own LineInfo where each display line of a row starts.
 //
-// The copy shares the model's viewport pointer, so the walk scrolls the real
-// editor — placePromptCursor is what puts the scroll back, and is the only
-// caller for that reason. Everything else the walk touches (the caret's row and
-// column) lives in the copy.
+// The measuring is done on a probe that is built up one row at a time. That is
+// what keeps it linear. The obvious walk, CursorDown from the top one display
+// line per step, is quadratic in the line count: every CursorDown ends in the
+// library's repositionView → cursorLineNumber, which hashes every row above
+// the caret through the wrap memo. That cost a click in a 2,000-line prompt
+// ~1.3s (N-068). The probe avoids both costly paths:
+//
+//   - InsertString moves the caret onto the row it just inserted and never
+//     repositions, so appending "\n"+row puts the caret on the new row for the
+//     cost of that row alone.
+//   - LineInfo looks up only the caret's own row, and SetCursorColumn does not
+//     reposition either. So a row's display lines are read by setting the column
+//     to each line's start: LineInfo reports that line's width, and the next
+//     line starts that many runes on. A column exactly at the end of one wrapped
+//     segment reads as the start of the next (LineInfo's own rule), which is
+//     what lets the step land on it.
+//
+// One row, read line by line:
+//
+//	row r   ┌──────────────────┐
+//	        │ start 0,  width a│ ← SetCursorColumn(0)   → LineInfo
+//	        │ start a,  width b│ ← SetCursorColumn(a)   → LineInfo
+//	        │ start a+b, …     │ ← … until RowOffset is the row's last line
+//	        └──────────────────┘
+//
+// Per row, the probe is the rows above it plus the row itself. Only the
+// row itself is ever looked at. One Reset starts it (SetValue("")), and
+// everything after that is appends. A SetValue per row was tried as well. It
+// was linear too, but every Reset allocates a maxLines-capacity grid, and the
+// GC churn made 9,999 rows cost ~230ms.
+//
+// A long row still costs its length once per display line, because LineInfo
+// hashes the whole row to find it in the memo. That cost is bounded by the
+// row, not by the prompt, and it is lower than the old walk's, which asked
+// several times per step: a click in two 20k-rune rows went from ~150ms to
+// ~33ms.
+//
+// The probe is a copy of the model and shares its viewport pointer. The one
+// Reset scrolls the real editor to the top. placePromptCursor puts the scroll
+// back, and it is the only caller for that reason. Everything else (the value,
+// the caret) lives in the copy. The probe's Reset gives it a fresh grid, so
+// its appends never write into the real model's rows.
 func promptLines(ta textarea.Model) ([]promptLine, map[promptLine]int) {
-	lines := make([]promptLine, 0, ta.LineCount())
-	index := make(map[promptLine]int, ta.LineCount())
+	rows := strings.Split(ta.Value(), "\n")
+	lines := make([]promptLine, 0, len(rows))
+	index := make(map[promptLine]int, len(rows))
 	probe := ta
-	probe.MoveToBegin()
-	// maxLines in the library is 10000; the same order of magnitude here is a
-	// backstop for a walk that somehow neither advances nor repeats, not a limit
-	// any real prompt reaches.
-	for range 20000 {
-		key := promptLine{probe.Line(), probe.LineInfo().StartColumn}
-		if _, seen := index[key]; seen {
-			break // the walk stopped moving: the end of the value
+	probe.SetValue("")
+	for r, row := range rows {
+		if r > 0 {
+			probe.InsertString("\n")
 		}
-		index[key] = len(lines)
-		lines = append(lines, key)
-		probe.CursorDown()
+		probe.InsertString(row)
+		if probe.Line() != r {
+			// The insert did not land on the row it made: the value holds
+			// something InsertString rewrites. Stop with the rows mapped so
+			// far rather than attribute display lines to the wrong row.
+			break
+		}
+		// The bound is the row's rune count plus one: a display line is never
+		// empty except on an empty row, so a row cannot have more lines than
+		// that. It guards a width of zero from spinning, nothing more.
+		start := 0
+		for range len([]rune(row)) + 1 {
+			probe.SetCursorColumn(start)
+			li := probe.LineInfo()
+			key := promptLine{r, li.StartColumn}
+			if _, seen := index[key]; seen {
+				break
+			}
+			index[key] = len(lines)
+			lines = append(lines, key)
+			if li.RowOffset+1 >= li.Height || li.Width <= 0 {
+				break
+			}
+			start = li.StartColumn + li.Width
+		}
+		probe.CursorEnd() // the next row is appended after this one
 	}
 	return lines, index
 }
@@ -1786,8 +1843,9 @@ func stepPromptTo(ta *textarea.Model, index map[promptLine]int, want int) {
 //
 // The textarea has no notion of a click, and the two things a mapping needs —
 // which display line the caret is on, and how to jump to another — are private
-// (cursorLineNumber, setCursorLineRelative). What is public is one-line-at-a-
-// time motion, so the caret is walked there through the display-line table:
+// (cursorLineNumber, setCursorLineRelative). So the clicked screen row is
+// turned into a display line d through the display-line table (promptLines),
+// and d into a rune offset the caret can be placed at:
 //
 //	         ┌─ the value, in display lines ──┐
 //	   0     │ ...                            │  above the viewport
@@ -1798,14 +1856,29 @@ func stepPromptTo(ta *textarea.Model, index map[promptLine]int, want int) {
 //	last ───▶│ ...                            │
 //
 // The scroll has to come out of this where it went in, because the click was
-// aimed at what is on screen now. Two things move it: building the table (which
-// walks to the bottom, leaving the view scrolled there), and the caret itself,
-// since the library scrolls to keep it visible. That second behaviour is also
-// the lever back: a caret arriving from below lands the view exactly on its own
-// line, so stepping to the bottom and then up to y0 restores the offset, and the
-// remaining steps down to d stay inside the viewport and move nothing.
+// aimed at what is on screen now. Building the table scrolls the view to the top
+// (see promptLines), and any caret placement scrolls to keep the caret visible.
+// The library has one lever that sets both together: a placement from the top
+// scrolls the view down just far enough that the caret sits on its last visible
+// line. So for one placement the view is made exactly d-y0+1 lines tall. The
+// caret on line d then scrolls it to y0, and the real height goes back. The
+// caret is inside the restored view, so that reposition moves nothing:
+//
+//	          height d-y0+1          height restored
+//	y0 ───▶ ┌──────────────┐        ┌──────────────┐
+//	        │ ...          │        │ ...          │
+//	 d ───▶ │ caret        │ ─────▶ │ caret        │
+//	        └──────────────┘        │ ...          │
+//	                                └──────────────┘
+//
+// The earlier way was to step the caret to the bottom and then up to y0, one
+// display line per step. That was quadratic in the line count (N-068), because
+// every step re-counts the display lines above the caret. The placement here
+// is setPromptCaretOffset, linear since N-063. The stepper is kept as a
+// backstop: if the placement ever lands on another line, which would mean the
+// library's landing rule changed, it finishes the move the slow, sure way.
 func (m *model) placePromptCursor(x, row int) {
-	y0 := m.promptArea.ScrollYOffset() // before the table walk scrolls it away
+	y0 := m.promptArea.ScrollYOffset() // before the table build scrolls it away
 	lines, index := promptLines(m.promptArea)
 	if len(lines) == 0 {
 		return
@@ -1814,8 +1887,16 @@ func (m *model) placePromptCursor(x, row int) {
 	y0 = min(y0, last) // a value shortened since the last scroll
 	d := min(y0+max(row, 0), last)
 
-	stepPromptTo(&m.promptArea, index, last)
-	stepPromptTo(&m.promptArea, index, y0)
+	// The rune offset of display line d: the rows above it, each with its
+	// newline, then the column its segment starts at.
+	off := lines[d].startCol
+	for _, r := range strings.SplitN(m.promptArea.Value(), "\n", lines[d].row+1)[:lines[d].row] {
+		off += len([]rune(r)) + 1
+	}
+	h := m.promptArea.Height()
+	m.promptArea.SetHeight(d - y0 + 1)
+	setPromptCaretOffset(&m.promptArea, off)
+	m.promptArea.SetHeight(h)
 	stepPromptTo(&m.promptArea, index, d)
 
 	// The caret is on the right line; the column is the clicked cell measured

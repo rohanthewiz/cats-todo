@@ -216,17 +216,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   before the `- SIGHUP asks the program to quit` bullet (from `32cd847`).
   A one-line fix; left alone because it was not this session's change.
 
-- **N-068** · raised `2026-0926-2129-caret-offset-rebuild-n063` · value low
-  A click in the prompt is quadratic in its display-line count.
-  `placePromptCursor` (`ui.go`) builds the display-line map with
-  `promptLines`, which walks the whole value one `CursorDown` at a time, and
-  each step runs the library's `repositionView` → `cursorLineNumber` over
-  every row above. So a click in a 2,000-line prompt costs ~1.3s (1,000
-  lines ~0.35s). The N-063 rebuild does not carry over, because the map
-  needs every display line's start. A fix would compute the wrap per row
-  once (the rows above never change during the walk), or drive `LineInfo`
-  per row instead of per step.
-
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -269,6 +258,23 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-068** · closed 2026-09-26, `2026-0926-2141-prompt-click-linear-n068` · raised `2026-0926-2129-caret-offset-rebuild-n063`
+  — A click in the prompt is linear in its lines. `promptLines` (`ui.go`)
+  builds the display-line table on a probe grown one row at a time
+  (`InsertString` changes the row and never repositions). It reads each
+  line's start with `SetCursorColumn` + `LineInfo`, which look only at the
+  caret's own row. `placePromptCursor` places the caret with
+  `setPromptCaretOffset` while the view is `d-y0+1` lines tall. That lands the
+  scroll on y0, and then the real height goes back. The old stepper stays as
+  a backstop. Timings: 2,000 lines went from ~1.3s to ~5ms, and 9,999 lines
+  now take ~21ms. Along the way it fixed a wrong click the old walk made: on
+  a row with no spaces, exactly a multiple of the width long, the walk's
+  table stopped short. That dropped the row's trailing empty line and every
+  row below, so clicks under it landed on the wrong line and the view jumped.
+  Tests in `promptlimit_test.go`: `TestPromptLinesMatchesTheWalk`,
+  `TestPromptClickMatchesTheWalk` (the old code kept as oracles),
+  `TestPromptClickIsLinearInRows`,
+  `TestPromptClickReachesPastAnExactlyFilledRow`.
 - **N-063** · closed 2026-09-26, `2026-0926-2129-caret-offset-rebuild-n063` · raised `2026-0926-1928-indent-trim-fold-search-line-cap-v0.41.0`
   — `setPromptCaretOffset` (`spellpanel.go`) no longer walks the caret. It
   rebuilds the value: `SetValue(suffix)`, `MoveToBegin`,

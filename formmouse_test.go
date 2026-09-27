@@ -14,7 +14,7 @@ import (
 // the given title and prompt already in the fields. The size is set before the
 // form is opened so newFormInputs budgets the editor against it — the same order
 // a real launch takes, and the thing every row constant below depends on.
-func withForm(t *testing.T, title, prompt string, width, height int) model {
+func withForm(t testing.TB, title, prompt string, width, height int) model {
 	t.Helper()
 	m := newTestModel()
 	m.width, m.height = width, height
