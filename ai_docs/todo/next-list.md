@@ -49,6 +49,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   no tag: v0.14.0, v0.21.1, v0.30.0, v0.30.1 and v0.30.2 (checked
   2026-09-24). Not asked for; raise it with the user before doing it. *Lapsed* in
   `2026-0922-0943-info-annotation`.
+  **Needs the user**, as the item says (2026-09-27).
 
 - **N-017** · raised `2026-0913-1932-existing-pane-session-settings` · value medium
   Live-test an existing-pane drop into a real claude pane with model and
@@ -75,6 +76,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   theme, `2026-0927-0145-hover-card-live-and-release`): the `ｉ` draws as an italic i in a slate box, and it reads
   as a chip. The list rows (plain and highlighted) and the menu were not
   looked at, and the user's own theme is still theirs to judge.
+  **Needs the user**: the rest is how it looks in their own theme (2026-09-27).
 
 - **N-039** · raised `2026-0924-1924-nextlist-send-value-levels-v0.36.0` · value low
   Check the value marks and the annotation bar by eye in cats: that 🔷 draws
@@ -87,6 +89,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   than ◆, and a grid `read` found the text column on the same cell for
   🔷, ◆ and bare rows. The bare tier's radio was not seen, because the pane
   was wide.
+  **Needs the user**: the rest is how it looks in their own theme (2026-09-27).
 
 - **N-043** · raised `2026-0924-2007-redo-and-switch-confirm` · value medium
   Live-test the switch confirm (`panesetup.go`) in cats. Drop a prompt with
@@ -96,6 +99,8 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   `confirmed the model switch`. Then check the same with only the effort
   changed, and with a PreModelSwitch hook that asks. Only a scripted fake
   pane has exercised it.
+  **Needs the user**: blocked by N-070, since every live `/model` rewrites the
+  user's default model (2026-09-27).
 
 - **N-044** · raised `2026-0924-2007-redo-and-switch-confirm` · value low
   Check whether `/model fable` can raise its usage-credits consent dialog on
@@ -103,6 +108,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   credits"). If so it would eat the prompt the way the switch confirm did,
   and `applyPaneSetup` doesn't watch for it. A pane that has consented once
   won't show it.
+  **Needs the user**: blocked by N-070, as N-043 is (2026-09-27).
 
 - **N-066** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
   Eyeball the brightened grey ramp in cats (`styles.go`): `colMuted`,
@@ -110,6 +116,8 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   `colCardBody` to `#d0ccae`. Check that the four text tiers still separate
   on colBg and colPanel, that finished prompts and footers still read as
   quiet, and that the Next List card's yellow stays a tint, not a color.
+  **Needs the user**: it is about the user's own theme. Cats' web page in
+  Chrome drew in a light theme, so it could not stand in (2026-09-27).
 
 - **N-070** · raised `2026-0927-0032-drop-settings-side-effect-v0.42.1` · value high
   A drop's `/model` and `/effort` now change the user's defaults. In Claude
@@ -137,6 +145,8 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   nothing on top. At a fast key repeat (~30ms), a held arrow falls behind
   past a few hundred lines. The fix is a textarea that renders only the
   rows in view: a fork, or an upstream patch.
+  **Needs the user**: the fix is a textarea fork or an upstream patch to
+  bubbles, which is a dependency decision (2026-09-27).
 
 - **N-072** · raised `2026-0927-0053-live-autosave-and-next-send` · value high
   Claude Code 2.1.283 hands a dropped prompt to the model as pasted text,
