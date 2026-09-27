@@ -960,7 +960,9 @@ or one whose agent has exited.
   usually builds on what came before, and one conversation keeps that context.
   Each prompt after the first is a drop into a running pane, so its own
   `/clear`, `/model` and `/effort` are applied there as a single drop would
-  apply them. **fresh each** opens a new session (or a new worktree) per
+  apply them. Only the first prompt that lands brings its pane into view. The
+  later ones leave the view where you put it, so you can watch from the
+  Batches page. **fresh each** opens a new session (or a new worktree) per
   prompt, each only once the one before is idle — for steps that must not see
   each other's context but still must not overlap. It needs a new-session
   target, and says so otherwise.

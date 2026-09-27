@@ -177,6 +177,14 @@ type pendingAction struct {
 	// same reason: the drop goroutine holds no RunContext. Only a worktree
 	// target reads it.
 	anchorPane uint32
+	// keepView skips the focus a drop into a running pane ends with
+	// (performDropAt). A single drop moves the view to where the prompt
+	// went, because the user just asked for it to go there. A same-session
+	// loop's later steps land in a pane the user has already been shown.
+	// Moving the view on each of them pulled away anyone who had gone back
+	// to the Batches page to watch, and closed any menu open there, since
+	// hiding a tab resizes it (N-073). Only the loop sets it (loopAction).
+	keepView bool
 }
 
 // dropResultMsg reports the outcome of an asynchronous drop back to the Update

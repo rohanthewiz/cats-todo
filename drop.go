@@ -76,8 +76,11 @@ func performDropAt(client *catsClient, act pendingAction) (dropLanding, error) {
 		}
 		// Switch to the pane we just dropped into, mirroring how a new-session
 		// drop focuses its freshly-created tab. Best effort: the prompt is
-		// already delivered, so a focus failure must not fail the drop.
-		_ = client.focusPane(act.target.pane)
+		// already delivered, so a focus failure must not fail the drop. A
+		// loop's later steps ask to leave the view alone (keepView).
+		if !act.keepView {
+			_ = client.focusPane(act.target.pane)
+		}
 		return dropLanding{note: note, pane: act.target.pane}, nil
 	case targetNewSession:
 		pane, branch, err := dropIntoNewSession(client, act, prompt)

@@ -726,7 +726,23 @@ func (m *model) loopAction(lr *loopRunner, td Todo, ref todoRef) pendingAction {
 		cwd:        firstNonEmpty(b.Target.Cwd, m.ctx.projectDir()),
 		images:     m.storeFor(ref.scope).imagePaths(td),
 		anchorPane: m.ctx.OwnPaneID,
+		// The first prompt that lands shows the user where the loop is
+		// running. After that the view is theirs (N-073). A fresh-each
+		// step still opens its own tab, and cats focuses a new tab itself,
+		// so this only quiets the same-session steps.
+		keepView: b.landedOnce(),
 	}
+}
+
+// landedOnce reports whether any of the loop's prompts has reached a pane:
+// a run with no error that names where it went.
+func (b Batch) landedOnce() bool {
+	for _, r := range b.Runs {
+		if r.Err == "" && r.Pane != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // loopFinishIntro opens the finish message, so the agent reads the wrap-up as

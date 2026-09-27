@@ -127,6 +127,11 @@ func TestLoopSameSessionRunsInOrder(t *testing.T) {
 	b := loopBatch(m, LoopOpts{}, "Fix flaky drop test", "Rename headings", "Add cleanup command")
 	m = startLoopOn(t, m, b)
 
+	// Nothing has landed yet, so the first step shows where it goes.
+	if act := m.loopAction(m.loops[b.ID], Todo{Title: "x"}, b.Items[0].ref()); act.keepView {
+		t.Error("the first step would leave the view where it was")
+	}
+
 	// Written before the send: a manager dying now leaves prompt 1 unsent,
 	// never sent twice.
 	rec, _ := readBatch(t, project, b.ID)
@@ -161,6 +166,12 @@ func TestLoopSameSessionRunsInOrder(t *testing.T) {
 	// The next one goes into the pane the first opened.
 	if act := m.loopAction(m.loops[b.ID], Todo{Title: "x"}, b.Items[1].ref()); act.target.kind != targetExistingPane || act.target.pane != 7 {
 		t.Errorf("continuation target = %+v, want pane 7", act.target)
+	}
+
+	// It also leaves the view alone: the first landing already showed the
+	// user where the loop runs (N-073). The first step had moved it.
+	if act := m.loopAction(m.loops[b.ID], Todo{Title: "x"}, b.Items[1].ref()); !act.keepView {
+		t.Error("a later same-session step would move the view to its pane again")
 	}
 
 	m = runStep(t, m, b.ID, 1, now.Add(10*time.Second))
