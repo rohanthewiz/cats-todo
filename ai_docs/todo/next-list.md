@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-074
+**Next ID:** N-076
 
 ## Open
 
@@ -105,15 +105,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   credits"). If so it would eat the prompt the way the switch confirm did,
   and `applyPaneSetup` doesn't watch for it. A pane that has consented once
   won't show it.
-
-- **N-048** · raised `2026-0925-1315-multi-drop-batches-phase1` · value medium
-  Live-test batches in cats. Check an all-at-once batch onto new worktrees
-  (the tabs open one after another, each prompt lands whole, and each is
-  marked done), a one-prompt-listed batch into a running pane, and a
-  failure part-way (the rest still go, and the record shows ✗ with the
-  error). Also check the composer's drag and clicks in both layouts (100
-  columns or more, and narrower), Next List items becoming backlog prompts,
-  and ⧉ Duplicate after a partial failure. Only the tests have exercised it.
 
 - **N-053** · raised `2026-0925-1344-batch-scheduling-phase2` · value medium
   Live-test scheduled batches in cats. Schedule one `in 2m` onto new
@@ -209,6 +200,24 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   and never on a scheduled fire, since nobody asked for the view to move.
   Found live while checking N-058.
 
+- **N-074** · raised `2026-0927-0111-batches-menu-and-batch-runs-live` · value low
+  ⧉ Duplicate keeps a running-pane target even after that pane has gone.
+  ▶ Drop now then fails every step with `cats error: unknown pane 356`
+  and records a ✗ batch. The scheduled fire re-checks its pane
+  (`the scheduled pane is gone — send manually`), but the composer's own
+  drop does not. The Target row could say the pane is gone when the
+  composer opens (or when a pane.list shows it missing), and Drop now
+  could refuse in words the way it refuses all at once into a running
+  pane.
+
+- **N-075** · raised `2026-0927-0111-batches-menu-and-batch-runs-live` · value low
+  Several claude panes in the same project show as identical picker rows
+  (`claude · ct-live (this project)  [idle] claude-haiku-… · 36k/200k ·
+  <path>`), so there is no telling which is which. Seen with three in one
+  workspace, where their tabs were named `local-agent`, `doomed` and
+  `claude: N-003…`. Adding the tab or pane title, or the pane's handle,
+  would tell them apart.
+
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -251,6 +260,23 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-048** · closed 2026-09-27, `2026-0927-0111-batches-menu-and-batch-runs-live` · raised `2026-0925-1315-multi-drop-batches-phase1`
+  — Driven live through `catctl probe`. All at once onto new worktrees: two
+  workspaces opened one after the other, each prompt landed whole and ran
+  (one reported its own `todo/n-005-…` branch), and both were marked done.
+  The worktrees and branches were removed afterwards. One prompt, listed,
+  into a running pane: one message, `This is a batch of 2 tasks…`, with
+  both sections whole. Failure part-way: a scheduled batch with one prompt
+  deleted before the fire dropped the other, and the record showed
+  `✗ … — the prompt is no longer in the backlog`. Next List items picked in
+  the composer (✚) became backlog prompts, reusing an open copy where there
+  was one, and were marked done when sent. ⧉ Duplicate after a failure
+  brought back exactly the still-open prompts, and refused in words when
+  none were left. The narrow layout (90 columns) had the `Pick · Batch (n)`
+  tabs: clicks picked rows and switched tabs, and alt+↓ reordered. Not
+  driven: dragging (the probe has no motion op). Raised along the way:
+  N-074 (a duplicated pane target that is gone) and N-075 (identical rows
+  in the picker).
 - **N-058** · closed 2026-09-27, `2026-0927-0111-batches-menu-and-batch-runs-live` · raised `2026-0925-1739-batches-menu-and-loop-default`
   — Driven live through `catctl probe` with real loops into a claude pane.
   The right-click shows ✎ Edit… on a scheduled batch and on a plan (it opens
