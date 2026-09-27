@@ -164,7 +164,7 @@ func (p *snippetPicker) resize(width, height int) {
 	}
 	rows := 0
 	if height > 0 {
-		rows = max(height-snippetsRowsRow-3, 1)
+		rows = max(height-snippetsRowsRow-2-footerRowCap, 1)
 	}
 	p.list.setMaxRows(rows)
 }
@@ -405,7 +405,7 @@ func (m model) viewSnippets() string {
 		segs = append(segs, "ctrl+s saves "+m.snips.captureWhat+" under the typed name")
 	}
 	segs = append(segs, "esc back")
-	b.WriteString(footerStyle.Render(m.fitFooter(segs)))
+	b.WriteString(m.footerBlock(segs))
 	return b.String()
 }
 

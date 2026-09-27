@@ -198,6 +198,15 @@ the legend for the row, each glyph beside the key that presses it, `✉` first. 
 button is ever dropped, however narrow the pane; a control that vanishes is one
 you cannot learn is there.
 
+The key hints at the bottom of every page get two lines. They fill the first,
+wrap onto the second, and only then give up hints from the end of the line.
+The hints are ordered by how much they are worth knowing, so the ones a narrow
+pane loses are the least useful. A wide pane still shows them on one line.
+Every page leaves room for that second line when it sizes its list or editor,
+so the wrap never pushes rows off the bottom. The editor's footer is two lines
+in total: while its toolbar is too narrow to show its own chords, the first
+line lists them and the caret keys keep to the second.
+
 The pointer works too, and the same way round: a click on a button presses it, a
 click on a prompt selects it (which is what makes the buttons useful with the
 mouse — they act on the highlight), a **double-click** on a prompt opens it for

@@ -334,9 +334,9 @@ func (m model) viewImport() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.importList.view("nothing matches — clear the filter, or browse for a file", "", m.width))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+	b.WriteString(m.footerBlock([]string{
 		"enter choose", "esc back",
-	})))
+	}))
 	return b.String()
 }
 
@@ -362,9 +362,9 @@ func (m model) viewImportConfirm() string {
 	}
 	b.WriteString(descStyle.Render(line))
 	b.WriteString("\n\n")
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+	b.WriteString(m.footerBlock([]string{
 		"y import", "tab other backlog", "n / esc cancel",
-	})))
+	}))
 	return b.String()
 }
 
@@ -383,10 +383,10 @@ func (m model) viewImportBrowse() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.files.list.view(m.importBrowseEmptyMessage(), "", m.width))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+	b.WriteString(m.footerBlock([]string{
 		"enter read it", "tab/→ or / open folder", "backspace up", "esc back",
 		"~/ and ../ paths", ". shows hidden",
-	})))
+	}))
 	return b.String()
 }
 

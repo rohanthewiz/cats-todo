@@ -302,7 +302,7 @@ func (m *model) sizeBatchesPage() {
 		m.batches.list.input.SetWidth(min(w, searchFieldWidth))
 	}
 	if m.height > 0 {
-		m.batches.list.setMaxRows(max(m.height-batchesRowsRow-2, 1))
+		m.batches.list.setMaxRows(max(m.height-batchesRowsRow-1-footerRowCap, 1))
 	}
 }
 
@@ -645,7 +645,7 @@ func (m model) viewBatches() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.batches.list.view("no batches yet — ＋ New (ctrl+a) to make one", m.batchesBar(), m.width))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{"enter open or edit", "↑/↓ choose", "type to filter", "dbl-click open", "right-click menu"})))
+	b.WriteString(m.footerBlock([]string{"enter open or edit", "↑/↓ choose", "type to filter", "dbl-click open", "right-click menu"}))
 	return b.String()
 }
 
@@ -771,9 +771,9 @@ func (m model) viewBatchView() string {
 			out[i] = ansi.Truncate(out[i], m.width, "…")
 		}
 	}
-	if m.height > 2 && len(out) > m.height-2 {
-		out = out[:m.height-2]
+	if m.height > 1+footerRowCap && len(out) > m.height-1-footerRowCap {
+		out = out[:m.height-1-footerRowCap]
 	}
-	out = append(out, "", footerStyle.Render(m.fitFooter([]string{"ctrl+d duplicate", "esc back"})))
+	out = append(out, "", m.footerBlock([]string{"ctrl+d duplicate", "esc back"}))
 	return strings.Join(out, "\n")
 }

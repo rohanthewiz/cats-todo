@@ -322,7 +322,7 @@ func (p *nextPage) resize(width, height int) {
 	p.rebuild()
 	rows := 0
 	if height > 0 {
-		rows = max(height-nextRowsRow-2-p.list.separatorLines(), 1)
+		rows = max(height-nextRowsRow-1-footerRowCap-p.list.separatorLines(), 1)
 	}
 	p.list.setMaxRows(rows)
 	// The window is only known now, and whether it overflows decides how much
@@ -983,6 +983,6 @@ func (m model) viewNextList() string {
 		// The chips stopped teaching their chords, so the footer takes over.
 		segs = append([]string{"enter new prompt", m.modEnter() + " send", "ctrl+r refresh", "esc back"}, segs...)
 	}
-	b.WriteString(footerStyle.Render(m.fitFooter(segs)))
+	b.WriteString(m.footerBlock(segs))
 	return b.String()
 }

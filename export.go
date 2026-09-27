@@ -1203,9 +1203,9 @@ func (m model) viewExport() string {
 	if m.exportSub.all {
 		widen = "ctrl+a back to the selection"
 	}
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+	b.WriteString(m.footerBlock([]string{
 		"enter copy", m.modEnter() + " move", widen, "esc back",
-	})))
+	}))
 	return b.String()
 }
 
@@ -1249,6 +1249,6 @@ func (m model) viewExportBrowse() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.files.list.view(m.files.filesEmptyMessage(), "", m.width))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(m.fitFooter(footer)))
+	b.WriteString(m.footerBlock(footer))
 	return b.String()
 }

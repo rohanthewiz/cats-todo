@@ -564,9 +564,9 @@ func (m model) viewSpell() string {
 	// screen where saying so lands on a reader who already has the problem. It
 	// is last because it is the one segment that is not about the screen it is
 	// printed on, and so the right one for a narrow pane to give up first.
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+	b.WriteString(m.footerBlock([]string{
 		"enter apply", "↑/↓ move", "type to filter", "esc back", "right-click a word to open this on it",
-	})))
+	}))
 	return b.String()
 }
 

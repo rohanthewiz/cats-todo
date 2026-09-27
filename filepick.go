@@ -275,7 +275,7 @@ func (p *filePicker) resize(width, height int) {
 	}
 	rows := 0
 	if height > 0 {
-		rows = max(height-filesRowsRow-3, 1)
+		rows = max(height-filesRowsRow-2-footerRowCap, 1)
 	}
 	p.list.setMaxRows(rows)
 }
@@ -719,9 +719,9 @@ func (m model) viewFiles() string {
 	b.WriteString("\n")
 	// In the order they must survive a narrowing pane: the two things the
 	// picker is for, then the ways around, then the two spellings nobody guesses.
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+	b.WriteString(m.footerBlock([]string{
 		"enter insert", "tab/→ or / open folder", "backspace up", "esc back",
 		"~/ and ../ paths", ". shows hidden",
-	})))
+	}))
 	return b.String()
 }

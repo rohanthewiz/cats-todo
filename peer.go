@@ -537,10 +537,10 @@ func (m model) viewPeerAddr() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.peerAddrInput.View())
 	b.WriteString("\n\n")
-	b.WriteString(footerStyle.Render(m.fitFooter([]string{
+	b.WriteString(m.footerBlock([]string{
 		"enter connect", "esc back",
 		"the other machine runs `cats-todo serve` and shares its token",
-	})))
+	}))
 	return b.String()
 }
 

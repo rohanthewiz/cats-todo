@@ -526,8 +526,8 @@ func TestPickerWindowFitsThePane(t *testing.T) {
 	// A resize while open re-fits the window and does not panic.
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = next.(model)
-	if m.files.list.maxRows != 40-filesRowsRow-3 {
-		t.Errorf("maxRows after resize = %d, want %d", m.files.list.maxRows, 40-filesRowsRow-3)
+	if m.files.list.maxRows != 40-filesRowsRow-2-footerRowCap {
+		t.Errorf("maxRows after resize = %d, want %d", m.files.list.maxRows, 40-filesRowsRow-2-footerRowCap)
 	}
 }
 

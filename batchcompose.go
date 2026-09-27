@@ -1381,8 +1381,10 @@ func (m model) batchGeom() batchGeom {
 		g.showPick = m.batch.focus == batchFocusPick
 		g.showBatch = !g.showPick
 	}
-	// Under the body: a blank, the button row, the note, the footer.
-	g.barY, g.noteY, g.footY = h-3, h-2, h-1
+	// Under the body: a blank, the button row, the note, the footer — which
+	// starts at footY and takes the footerRowCap lines to the bottom.
+	g.footY = h - footerRowCap
+	g.barY, g.noteY = g.footY-2, g.footY-1
 	bodyH := max(g.barY-1-bodyY, 6)
 
 	g.srcTabsY, g.queryY, g.allY, g.pickRowsY = bodyY, bodyY+1, bodyY+2, bodyY+3
@@ -1417,7 +1419,7 @@ func (m *model) sizeBatchCompose() {
 
 func (m model) viewBatchCompose() string {
 	g := m.batchGeom()
-	h := g.footY + 1
+	h := g.footY + footerRowCap
 	lines := make([]string, h)
 	title := "New batch"
 	if m.batch.edit.ID != "" {
@@ -1461,7 +1463,9 @@ func (m model) viewBatchCompose() string {
 		}
 		lines[g.noteY] = st.Render(m.fitToPane("  "+bc.note, 0))
 	}
-	lines[g.footY] = footerStyle.Render(m.fitFooter(m.batchFooterSegs()))
+	for i, r := range m.footerRows(m.batchFooterSegs()) {
+		lines[g.footY+i] = footerStyle.Render(r)
+	}
 	return strings.Join(lines, "\n")
 }
 

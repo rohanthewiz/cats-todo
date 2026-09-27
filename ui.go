@@ -5139,7 +5139,7 @@ func (m model) viewSchedule() string {
 	if td.Schedule != nil {
 		foot = "enter next: pick target · empty + enter clears · esc back"
 	}
-	b.WriteString(footerStyle.Render(foot))
+	b.WriteString(m.footerBlock(strings.Split(foot, " · ")))
 	return b.String()
 }
 
@@ -5904,14 +5904,10 @@ func (m model) listFooter() string {
 		"ctrl+↑/↓ or drag move", "ctrl+d hide closed", "ctrl+l view options", "ctrl+w clear done", "esc quit",
 		"right-click menu",
 	}
-	line := strings.Join(segs, " · ")
-	// Concede from the right rather than wrap: the footer sits below the mouse
-	// map, so a wrapped line only costs looks — but it costs them every frame.
-	for m.width > 0 && len([]rune(line)) > m.width && len(segs) > 1 {
-		segs = segs[:len(segs)-1]
-		line = strings.Join(segs, " · ")
-	}
-	return footerStyle.Render(line)
+	// Wrapped onto a second line before anything concedes (footerRows): the
+	// list already budgets two footer lines for the narrow branch above
+	// (listChromeBelow), so the second line costs no row the list could use.
+	return m.footerBlock(segs)
 }
 
 // actionBar renders the row of buttons under the filter. A button whose action
@@ -6441,10 +6437,10 @@ func (m model) formFooter() string {
 	// A new key for the mode has no room left here at 120; it would have to
 	// replace a segment, or go at the tail and accept being cut.
 	if m.carets.on {
-		return footerStyle.Render(m.fitFooter([]string{
+		return m.footerBlock([]string{
 			"typing goes on every line", "esc ends", "backspace deletes", "enter breaks",
 			"tab indents", "←/→ move", "ctrl+a/e line ends",
-		}))
+		})
 	}
 	var lines []string
 	if tier := m.formBarTier(); tier != tierHints {
@@ -6593,7 +6589,15 @@ func (m model) formFooter() string {
 	if m.kbEnhanced {
 		segs = append(segs, "cmd+d dup line")
 	}
-	lines = append(lines, m.fitFooter(segs))
+	// The footer is two lines at most (footerRowCap). While the chords line
+	// above is standing it is the first, and this one keeps to one line; in a
+	// pane wide enough for the chips to teach their own chords, this line has
+	// both to itself and wraps rather than conceding its tail.
+	if len(lines) == 0 {
+		lines = m.footerRows(segs)
+	} else {
+		lines = append(lines, m.fitFooter(segs))
+	}
 
 	for i, ln := range lines {
 		lines[i] = footerStyle.Render(ln)
@@ -6602,7 +6606,10 @@ func (m model) formFooter() string {
 }
 
 // fitFooter joins help segments into one line that fits the pane, dropping them
-// from the right until it does. Conceding beats wrapping: a wrapped footer pushes
+// from the right until it does. Pages now write their hints through
+// footerBlock, which wraps onto a second line first; this one-line form is
+// what a footer already made of two hand-picked lines (the form narrow, the
+// session and View panels) uses for each of them. Conceding beats wrapping: a wrapped footer pushes
 // nothing out of place — the form's clickable rows are all above it — but it
 // costs a line every frame in a pane already short enough to be squeezing the
 // editor. The first segment always survives, however narrow the pane.
@@ -6613,6 +6620,71 @@ func (m model) fitFooter(segs []string) string {
 		line = strings.Join(segs, " · ")
 	}
 	return line
+}
+
+// footerRowCap is how many lines a page's key hints may take. Every page
+// budgets this many rows under its content, so a footer that wraps onto its
+// second line never pushes the page's own rows off the bottom.
+const footerRowCap = 2
+
+// footerRows lays help segments out over at most footerRowCap lines, filling
+// each line before starting the next and only then conceding segments from the
+// right. The single-line fitFooter gave up a hint the moment the first line
+// was full; a second line keeps them on screen in the panes where they were
+// being cut, while a wide pane still reads one line.
+//
+// Segments stay in order: the order is the priority every caller chose (what
+// a narrowing pane loses first is the tail), so a short late segment never
+// jumps ahead to fill a gap an earlier, longer one could not. The first
+// segment always survives, however narrow the pane — fitFooter's rule. An
+// unknown width (before the first WindowSizeMsg) keeps everything on one line.
+//
+//	width 40, segs a b c d e:
+//	  line 1: "a · b · c"      ← c fit, d would not
+//	  line 2: "d"              ← e would not fit, so e and anything after go
+func (m model) footerRows(segs []string) []string {
+	if len(segs) == 0 {
+		return nil
+	}
+	if m.width <= 0 {
+		return []string{strings.Join(segs, " · ")}
+	}
+	var rows []string
+	line := ""
+	for _, s := range segs {
+		switch {
+		case line == "":
+			line = s
+		case lipgloss.Width(line+" · "+s) <= m.width:
+			line += " · " + s
+		case len(rows)+1 < footerRowCap:
+			// This line is full: close it and start the next with s.
+			rows = append(rows, line)
+			line = s
+		default:
+			// The last line is full, so s and the rest of the tail concede.
+			return append(rows, line)
+		}
+		// A lone segment wider than the pane can only happen on the first
+		// line (it is the one that always survives); past it, a segment that
+		// does not fit on a fresh line is dropped like any other overflow.
+		if len(rows) > 0 && lipgloss.Width(line) > m.width {
+			return rows
+		}
+	}
+	return append(rows, line)
+}
+
+// footerBlock is footerRows styled and joined, ready to write under a page.
+// Each line is rendered on its own rather than the joined block at once:
+// lipgloss pads every line of a multi-line render to the widest, and trailing
+// spaces on a hint line are noise a test or a copy-paste would trip over.
+func (m model) footerBlock(segs []string) string {
+	rows := m.footerRows(segs)
+	for i, r := range rows {
+		rows[i] = footerStyle.Render(r)
+	}
+	return strings.Join(rows, "\n")
 }
 
 // viewImages renders the attachment editor: the path box, then one row per
@@ -7030,7 +7102,7 @@ func (m model) viewPrompt() string {
 
 	b.WriteString(m.viewVP.View())
 	b.WriteString("\n\n")
-	b.WriteString(footerStyle.Render("↑/↓ scroll · enter edit · " + m.modEnter() + " drop · ctrl+o export · esc back"))
+	b.WriteString(m.footerBlock([]string{"↑/↓ scroll", "enter edit", m.modEnter() + " drop", "ctrl+o export", "esc back"}))
 	return b.String()
 }
 
@@ -7058,7 +7130,7 @@ func (m model) viewTarget() string {
 	b.WriteString("\n\n")
 	b.WriteString(m.targetList.view("no agent sessions detected — pick New Claude Code session", "", m.width))
 	b.WriteString("\n")
-	b.WriteString(footerStyle.Render(foot))
+	b.WriteString(m.footerBlock(strings.Split(foot, " · ")))
 	return b.String()
 }
 
