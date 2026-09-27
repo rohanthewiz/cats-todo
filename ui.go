@@ -354,13 +354,19 @@ type model struct {
 	// flag serving both would let a release meant for one end the other.
 	promptSel     promptSel
 	promptSelDrag bool
-	// The last press inside the editor — when, and the caret offset it put the
-	// caret at — so the next one can tell whether it is the second half of a
-	// double-click (promptsel.go, promptDoubleClick). Kept apart from the
-	// list's lastClickRow/lastClickAt: those pair presses on a *row*, these on
-	// a *character*, and a click on the list followed by one in the editor must
+	// promptSelGrain is the unit the current sweep snaps to — rune, or the
+	// word or line a double- or triple-click selected — and that selection's
+	// span, which the sweep keeps (promptsel.go, extendPromptSelByGrain).
+	promptSelGrain promptGrain
+	// The last press inside the editor — when, which press of a run it was,
+	// and the caret offset the run's first press put the caret at — so the
+	// next one can tell whether it is the second or third of a multi-click
+	// (promptsel.go, promptClickCount). Kept apart from the list's
+	// lastClickRow/lastClickAt: those pair presses on a *row*, these on a
+	// *character*, and a click on the list followed by one in the editor must
 	// never add up to a double.
 	promptClickAt  time.Time
+	promptClickN   int
 	promptClickOff int
 	// The editor's context menu (promptmenu.go) — right-click, and what the
 	// swept run is worth. Its zero value is "closed", which is what lets every
@@ -1618,15 +1624,28 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	case msg.Y >= formPromptRow && msg.Y < formPromptRow+m.promptArea.Height():
 		cmd := m.focusForm(formFieldPrompt)
 		m.placePromptCursor(msg.X, msg.Y-formPromptRow)
-		// The second press of a double-click selects the word under it. The
-		// first press has already done its ordinary work (placed the caret,
-		// armed a sweep, since released), so the pair reads as "caret here,
-		// then the word here" — the same sequence every desktop editor shows.
-		if m.promptDoubleClick() {
-			m.selectPromptWord()
-			return m, cmd
+		// The second press of a double-click selects the word under it, the
+		// third press of a triple-click the line. The earlier presses have
+		// already done their ordinary work (placed the caret, armed a sweep,
+		// since released), so the run reads as "caret here, then the word
+		// here, then its line" — the same sequence every desktop editor shows.
+		//
+		// Either one arms a sweep too, but a sweep in that unit: dragging on
+		// from a double-click grows the selection by whole words, from a
+		// triple by whole lines, and never gives up what the press selected
+		// (extendPromptSelByGrain) — so a jittery release still leaves the
+		// word, not a letter of it. On a line break (or an empty line) there
+		// is nothing to select, and the press falls back to a plain one.
+		selected := false
+		switch m.promptClickCount() {
+		case 2:
+			selected = m.selectPromptWord()
+		case 3:
+			selected = m.selectPromptLine()
 		}
-		m.anchorPromptSel()
+		if !selected {
+			m.anchorPromptSel()
+		}
 		m.promptSelDrag = true
 		return m, cmd
 	case msg.Y == m.formBarRow():
@@ -1647,6 +1666,11 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 func (m model) promptSelOver(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	row := min(max(msg.Y-formPromptRow, 0), m.promptArea.Height()-1)
 	m.placePromptCursor(msg.X, row)
+	// A sweep begun by a double- or triple-click snaps to whole words or
+	// lines; a plain one leaves the caret on the pointer's rune.
+	if m.promptSelGrain.unit != selByRune {
+		m.extendPromptSelByGrain()
+	}
 	return m, nil
 }
 

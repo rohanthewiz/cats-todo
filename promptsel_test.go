@@ -905,9 +905,9 @@ func TestPromptCmdVFallsBackToTheTerminal(t *testing.T) {
 }
 
 // TestPromptDoubleClickSelectsTheWord: two presses on the same character select
-// the word under them, and the highlight is left standing — the second press
-// must not arm a sweep, or the release that follows would be the only thing
-// between a jittery hand and a selection shrunk to one letter.
+// the word under them, and the highlight is left standing. The second press
+// arms a sweep (N-065), but one that snaps to whole words and keeps the word it
+// began on — so a jittery release still leaves "beta", not a letter of it.
 func TestPromptDoubleClickSelectsTheWord(t *testing.T) {
 	m := withForm(t, "", "alpha beta gamma", 100, 40)
 	gutter := promptGutterWidth(m.promptArea)
@@ -921,21 +921,131 @@ func TestPromptDoubleClickSelectsTheWord(t *testing.T) {
 	if got := m.selectedPromptText(); got != "beta" {
 		t.Errorf("double-click on beta selected %q, want %q", got, "beta")
 	}
-	if m.promptSelDrag {
-		t.Error("the second press of a double-click should not arm a sweep")
+	if !m.promptSelDrag || m.promptSelGrain.unit != selByWord {
+		t.Errorf("the second press armed drag=%v unit=%v, want a word sweep", m.promptSelDrag, m.promptSelGrain.unit)
 	}
 	if got := promptCaretOffset(m.promptArea); got != 10 {
 		t.Errorf("caret at %d after the double-click, want 10 (the end of beta)", got)
 	}
-	m = releaseForm(t, m, gutter+7, formPromptRow)
+	// A cell of jitter before the release, still inside the word.
+	m = dragFormTo(t, m, gutter+8, formPromptRow)
+	m = releaseForm(t, m, gutter+8, formPromptRow)
 	if got := m.selectedPromptText(); got != "beta" {
 		t.Errorf("after the release %q is selected, want %q", got, "beta")
 	}
+}
 
-	// A third quick press is a plain click again: the pair was spent.
-	m = clickForm(m, gutter+7, formPromptRow)
+// TestPromptTripleClickSelectsTheLine pins N-065's triple-click: the third
+// quick press selects the logical line — every display line the soft wrap made
+// of it, without its newline — and a fourth is a plain click again, so the
+// run can be left.
+func TestPromptTripleClickSelectsTheLine(t *testing.T) {
+	m := withForm(t, "", "first line\nalpha beta gamma\nlast", 100, 40)
+	gutter := promptGutterWidth(m.promptArea)
+
+	for range 3 {
+		m = clickForm(m, gutter+7, formPromptRow+1)
+		m = releaseForm(t, m, gutter+7, formPromptRow+1)
+	}
+	if got := m.selectedPromptText(); got != "alpha beta gamma" {
+		t.Errorf("triple-click selected %q, want the line without its newline", got)
+	}
+	m = clickForm(m, gutter+7, formPromptRow+1)
 	if got := m.selectedPromptText(); got != "" {
-		t.Errorf("a third press selected %q, want the highlight gone", got)
+		t.Errorf("a fourth press selected %q, want the highlight gone", got)
+	}
+}
+
+// TestPromptTripleClickTakesTheWholeParagraph: a triple-click on the second
+// display line of a soft-wrapped paragraph selects all of it — the wrap is the
+// pane's width, not something the text says.
+func TestPromptTripleClickTakesTheWholeParagraph(t *testing.T) {
+	long := strings.TrimSpace(strings.Repeat("word ", 40))
+	m := withForm(t, "", long+"\nnext", 60, 40)
+	gutter := promptGutterWidth(m.promptArea)
+	if lines, _ := promptLines(m.promptArea); len(lines) < 3 {
+		t.Fatalf("the paragraph did not wrap (%d display lines); widen the text", len(lines))
+	}
+	for range 3 {
+		m = clickForm(m, gutter+2, formPromptRow+1)
+		m = releaseForm(t, m, gutter+2, formPromptRow+1)
+	}
+	if got := m.selectedPromptText(); got != long {
+		t.Errorf("triple-click on a wrapped line selected %q, want the whole paragraph", got)
+	}
+}
+
+// TestPromptTripleClickToleratesDrift: the third press may land anywhere in the
+// word the first two were on — a hand three presses in has drifted — but a
+// third press on another word is a plain click.
+func TestPromptTripleClickToleratesDrift(t *testing.T) {
+	m := withForm(t, "", "alpha beta gamma", 100, 40)
+	gutter := promptGutterWidth(m.promptArea)
+
+	press := func(m model, x int) model {
+		m = clickForm(m, gutter+x, formPromptRow)
+		return releaseForm(t, m, gutter+x, formPromptRow)
+	}
+	m = press(press(press(m, 7), 7), 9)
+	if got := m.selectedPromptText(); got != "alpha beta gamma" {
+		t.Errorf("a third press elsewhere in beta selected %q, want the line", got)
+	}
+
+	m = withForm(t, "", "alpha beta gamma", 100, 40)
+	m = press(press(press(m, 7), 7), 12)
+	if got := m.selectedPromptText(); got != "" {
+		t.Errorf("a third press on gamma selected %q, want a plain click", got)
+	}
+}
+
+// TestPromptDoubleClickDragExtendsByWords pins N-065's word sweep: dragging on
+// from a double-click grows by whole words in either direction and never drops
+// the word it began on, the anchor flipping sides as the pointer crosses it.
+func TestPromptDoubleClickDragExtendsByWords(t *testing.T) {
+	m := withForm(t, "", "alpha beta gamma delta", 100, 40)
+	gutter := promptGutterWidth(m.promptArea)
+
+	m = clickForm(m, gutter+7, formPromptRow)
+	m = releaseForm(t, m, gutter+7, formPromptRow)
+	m = clickForm(m, gutter+7, formPromptRow)
+
+	m = dragFormTo(t, m, gutter+12, formPromptRow) // the "a" of gamma
+	if got := m.selectedPromptText(); got != "beta gamma" {
+		t.Errorf("dragged right into gamma: %q, want %q", got, "beta gamma")
+	}
+	m = dragFormTo(t, m, gutter+1, formPromptRow) // the "l" of alpha
+	if got := m.selectedPromptText(); got != "alpha beta" {
+		t.Errorf("dragged left into alpha: %q, want %q", got, "alpha beta")
+	}
+	if got := promptCaretOffset(m.promptArea); got != 0 {
+		t.Errorf("caret at %d dragging left, want 0 (the start of alpha)", got)
+	}
+	m = dragFormTo(t, m, gutter+50, formPromptRow) // past the end of the line
+	m = releaseForm(t, m, gutter+50, formPromptRow)
+	if got := m.selectedPromptText(); got != "beta gamma delta" {
+		t.Errorf("dragged past the end: %q, want %q", got, "beta gamma delta")
+	}
+}
+
+// TestPromptTripleClickDragExtendsByLines: the same from a triple-click, by
+// whole logical lines, up and down.
+func TestPromptTripleClickDragExtendsByLines(t *testing.T) {
+	m := withForm(t, "", "one one\ntwo two\nthree three\nfour", 100, 40)
+	gutter := promptGutterWidth(m.promptArea)
+
+	for range 2 {
+		m = clickForm(m, gutter+2, formPromptRow+1)
+		m = releaseForm(t, m, gutter+2, formPromptRow+1)
+	}
+	m = clickForm(m, gutter+2, formPromptRow+1)
+	m = dragFormTo(t, m, gutter+1, formPromptRow+2)
+	if got := m.selectedPromptText(); got != "two two\nthree three" {
+		t.Errorf("dragged down a line: %q", got)
+	}
+	m = dragFormTo(t, m, gutter+5, formPromptRow)
+	m = releaseForm(t, m, gutter+5, formPromptRow)
+	if got := m.selectedPromptText(); got != "one one\ntwo two" {
+		t.Errorf("dragged up a line: %q", got)
 	}
 }
 

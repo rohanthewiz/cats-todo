@@ -214,12 +214,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   delivers both presses and the release between them fast enough to land
   inside `doubleClickWindow` (500ms), and that the word highlight paints.
 
-- **N-065** · raised `2026-0926-2033-prompt-editor-double-click-word` · value low
-  Round out mouse selection in the prompt editor: a triple-click selecting the
-  line, and a drag that starts from a double-click extending by whole words.
-  Today a third quick press is a plain click, and a double-click never arms a
-  sweep (`selectPromptWord` clears `promptSelDrag`). Not asked for.
-
 - **N-066** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
   Eyeball the brightened grey ramp in cats (`styles.go`): `colMuted`,
   `colDim` and `colFaint` each rose ~9 points per channel, and
@@ -274,6 +268,15 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
+- **N-065** · closed 2026-09-26, `2026-0926-2123-drop-picker-context-fill-and-triple-click-n065` · raised `2026-0926-2033-prompt-editor-double-click-word`
+  — A triple-click selects the logical line (the whole wrapped paragraph,
+  newline left out), and a drag after a double- or triple-click extends by
+  whole words or lines, keeping the pressed span and flipping its anchor as
+  the pointer crosses it (`promptClickCount`, `promptGrain`,
+  `extendPromptSelByGrain` in `promptsel.go`). The count cycles 1 → 2 → 3 → 1,
+  and the third press may drift within the first press's word. Tests:
+  `TestPromptTripleClick*`, `TestPromptDoubleClickDragExtendsByWords`. README
+  updated.
 - **N-045** · closed 2026-09-26, `2026-0926-2015-hangup-sighup-race-n045` · raised `2026-0924-2029-notes-send-to-gonotes`
   — A bubbletea kill path race, not ours to fix upstream (still in v2.0.10).
   SIGHUP cancelled the program's context, and bubbletea's

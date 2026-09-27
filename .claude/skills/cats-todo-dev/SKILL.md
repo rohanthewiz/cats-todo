@@ -47,7 +47,7 @@ and the rest stay local.
 | `export.go` | Export-to-project picker: cats workspaces (pane.list ⋈ workspace.list), other backlog, cdx recents, folder browser |
 | `images.go` / `clipboard.go` | attachments copied into `images/<id>/`; macOS pasteboard |
 | `filepick.go` | `@` file picker in the editor (borrowed from cdx, file-level) |
-| `promptsel.go` | text selection inside the textarea; double-click → word (`promptDoubleClick` pairs presses on the caret offset, `promptWordSpan`) |
+| `promptsel.go` | text selection inside the textarea; double-click → word, triple → line (`promptClickCount` counts presses on the caret offset, `promptWordSpan`), and a drag after either extends by that unit (`promptGrain`, `extendPromptSelByGrain`) |
 | `promptmenu.go` | the editor's right-click context menu — rows, hit-testing, the lipgloss-compositor overlay |
 | `promptsplit.go` | ✂ Split into prompts (`ctrl+x`): the markdown-list parser (`bulletBlock`) and one backlog prompt per bullet |
 | `promptsort.go` | ⇅ Sort lines: items when it is a list (markers stay, bodies move), plain lines otherwise |

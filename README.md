@@ -2137,7 +2137,16 @@ under the pointer — letters, digits and `_`, so `fooBar_2` comes whole, and an
 apostrophe inside a word (`don't`) stays with it. On blanks it takes the run of
 spaces; on punctuation, that one character; past the end of a line, the word the
 line ends with. The two presses have to land on the same character within half a
-second, and a third quick press is an ordinary click again. `ctrl+c` copies what is highlighted, and only while
+second. A **triple-click** selects the line — the whole paragraph up to its
+newline, however many rows the soft wrap made of it, since the wrap is the
+pane's width and not the text's — and leaves the newline out, so typing over
+the line replaces it without joining it to the next. The third press may land
+anywhere in the word the first two were on, since a hand three presses in has
+drifted; a fourth quick press is an ordinary click again, which is how the run
+is left. Holding the button down after a double- or triple-click and dragging
+**extends by whole words or whole lines**, in either direction, and never gives
+up the word or line the presses selected: sweep back across it and the
+selection flips to grow the other way from it. `ctrl+c` copies what is highlighted, and only while
 something is (with nothing selected it still quits, as it does everywhere else).
 Typing replaces the selection the way it does in every other editor: the next
 character, newline or paste lands *on* the highlighted run rather than beside

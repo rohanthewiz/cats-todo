@@ -108,6 +108,7 @@ func (m *model) anchorPromptSel() {
 func (m *model) clearPromptSel() {
 	m.promptSel = promptSel{}
 	m.promptSelDrag = false
+	m.promptSelGrain = promptGrain{}
 }
 
 // promptCaretOffset is the caret's absolute rune offset into the editor's value.
@@ -613,52 +614,169 @@ func (m *model) deletePromptSelection() bool {
 	return true
 }
 
-// --- Double-click ---------------------------------------------------------------
+// --- Double- and triple-click ---------------------------------------------------
 
-// promptDoubleClick answers whether the press that has just placed the caret is
-// the second half of a double-click, and records it as the first half of the
-// next pair when it is not.
+// promptGrain is the unit a pointer sweep snaps to, and the span the press that
+// began it selected. A plain press sweeps by rune (the zero value, so a cleared
+// selection needs no special case); a double-click's sweep grows by whole words
+// and a triple-click's by whole lines, the way every desktop editor extends
+// from the gesture that started it.
 //
-// Terminals report presses one at a time with no click count, so the pairing is
-// ours, and it is done on the caret offset the press produced rather than on the
-// raw cell. Two presses a cell apart on the same letter are one gesture to the
-// hand; two presses on the same cell after the view scrolled between them are
-// not. The offset is the thing the eye was aiming at, so it is what must match.
+// lo/hi are the core the press selected — the word, or the line — and they are
+// never given up while the button is down: dragging back across the core puts
+// the anchor on its far side instead of shrinking into it.
 //
-// A pair that fires is spent: the stamp is cleared so a third quick press is a
-// plain click again (caret here, highlight gone) instead of a second double that
-// would re-select the same word and make the gesture impossible to leave.
-func (m *model) promptDoubleClick() bool {
+//	double-click "beta", drag right into "gamma", then left into "alpha"
+//
+//	alpha beta gamma        alpha beta gamma        alpha beta gamma
+//	      └──┘                    └────────┘        └────────┘
+//	      core                  anchor=lo ─▶          ◀─ anchor=hi
+type promptGrain struct {
+	unit   promptSelUnit
+	lo, hi int
+}
+
+type promptSelUnit int
+
+const (
+	selByRune promptSelUnit = iota
+	selByWord
+	selByLine
+)
+
+// promptClickCount answers which press of a multi-click the press that has just
+// placed the caret is — 1, 2 or 3 — and records it for the next one.
+//
+// Terminals report presses one at a time with no click count, so the counting
+// is ours, and it is done on the caret offset the press produced rather than on
+// the raw cell. Two presses a cell apart on the same letter are one gesture to
+// the hand; two presses on the same cell after the view scrolled between them
+// are not. The offset is the thing the eye was aiming at, so it is what must
+// match.
+//
+// The third press is looser than the second: anywhere inside the word the first
+// press was on still counts. The hand drifts a little more with every press of
+// a run, and a triple-click aimed at a line is never aimed at one letter of it;
+// a press outside that word is plainly aimed somewhere else.
+//
+// The count cycles 1 → 2 → 3 → 1. A fourth quick press is a plain click again
+// (caret here, highlight gone) rather than a second triple, which would re-select
+// the same line and make the gesture impossible to leave. Each press is timed
+// from the one before it, not from the first, which is how a run of presses
+// reads to the hand.
+func (m *model) promptClickCount() int {
 	off := promptCaretOffset(m.promptArea)
-	if !m.promptClickAt.IsZero() && off == m.promptClickOff &&
-		time.Since(m.promptClickAt) < doubleClickWindow {
-		m.promptClickAt = time.Time{}
-		return true
+	now := time.Now()
+	n := 1
+	if !m.promptClickAt.IsZero() && now.Sub(m.promptClickAt) < doubleClickWindow {
+		switch m.promptClickN {
+		case 1:
+			if off == m.promptClickOff {
+				n = 2
+			}
+		case 2:
+			lo, hi := promptWordSpan([]rune(m.promptArea.Value()), m.promptClickOff)
+			if off == m.promptClickOff || (hi > lo && off >= lo && off <= hi) {
+				n = 3
+			}
+		}
 	}
-	m.promptClickAt, m.promptClickOff = time.Now(), off
-	return false
+	m.promptClickAt, m.promptClickN = now, n
+	if n == 1 {
+		// The first press is what the later ones are measured against, so its
+		// offset is the one kept; the second and third leave it alone.
+		m.promptClickOff = off
+	}
+	return n
 }
 
 // selectPromptWord selects the word the caret sits on: the anchor goes to the
 // word's first rune and the caret to just past its last, which is the same
 // shape a shift+alt+→ sweep leaves, so copy, typing-over and the menu all read
-// it without knowing how it was made.
+// it without knowing how it was made. It reports false, selecting nothing, on a
+// line break or an empty value, where the caller falls back to a plain press.
 //
 // The caret moves by column within its own logical row, never through
 // setPromptCaretOffset. A word never crosses a newline, and the press that
 // placed the caret left it on the clicked, visible line — so a column move
 // keeps the view exactly where the user was looking, where a walk from the
 // top of the value would scroll it.
-func (m *model) selectPromptWord() {
+func (m *model) selectPromptWord() bool {
 	caret := promptCaretOffset(m.promptArea)
 	lo, hi := promptWordSpan([]rune(m.promptArea.Value()), caret)
 	if hi <= lo {
-		return // on a line break or an empty value: leave the bare caret
+		return false
 	}
-	rowStart := caret - m.promptArea.Column()
-	m.promptSel = promptSel{anchor: lo, active: true}
-	m.promptSelDrag = false
-	m.promptArea.SetCursorColumn(hi - rowStart)
+	m.selectPromptSpan(promptGrain{unit: selByWord, lo: lo, hi: hi}, caret-m.promptArea.Column())
+	return true
+}
+
+// selectPromptLine selects the logical line the caret sits on — the whole
+// paragraph up to its newline, however many display lines the soft wrap made
+// of it, since the wrap is an accident of the pane's width and not something
+// the text says. It reports false on an empty line, as selectPromptWord does
+// on a break.
+//
+// The newline itself is left out. Taking it would put the caret at the start
+// of the next row, which scrolls a view whose last visible line was clicked,
+// and it would make a copied line paste as a line and a half; typing over a
+// line the hand meant to replace should not also join it to the next.
+func (m *model) selectPromptLine() bool {
+	rowStart := promptCaretOffset(m.promptArea) - m.promptArea.Column()
+	n := len(promptRowRunes(m.promptArea))
+	if n == 0 {
+		return false
+	}
+	m.selectPromptSpan(promptGrain{unit: selByLine, lo: rowStart, hi: rowStart + n}, rowStart)
+	return true
+}
+
+// selectPromptSpan sets the selection to g's core, anchor at its start and the
+// caret past its end, and remembers g so a drag that follows keeps to its unit.
+// rowStart is the offset of the caret's row: every span handed here lies within
+// that one row, so the caret is moved by column and the view never scrolls.
+func (m *model) selectPromptSpan(g promptGrain, rowStart int) {
+	m.promptSel = promptSel{anchor: g.lo, active: true}
+	m.promptSelGrain = g
+	m.promptArea.SetCursorColumn(g.hi - rowStart)
+}
+
+// extendPromptSelByGrain is one step of a word or line sweep: the pointer has
+// just placed the caret (placePromptCursor), and the selection is widened from
+// there to the unit the sweep is snapping to, always keeping the core.
+//
+// Past the core's start the selection runs from the core's end back to the
+// start of the unit under the pointer; anywhere else, from the core's start to
+// the end of that unit (or the core's end, when the pointer is still inside
+// it). The anchor flips sides as the pointer crosses the core, which is what
+// lets one drag select leftward or rightward of the word it began on.
+//
+// The caret again moves by column only. The unit under the pointer lies on the
+// pointer's row, and the core's end is used only while the pointer is inside
+// the core — which is then that same row — so the caret never has to leave the
+// row placePromptCursor put it on.
+func (m *model) extendPromptSelByGrain() {
+	g := m.promptSelGrain
+	c := promptCaretOffset(m.promptArea)
+	rowStart := c - m.promptArea.Column()
+	var lo, hi int
+	switch g.unit {
+	case selByWord:
+		lo, hi = promptWordSpan([]rune(m.promptArea.Value()), c)
+		if hi <= lo {
+			lo, hi = c, c // a line break: the sweep reaches it and no further
+		}
+	case selByLine:
+		lo, hi = rowStart, rowStart+len(promptRowRunes(m.promptArea))
+	default:
+		return
+	}
+	anchor, caret := g.lo, max(hi, g.hi)
+	if c < g.lo {
+		anchor, caret = g.hi, lo
+	}
+	m.promptSel = promptSel{anchor: anchor, active: true}
+	m.promptArea.SetCursorColumn(caret - rowStart)
 }
 
 // promptWordClass buckets a rune for double-click selection. A double-click
