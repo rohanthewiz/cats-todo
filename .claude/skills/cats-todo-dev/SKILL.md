@@ -248,8 +248,16 @@ attaches to catway's **browser** socket, not the control socket, and sends the s
   (reverse video).
 - **Wait before capturing.** A burst of keys can take a while to redraw. Capture
   a few hundred ms later, or the screen shows an earlier state.
-- **Mouse.** No hover or motion op exists, so a hover card or a drag can't be
-  driven.
+- **Mouse.** The probe has no hover or motion op. For pointer motion (hover
+  cards), open cats' own page in Chrome at `http://127.0.0.1:8422/?ws=<id>`,
+  a separate window on that workspace that leaves the desktop view alone, and
+  use the Claude-in-Chrome hover. Chrome's pointer lands lower than its
+  screenshot says, and more so further down (about one row at the top, three
+  by row 20), so aim by what gets highlighted. That page draws in Chrome's
+  light theme, so it can't judge colours.
+- **Drops move the view.** A drop into a running pane ends in `agent.focus`.
+  Bring the manager back with `catctl agent.focus --params
+  '{"pane":<manager>}'` before the next probe script.
 - **Never send `/model` or `/effort` to a live claude pane in a test.** Since
   Claude Code 2.1.283 each one is saved as the user's default in
   `~/.claude/settings.json` (N-070).
