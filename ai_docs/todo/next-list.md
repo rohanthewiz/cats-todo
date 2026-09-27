@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-063
+**Next ID:** N-064
 
 ## Open
 
@@ -203,6 +203,16 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   ⤓ row mark should appear on items with an open copy, keep the text column
   straight next to 🔷 and ◆, and update right after a menu Add.
 
+- **N-063** · raised `2026-0926-1928-indent-trim-fold-search-line-cap-v0.41.0` · value low
+  Moving the caret in code is quadratic in the prompt's line count.
+  `setPromptCaretOffset` (`spellpanel.go`) hops one `CursorDown` per logical
+  row, and each hop runs the library's `repositionView` →
+  `cursorLineNumber`, which walks every row above the caret through the wrap
+  memo, hashing each. Walking one caret to the end of a 9,999-line prompt
+  took ~30s in a test (`promptcap_test.go` works around it). The same cost reaches enter,
+  undo and the line tools on prompts with thousands of lines. N-024 fixed the
+  per-display-line half of this, but not the per-row half.
+
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -245,7 +255,7 @@ declined.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
 
-- **N-025** · closed 2026-09-26 · raised `2026-0915-1637-prompt-editor-paste-line-cap`
+- **N-025** · closed 2026-09-26, `2026-0926-1928-indent-trim-fold-search-line-cap-v0.41.0` · raised `2026-0915-1637-prompt-editor-paste-line-cap`
   — Edits past the 10,000-line limit are refused whole with a note, and
   never trimmed (`promptcap.go`). The limit had more roads than the paste:
   every SetValue edit (the column mode, enter, an inserted prompt) cut the
@@ -255,7 +265,7 @@ below were found done or overtaken while seeding.
   `beginEditRef`, which will not open a stored prompt already past the limit.
   `promptMaxLines` mirrors the library's unexported `maxLines`, pinned by
   `TestPromptMaxLinesMatchesTheLibrary`. README updated.
-- **N-061** · closed 2026-09-26 · raised `2026-0926-1520-next-card-and-target-fold`
+- **N-061** · closed 2026-09-26, `2026-0926-1928-indent-trim-fold-search-line-cap-v0.41.0` · raised `2026-0926-1520-next-card-and-target-fold`
   — The filter now searches the folded agents, and nothing unfolds. The
   folded panes are built into the picker, marked `folded`, as `queryOnly`
   rows, a new `listItem` flag: `fuzzyList.filter` lists them only while the
@@ -264,7 +274,7 @@ below were found done or overtaken while seeding.
   the query folds them away again. The batch composer's "draft aims at a
   folded pane" check ignores folded rows. README updated. Test:
   `TestTargetFilterSearchesFoldedAgents`.
-- **N-011** · closed 2026-09-26 · raised `2026-0912-2234-carried-indent-and-release`
+- **N-011** · closed 2026-09-26, `2026-0926-1928-indent-trim-fold-search-line-cap-v0.41.0` · raised `2026-0912-2234-carried-indent-and-release`
   — Answered yes: the upper line is trimmed. `promptCarriedIndent`'s second
   result is now `bare`, meaning only spaces stand left of the caret. A blank
   indented row and a caret inside an indent are both that one case, so enter
