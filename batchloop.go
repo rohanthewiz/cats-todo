@@ -618,7 +618,10 @@ func (m *model) loopDispatch(lr *loopRunner, now time.Time) tea.Cmd {
 	case loopPhaseBetween:
 		return m.loopSendLine(lr, now, loopPhaseBetween, lr.opts.Between)
 	case loopPhaseFinish:
-		return m.loopSendLine(lr, now, loopPhaseFinish, m.loopFinishText(lr.batch))
+		// The finish is a request of the user's, typed as a paste like any drop,
+		// so it carries the same lead (withPasteAsk, N-072). The between command
+		// does not: it is the user's own command line, usually a slash command.
+		return m.loopSendLine(lr, now, loopPhaseFinish, withPasteAsk(m.loopFinishText(lr.batch)))
 	}
 	return nil
 }

@@ -161,6 +161,17 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   (b) cats-todo leads every drop with an explicit ask, which still sits
   inside the paste; or (c) accept it and document it. Recommendation: (a),
   with (b) as a cheap interim for the Next List's framing.
+  2026-09-27 (`2026-0927-2122-paste-ask-interim-and-closed-workspace`): the
+  user chose **(a), with (b) as the interim**. (b) is in: every drop, and a
+  loop's wrap-up message, leads with `pasteAsk` (drop.go, `withPasteAsk`),
+  and slash commands go bare. Live, one run each on the framed "reply
+  ALPHA11" prompt: Haiku 4.5 declined without the ask and did it with it,
+  and Opus 5.5 did it both ways this time. A second Haiku round was set up
+  but never sent. What is left is (a): a key-sending verb in cats' wire,
+  built on the browser path's key encoder that `catctl probe` already uses,
+  a `go.mod` pin bump here, and drops sent as keys with shift+enter for
+  newlines. Then a live check that Claude Code doesn't take a fast key burst
+  for a paste. The same verb unblocks N-079.
 
 - **N-077** · raised `2026-0927-2023-batch-drop-confirm-dialog` · value medium
   Live-test the ▶ Drop now dialog (`batchconfirm.go`) in cats with

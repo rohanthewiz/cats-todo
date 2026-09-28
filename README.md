@@ -2697,9 +2697,33 @@ When the work is done and the tests pass:
 - run /sess-wrap (saves a session doc, commits, and pushes)
 ```
 
-A prompt with no options set delivers exactly its own text, byte for byte, as it
-always did — every option's unset value means "inherit the default", and an
-unconfigured prompt writes no `session` key at all.
+A prompt with no options set composes to exactly its own text, byte for byte,
+as it always did — every option's unset value means "inherit the default", and
+an unconfigured prompt writes no `session` key at all.
+
+**Every drop leads with one sentence of yours.** What reaches the agent starts
+with:
+
+```
+Please do what follows. It is my own request, dropped from my cats-todo backlog, which is why it arrives as pasted text.
+
+<the composed prompt>
+```
+
+A drop is delivered as a bracketed paste (`pane.send_input`), and since Claude
+Code 2.1.283 the model is handed pasted input as `<pasted_content>`, whose
+instructions it follows only where the user's own words ask. A drop has no
+words of yours around it, so a model could answer "your message contains only
+pasted text, so I haven't acted on it", and an unattended drop, scheduled or in
+a batch loop, would count that pause as done. Measured live on the framed
+prompt that had been declined before, Haiku 4.5 declined it without the
+sentence and did it with it, and Opus 5.5 did it both ways. The sentence is
+still inside the paste, so it is an interim fix. The real one is a typed send
+through cats (N-072). A prompt that is a slash command (`/sess-load 2`, a
+loop's `/compact`) goes without it, because Claude Code runs a command only
+when it comes first in the message. A same-session loop's one wrap-up message
+carries it too. The tab of a new session is still titled from the prompt
+itself.
 
 The context rows call the `sess-*` slash commands (`~/.claude/commands/`). Where
 they are not installed the panel greys those rows and says so, but still saves

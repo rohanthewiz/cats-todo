@@ -73,7 +73,7 @@ func performDropAt(client *catsClient, act pendingAction) (dropLanding, error) {
 		if err != nil {
 			return dropLanding{}, err
 		}
-		if err := client.sendInput(act.target.pane, prompt, act.mode == dropRun); err != nil {
+		if err := client.sendInput(act.target.pane, withPasteAsk(prompt), act.mode == dropRun); err != nil {
 			return dropLanding{}, err
 		}
 		// Switch to the pane we just dropped into, mirroring how a new-session
@@ -96,6 +96,45 @@ func performDropAt(client *catsClient, act pendingAction) (dropLanding, error) {
 // sitting in a prompt reads as a mention — the agent has to be told the file is
 // there to be opened.
 const imageBlockHeader = "Attached images — read these files:"
+
+// pasteAsk is the first paragraph of every prompt a drop types into an agent:
+// an explicit ask, in the user's own voice, ahead of the prompt itself (N-072).
+//
+// pane.send_input is a bracketed paste, and since 2.1.283 Claude Code tags
+// pasted input as <pasted_content>. The model is told to follow the
+// instructions in pasted text only where the user's own words ask it to, and a
+// drop is *all* paste — there are no words of the user's around it. Measured
+// live, Opus and Haiku sometimes answered a dropped prompt with "your message
+// contains only pasted text, so I haven't acted on it", most often when it was
+// framed as a Next List item. Unattended, that is the worst failure a drop has:
+// a scheduled drop or a batch loop sees the pane go idle after the question and
+// counts the prompt as done.
+//
+// This is the interim fix, and a partial one: the lead is still inside the
+// paste, so it only tells the model the paste is the user's request, and can't
+// make it the user's own typing. The real fix is a typed send, key events
+// through cats' wire rather than a paste, and that is N-072's road (a). The
+// lead is harmless there too, and harmless to agents that don't tag pastes, so
+// it stays one constant that can go when that road is in.
+//
+// It is added at the send, not in composePrompt: the new-session tab is titled
+// from the prompt's first line, and composePrompt's output is what the tests
+// and the batch dialog describe as the prompt.
+const pasteAsk = "Please do what follows. It is my own request, dropped from my cats-todo backlog, which is why it arrives as pasted text."
+
+// withPasteAsk puts pasteAsk ahead of a message a drop is about to type. Two kinds
+// of text go through unchanged:
+//
+//   - empty text, which is "nothing to send" to every caller;
+//   - text starting with "/", which is a slash command: Claude Code only runs
+//     it as one if the command is the first thing in the message, and a lead
+//     would turn "/sess-load 2" or a loop's "/compact" into prose.
+func withPasteAsk(text string) string {
+	if text == "" || strings.HasPrefix(strings.TrimSpace(text), "/") {
+		return text
+	}
+	return pasteAsk + "\n\n" + text
+}
 
 // clearSettle is how long a drop waits after submitting /clear before typing
 // the prompt. Long enough for the agent to swap its conversation out, short
@@ -317,7 +356,7 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) (p
 	// where we know least about the agent's state, so it is the last place to
 	// start typing early.
 	time.Sleep(newSessionSettle)
-	return pane, branch, client.sendInput(pane, prompt, act.mode == dropRun)
+	return pane, branch, client.sendInput(pane, withPasteAsk(prompt), act.mode == dropRun)
 }
 
 // resolveAgentPath turns an agent's name into the absolute path of the binary,
