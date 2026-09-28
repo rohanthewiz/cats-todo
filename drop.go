@@ -47,7 +47,9 @@ func performDropAt(client *catsClient, act pendingAction) (dropLanding, error) {
 	switch act.target.kind {
 	case targetExistingPane:
 		// The prompt's session settings are applied to the running session
-		// first — /clear, then /model and /effort for a claude pane (see
+		// first — /clear today; /model and /effort for a claude pane only
+		// while paneSetsModelEffort is on, which it is not, since a typed
+		// switch now saves itself as the user's default (N-070, see
 		// paneSetupCommands). Each is delivered as its own submitted message,
 		// because they are built-ins of the agent's input rather than anything
 		// this prompt could carry: pasted at the top of a body they would be
@@ -195,7 +197,7 @@ func composePrompt(prompt string, images []string, opts *SessionOpts) string {
 // fire always runs, so each line would be executed. The pane has to still
 // pass isDropAgent — the same rule the picker used to offer it — and its
 // agent label is taken from pane.list now rather than from the schedule, so
-// paneSetupCommands gates /model and /effort on what is running at fire time.
+// paneSetupCommands gates its commands on what is running at fire time.
 func performScheduledDrop(client *catsClient, sc Schedule, act pendingAction) (string, error) {
 	l, err := performScheduledDropAt(client, sc, act)
 	return l.note, err

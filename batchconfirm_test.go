@@ -190,7 +190,10 @@ func TestDropConfirmSummaryLoop(t *testing.T) {
 		"The first opens a new Claude Code session",
 		"every later one is typed into that same session",
 		"starts claude --model sonnet",
-		"first submits /clear, /model sonnet",
+		// N-070: /model is no longer typed into a running pane (it would
+		// save the model as the user's default), so the loop's later step
+		// submits only /clear and says the model is left alone.
+		"first submits /clear · model not applied, the running pane keeps its own",
 		"submits “/compact” to that same session",
 		"but not after the last prompt",
 		"after 2h counts as failed",

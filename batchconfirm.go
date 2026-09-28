@@ -18,7 +18,7 @@
 //	│  1. Fix flaky drop test                                      │
 //	│     starts claude --model sonnet · then: run /code-review    │
 //	│  2. Rename fuzzyList headings                                │
-//	│     first submits /model sonnet                              │
+//	│     first submits /clear · model not applied, the running …  │
 //	│  …                                                           │
 //	│                                                              │
 //	│  ▶ Drop now   ✕ Back                                         │
@@ -436,7 +436,7 @@ func flowSetup(eff *SessionOpts, images int, intoPane bool, command, agent strin
 				segs = append(segs, "first submits "+strings.Join(cmds, ", "))
 			}
 			if lost := eff.paneUnapplied(agent); lost != "" {
-				segs = append(segs, lost+" cannot be set on a running pane and is left as it is")
+				segs = append(segs, lost+" not applied, the running pane keeps its own")
 			}
 		} else if args := eff.launchArgs(firstNonEmpty(command, "claude")); len(args) > 0 {
 			segs = append(segs, "starts "+firstNonEmpty(command, "claude")+" "+strings.Join(args, " "))

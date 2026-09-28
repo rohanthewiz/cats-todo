@@ -691,8 +691,9 @@ func (m *model) loopSendPrompt(lr *loopRunner, now time.Time) tea.Cmd {
 //
 //   - In the same session, every prompt after the first goes into the pane the
 //     first one opened, as a drop into a running pane — so the prompt's own
-//     /clear, /model and /effort are applied to it there (applyPaneSetup), just
-//     as a single drop into that pane would apply them.
+//     pane setup is applied to it there (applyPaneSetup), just as a single
+//     drop into that pane would apply it: /clear, and not the model or effort
+//     (paneSetsModelEffort, N-070).
 //   - In the same session, the finish (commit / push / wrap, and the release)
 //     is lifted out of every prompt and sent once, after the last
 //     (loopFinishText): each step committing and pushing on its own would be

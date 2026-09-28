@@ -295,6 +295,35 @@ func (o *SessionOpts) hasLaunchFlags() bool {
 // keystroke count that lands on a chosen mode. (`/plan` enters plan mode, but on
 // a pane already in it the same command opens the plan view, which would then
 // swallow the prompt.) It is named on the picker row rather than guessed at.
+//
+// Since Claude Code 2.1.283 model and effort have no clean road either (N-070).
+// `/model X` and `/effort X` typed with an argument now also save the pick as
+// the user's default for new sessions ("Set model to … and saved as your
+// default for new sessions"), so a drop that sent them rewrote
+// ~/.claude/settings.json, and every session started afterwards ran on the
+// prompt's model. No argument or flag on the typed commands turns the save
+// off: the save is gated only on the session being interactive. So they are
+// no longer sent, and the picker row names model and effort as unapplied, the
+// way it names permission mode.
+//
+// A session-only road does exist, in the pickers the bare commands open:
+// `/model` opens a filterable ModelPicker where `s` is
+// modelPicker:thisSessionOnly, and `/effort` opens an EffortSlider where `s` is
+// effortSlider:thisSessionOnly (Enter in either saves the default). Driving
+// them takes ↓, ←/→ and a bare `s`, and pane.send_input can only paste text
+// and press Enter, so that road waits on a key-sending verb in cats' wire and
+// on a live test. paneSetsModelEffort is where it plugs back in.
+//
+//	pane setup today    /clear  →  <prompt>          (model/effort: unapplied)
+
+// paneSetsModelEffort says whether a drop into a running claude pane switches
+// its model and effort before the prompt. It is off because the only way the
+// wire can do it today, typed `/model X` and `/effort X`, saves the switch as
+// the user's default (N-070, above). The commands and their confirm handling
+// (applyPaneSetup) are kept for the session-only road to take over. When it
+// is on, paneSetupCommands sends them and paneUnapplied stops naming them,
+// both from this one value, so the picker never promises what the drop won't do.
+const paneSetsModelEffort = false
 
 // paneSetupCommands are the slash commands a drop into an existing pane submits,
 // one message each, before the prompt — in the order they must run:
@@ -310,8 +339,10 @@ func (o *SessionOpts) hasLaunchFlags() bool {
 //
 //	agent label     /clear   /model   /effort
 //	""  (none)        –        –         –
-//	claude            ✓        ✓         ✓
+//	claude            ✓        ✓*        ✓*
 //	codex, …          ✓        –         –
+//
+//	* only while paneSetsModelEffort is on (it is off: N-070)
 //
 // /clear is the one every agent's input understands, so it goes to any
 // detected agent. With no agent detected there is nothing to clear — the pane
@@ -330,7 +361,7 @@ func (o *SessionOpts) paneSetupCommands(agent string) []string {
 	if o.Clear {
 		cmds = append(cmds, "/clear")
 	}
-	if !isClaudeCommand(agent) {
+	if !paneSetsModelEffort || !isClaudeCommand(agent) {
 		return cmds
 	}
 	if o.Model != "" {
@@ -351,7 +382,7 @@ func (o *SessionOpts) paneUnapplied(agent string) string {
 		return ""
 	}
 	var lost []string
-	if !isClaudeCommand(agent) {
+	if !paneSetsModelEffort || !isClaudeCommand(agent) {
 		if o.Model != "" {
 			lost = append(lost, "model")
 		}

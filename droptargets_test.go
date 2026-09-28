@@ -236,3 +236,38 @@ func TestRunningPaneRowShowsContextFill(t *testing.T) {
 		t.Errorf("titled row desc = %q, want %q", got[3], want)
 	}
 }
+
+// TestRunningClaudeRowSaysModelAndEffortWontApply: a drop into a running pane
+// no longer switches its model or effort (N-070 — since Claude Code 2.1.283 a
+// typed `/model X` or `/effort X` also saves the pick as the user's default
+// for new sessions), so the row has to say so before the pick, or a prompt
+// set to sonnet would quietly run on whatever the pane is on. A new-session
+// row still takes them as launch flags and says nothing.
+func TestRunningClaudeRowSaysModelAndEffortWontApply(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	m, _, _ := newModelInTemp(t)
+	m.ctx.WorkspaceID = "w1"
+	m.nextDrop = &nextSend{todo: Todo{Title: "t", Prompt: "p",
+		Session: &SessionOpts{Model: "sonnet", Effort: "high"}}}
+	m.client = fakeCatsSocket(t,
+		[]wire.PaneInfo{
+			{Pane: 1, Handle: "w1:p1", PaneMeta: wire.PaneMeta{Agent: "claude", AgentState: "idle", Cwd: "/here"}},
+		},
+		[]wire.WorkspaceEntry{{ID: "w1", Name: "here"}},
+	)
+	targets, _ := m.buildTargets()
+	var pane string
+	for _, tg := range targets {
+		switch tg.kind {
+		case targetExistingPane:
+			pane = tg.desc
+		case targetNewSession:
+			if strings.Contains(tg.desc, "won't be applied") {
+				t.Errorf("new-session row warns about flags it will pass: %q", tg.desc)
+			}
+		}
+	}
+	if want := "the session's model/effort won't be applied to a running claude"; !strings.Contains(pane, want) {
+		t.Errorf("running claude row = %q, want it to contain %q", pane, want)
+	}
+}

@@ -142,10 +142,14 @@ func TestLaunchArgs(t *testing.T) {
 }
 
 // TestPaneSetupCommands pins what a drop into an existing pane submits ahead of
-// the prompt. The order is the contract — /clear before the settings so they
-// land on the session that reads the prompt, /model before /effort because a
-// model switch can clamp the effort — and the claude gate is the safety: a
-// "/model" typed into a shell pane in run mode is a command line that gets run.
+// the prompt. The agent gate is the safety: a "/clear" typed into a shell pane
+// in run mode is a command line that gets run.
+//
+// N-070: model and effort are no longer sent at all. Since Claude Code
+// 2.1.283 a typed `/model X` or `/effort X` also saves the pick as the user's
+// default for new sessions, so a drop that sent them rewrote
+// ~/.claude/settings.json. These cases fail if paneSetsModelEffort is turned
+// back on without the session-only road it is waiting for.
 func TestPaneSetupCommands(t *testing.T) {
 	all := &SessionOpts{Model: "sonnet", Effort: "high", Permission: permPlan, Clear: true}
 
@@ -157,10 +161,10 @@ func TestPaneSetupCommands(t *testing.T) {
 	}{
 		{"nil options send nothing", nil, "claude", nil},
 		{"unconfigured options send nothing", &SessionOpts{}, "claude", nil},
-		{"claude gets clear, model, effort in that order", all, "claude",
-			[]string{"/clear", "/model sonnet", "/effort high"}},
-		{"a claude path is still claude", &SessionOpts{Model: "opus"}, "/usr/local/bin/claude",
-			[]string{"/model opus"}},
+		{"claude gets only /clear, never /model or /effort", all, "claude",
+			[]string{"/clear"}},
+		{"model alone sends nothing to claude", &SessionOpts{Model: "opus"}, "/usr/local/bin/claude", nil},
+		{"effort alone sends nothing to claude", &SessionOpts{Effort: "max"}, "claude", nil},
 		{"another agent gets only /clear", all, "codex", []string{"/clear"}},
 		// N-020: with no agent detected the pane may be a shell, where
 		// "/clear" is a command line — nothing at all is typed ahead of the
@@ -180,7 +184,8 @@ func TestPaneSetupCommands(t *testing.T) {
 
 // TestPaneUnapplied pins the picker's warning against paneSetupCommands: every
 // set option that does not become a command on that pane is named, and nothing
-// that does is.
+// that does is. With model and effort withheld from every running pane
+// (N-070), claude names them too.
 func TestPaneUnapplied(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -189,8 +194,10 @@ func TestPaneUnapplied(t *testing.T) {
 		want  string
 	}{
 		{"nil options lose nothing", nil, "codex", ""},
-		{"claude takes model and effort", &SessionOpts{Model: "sonnet", Effort: "max", Clear: true}, "claude", ""},
-		{"permission never reaches a running pane", &SessionOpts{Model: "sonnet", Permission: permPlan}, "claude", "permission mode"},
+		{"claude does not take model and effort", &SessionOpts{Model: "sonnet", Effort: "max", Clear: true}, "claude", "model/effort"},
+		{"a claude path loses them too", &SessionOpts{Effort: "high"}, "/usr/local/bin/claude", "effort"},
+		{"permission never reaches a running pane", &SessionOpts{Permission: permPlan}, "claude", "permission mode"},
+		{"claude loses all three", &SessionOpts{Model: "sonnet", Effort: "low", Permission: permAuto}, "claude", "model/effort/permission mode"},
 		{"another agent loses all three", &SessionOpts{Model: "sonnet", Effort: "low", Permission: permAuto}, "codex", "model/effort/permission mode"},
 		{"clear and text options are never lost", &SessionOpts{Clear: true, Finish: finishCommit}, "codex", ""},
 	}

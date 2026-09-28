@@ -925,9 +925,9 @@ that spells out in sentences, in order, exactly what dropping will do:
 │  1. Fix flaky drop test                                                  │
 │     starts claude --model sonnet --effort high                           │
 │  2. Rename headings                                                      │
-│     first submits /model sonnet, /effort high · then: run /code-review   │
+│     model/effort not applied, the running pane keeps its own · then: …   │
 │  3. Global task                                                          │
-│     first submits /model sonnet, /effort high                            │
+│     model/effort not applied, the running pane keeps its own             │
 │                                                                          │
 │  • After each prompt, submits “/compact” to that same session and waits  │
 │    for it to finish too — but not after the last prompt.                 │
@@ -945,8 +945,8 @@ that spells out in sentences, in order, exactly what dropping will do:
 It covers the delivery mode and where it goes: how many sessions open, on a
 worktree or not, in which directory, or which running pane. Then each prompt in
 delivery order, with what it runs with: the launch flags a new session starts
-with, the `/clear`, `/model` and `/effort` a running pane is sent first (and
-any option a running pane can't take), the context command and extra files
+with, the `/clear` a running pane is sent first (and the options a running
+pane won't be given), the context command and extra files
 asked for first, the wrap-up steps it carries, and its attached images. A loop
 adds its rules: the between command and whether it runs after the last prompt,
 the pause, the max wait and the 45-second start wait, what a failure does, the
@@ -1026,8 +1026,9 @@ or one whose agent has exited.
   first one opened, or into the running pane chosen as the target: a sequence
   usually builds on what came before, and one conversation keeps that context.
   Each prompt after the first is a drop into a running pane, so its own
-  `/clear`, `/model` and `/effort` are applied there as a single drop would
-  apply them. Only the first prompt that lands brings its pane into view. The
+  `/clear` is applied there as a single drop would apply it, and its model
+  and effort are not (see [why](#model-and-effort-in-a-running-pane)): the
+  loop runs on the model the first prompt's session started with. Only the first prompt that lands brings its pane into view. The
   later ones leave the view where you put it, so you can watch from the
   Batches page. **fresh each** opens a new session (or a new worktree) per
   prompt, each only once the one before is idle — for steps that must not see
@@ -2599,7 +2600,7 @@ editor's [annotation bar](#annotations), in sight of the title they qualify.
 
 | Row | What it does |
 |---|---|
-| Model, Effort | `--model`, `--effort` on the launch; `/model`, `/effort` in a running pane |
+| Model, Effort | `--model`, `--effort` on the launch (a new session only, for now) |
 | Permission | `--permission-mode` on the launch (a new session only) |
 | Clear first | sends `/clear` as its own message before the prompt |
 | Context | starts with `/sess-load [n]` or `/sess-use <pattern>` |
@@ -2614,28 +2615,49 @@ flags go on the agent's own command line — and only for `claude`, whose flags
 they are; the picker says so on any other agent's row, and the prompt still
 goes.
 
-A drop into an **existing** pane has no command line, but a prompt that asked
-for a model still means that model, so the settings are applied to the running
-session instead, each as its own submitted message ahead of the prompt:
+A drop into an **existing** pane has no command line. What it can still do is
+send `/clear` as its own submitted message ahead of the prompt:
 
 ```
 /clear            (Clear first)
-/model sonnet     (Model — claude panes only)
-/effort high      (Effort — claude panes only)
 <your prompt>
 ```
 
-`/clear` comes first so the model and effort land on the session that will read
-the prompt, and `/model` before `/effort` because the levels a model accepts are
-its own. They are submitted in paste mode too — the pause is for the prompt, not
-the setup. The two claude commands go only to a pane cats detected as `claude`,
-and `/clear` only to a pane where cats detects some agent: typed into a shell
-any of them would be a command line, and run mode would run it. A
-command that fails aborts the drop rather than delivering the prompt onto the
-wrong setup. Permission mode is the one setting a running session cannot be
-given — Claude Code only cycles through modes with `shift+tab`, from a starting
-point nothing on the wire reports — so the pane's row in the picker says it will
-be left as it is, before you pick it.
+It is submitted in paste mode too — the pause is for the prompt, not the setup
+— and only to a pane where cats detects some agent: typed into a shell it would
+be a command line, and run mode would run it. If it fails, the drop stops
+rather than delivering the prompt onto the wrong setup.
+
+Model, effort and permission mode are **not applied to a running pane**. The
+pane's row in the drop picker says so before you pick it (`the session's
+model/effort won't be applied to a running claude`), and a batch's Drop now
+dialog says it on each prompt that lands in one. The pane keeps whatever it is
+running.
+
+#### Model and effort in a running pane
+
+Up to Claude Code 2.1.282 a drop typed `/model <model>` and `/effort <level>`
+into a running claude pane ahead of the prompt. From 2.1.283 on, both commands
+also **save the pick as your default for new sessions** (`Set model to Sonnet
+and saved as your default for new sessions`), writing `~/.claude/settings.json`.
+Nothing on the typed commands turns that off. So one drop into an existing pane
+would quietly change the model every later `claude` started with, a setting
+you never opened. The drop stopped sending them.
+
+Permission mode never had a road. Claude Code only cycles through modes with
+`shift+tab`, from a starting point nothing on the wire reports.
+
+Model and effort do have a session-only road, in the pickers the bare commands
+open. In `/model`'s picker `s` means *use this session only*, and so does `s`
+in `/effort`'s slider. Enter in either saves the default. Driving them needs
+`↓`, `←`/`→` and a bare `s`, and cats' `pane.send_input` can only paste text
+and press Enter, so that road waits on a key-sending verb in cats and a live
+test (N-079). A new session is not affected: `--model` and `--effort` on the
+launch apply to that session only.
+
+The rest of this section describes that pane setup as it ran, and will run
+again once the session-only road is in. The code for it is kept, switched off
+(`paneSetsModelEffort`).
 
 **A switch mid-conversation asks first.** With Clear first off, `/model` and
 `/effort` land in a live conversation. When the pane's prompt cache is still

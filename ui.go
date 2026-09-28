@@ -4793,12 +4793,15 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 			if p.AgentState != "" {
 				desc = "[" + p.AgentState + "] " + desc
 			}
-			// The prompt's model and effort are switched on a running claude
-			// pane before it lands; whatever cannot be (permission mode
-			// anywhere, everything on another agent) is said here, before
-			// the pick, for the same reason flagNote is.
+			// Whatever of the prompt's session options a running pane won't
+			// get is said here, before the pick, for the same reason flagNote
+			// is: permission mode anywhere, and model and effort too while
+			// paneSetsModelEffort is off (N-070: the only way to switch them
+			// would save the switch as the user's default). "Won't be
+			// applied" rather than "can't be set", since on claude they could
+			// be; the drop chooses not to.
 			if lost := td.Session.paneUnapplied(p.Agent); lost != "" {
-				desc += " · the session's " + lost + " can't be set on a running " + p.Agent + " and won't be applied"
+				desc += " · the session's " + lost + " won't be applied to a running " + p.Agent
 			}
 			targets = append(targets, dropTarget{
 				kind:      targetExistingPane,

@@ -3,7 +3,11 @@
 // mid-conversation.
 //
 // A drop into an existing pane types /clear, /model and /effort ahead of the
-// prompt (paneSetupCommands, session.go). With Clear off, the model and effort
+// prompt (paneSetupCommands, session.go). Since Claude Code 2.1.283 the typed
+// switches also save themselves as the user's default, so the model and effort
+// are withheld (paneSetsModelEffort is off, N-070) and this watch sees only
+// /clear today. It is kept for the session-only road (N-079), which goes
+// through the same confirm. With Clear off, the model and effort
 // switches land in a live conversation, and Claude Code (checked against
 // 2.1.282) guards those with a modal, drawn roughly like this:
 //

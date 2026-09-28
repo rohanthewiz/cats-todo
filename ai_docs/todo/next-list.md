@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-079
+**Next ID:** N-080
 
 ## Open
 
@@ -66,6 +66,10 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   matches, Enter on it prints `Set model to Haiku 4.5 and saved as your
   default…`, and `/effort` sent ~0.5s later printed its line whole. The
   400ms timing question stays open until N-070 is decided.
+  2026-09-27: N-070 was decided as (b). A running pane is no longer sent
+  `/model` or `/effort`, so there is no timing after them to check until
+  the session-only road (N-079) sends them again. This item now waits on
+  N-079, and that road can be run live, since it saves nothing.
 
 - **N-033** · raised `2026-0924-1146-info-mark-blue-chip` · value low
   Check the info chip by eye. Look at an info row in cats, both plain and
@@ -101,6 +105,10 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   pane has exercised it.
   **Needs the user**: blocked by N-070, since every live `/model` rewrites the
   user's default model (2026-09-27).
+  Now waits on N-079 (2026-09-27). The confirm code is kept but not reached,
+  since a drop no longer switches a running pane's model. The picker road
+  goes through the same *Switch model?* check (`URn` in 2.1.283), so this
+  test is part of N-079's live run.
 
 - **N-044** · raised `2026-0924-2007-redo-and-switch-confirm` · value low
   Check whether `/model fable` can raise its usage-credits consent dialog on
@@ -109,6 +117,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   and `applyPaneSetup` doesn't watch for it. A pane that has consented once
   won't show it.
   **Needs the user**: blocked by N-070, as N-043 is (2026-09-27).
+  Now waits on N-079, as N-043 does (2026-09-27).
 
 - **N-066** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
   Eyeball the brightened grey ramp in cats (`styles.go`): `colMuted`,
@@ -118,22 +127,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   quiet, and that the Next List card's yellow stays a tint, not a color.
   **Needs the user**: it is about the user's own theme. Cats' web page in
   Chrome drew in a light theme, so it could not stand in (2026-09-27).
-
-- **N-070** · raised `2026-0927-0032-drop-settings-side-effect-v0.42.1` · value high
-  A drop's `/model` and `/effort` now change the user's defaults. In Claude
-  Code 2.1.283 `/model X` answers `Set model to … and saved as your default
-  for new sessions` (its help: "Your pick becomes the default for new
-  sessions"), and `/effort X` writes `effortLevel` / `modelSettings` the
-  same way. So an existing-pane drop with a model or effort set silently
-  rewrites `~/.claude/settings.json`, and every later session starts on the
-  prompt's model. Found live while starting N-017. **Needs the user**:
-  (a) keep sending them and say so on the picker row and in the status
-  note; (b) stop sending them to running panes and list model/effort as
-  unapplied, as permission mode is (`paneUnapplied`); or (c) look for a
-  session-only road (the binary has a `for this session only` branch; what
-  selects it was not found). Recommendation: (b) until a session-only road
-  is found, since a drop should not change settings the user never opened.
-  Blocks N-017, N-043 and N-044, which all need live `/model` runs.
 
 - **N-071** · raised `2026-0927-0037-probe-driven-live-tests` · value low
   Arrow keys slow down linearly with the prompt's length: measured live,
@@ -184,6 +177,28 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   version files, commit `chore(release): v0.43.0`, tag it, and push the
   code and the tag. Best done after N-077.
 
+- **N-079** · raised `2026-0927-2107-pane-drops-stop-saving-defaults` · value medium
+  Switch a running claude pane's model and effort for that session only,
+  through the pickers the bare commands open (N-070's road (c)). Found in
+  the 2.1.283 binary: `/model` with no argument opens the ModelPicker. It
+  starts in search mode, so typing filters and `↓` moves into the list, and
+  there `s` is `modelPicker:thisSessionOnly` (its footer says `s use this
+  session only`) while Enter is `set as default`. `←/→` in that picker move
+  effort. `/effort` with no argument opens the EffortSlider: `←/→` move, `s`
+  is `effortSlider:thisSessionOnly`, Enter saves. The typed `/model X`
+  saves whenever the session is interactive, and no flag turns that off.
+  What it needs: (1) a way to send `↓`, `←/→` and a bare `s` as keys, since
+  `pane.send_input` pastes its text and Enter is its only bare key. That is
+  a new verb in cats' wire, the same thing N-072 (a) asks for. (2) Never
+  press Enter inside a picker. With an empty filter it saves the default,
+  so `↓` is the way into the list. (3) Wait for `… for this session only`
+  and stop the drop if the pane says `saved as your default`. (4) The
+  slider has no absolute position, so walk it to one end first. (5) `s` is
+  a default binding the user can remap in `keybindings.json`. Then turn on
+  `paneSetsModelEffort` (session.go) with commands for this road, and run
+  N-017, N-043 and N-044 live: this road saves nothing, so a live test is
+  safe.
+
 ## Roadmap
 
 Wanted, but not now: parked until something they wait on arrives, not
@@ -225,6 +240,20 @@ declined.
 
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
+
+- **N-070** · closed 2026-09-27, `2026-0927-2107-pane-drops-stop-saving-defaults` · raised `2026-0927-0032-drop-settings-side-effect-v0.42.1`
+  — The user chose (b) now and (c) later. A drop into a running pane no
+  longer sends `/model` or `/effort`. Since Claude Code 2.1.283 each one
+  saves the pick as the user's default for new sessions. The picker row
+  names model/effort as not applied (`won't be applied to a running
+  claude`), as it names permission mode. So does the Drop now dialog (`model
+  not applied, the running pane keeps its own`). One switch,
+  `paneSetsModelEffort` (session.go, off), gates both `paneSetupCommands`
+  and `paneUnapplied`, and the `/model`/`/effort` plumbing and
+  `applyPaneSetup`'s confirm handling are kept for the road. The
+  session-only road (c) was found in the binary and filed as N-079. Tests:
+  `TestPaneSetupCommands`, `TestPaneUnapplied`, `TestDropConfirmSummaryLoop`.
+  README: "Model and effort in a running pane".
 
 - **N-076** · closed 2026-09-27, `2026-0927-0145-hover-card-live-and-release` · raised `2026-0927-0145-hover-card-live-and-release`
   — Released v0.42.2: both version files bumped, `chore(release): v0.42.2`

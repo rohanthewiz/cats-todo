@@ -32,7 +32,7 @@ and the rest stay local.
 | `store.go` | `Todo`, `store` (load/save/add/move/setDone/setFrozen…), root resolution (`findProjectRoot`, `projectTodosPath`, `globalTodosPath`) |
 | `fuzzylist.go` | reusable fuzzy-filtered list used by the todo list *and* the drop picker; grouping, headings, priority lens |
 | `drop.go` / `client.go` / `launch.go` | performing a drop (`performDropAt` also reports the pane and worktree branch it landed in — `dropLanding`); cats control-socket client (`pane.list`, `tab.create`, `pane.wait_for_output`, `pane.send_input`), `waitForAgentReady`, `claudeReadyProbes` |
-| `panesetup.go` | `applyPaneSetup`: submits `/clear`, `/model`, `/effort` to an existing pane, watching for (and answering) Claude Code's mid-conversation *Switch model?* / *Change effort level?* confirm; a PreModelSwitch hook's ask stops the drop instead |
+| `panesetup.go` | `applyPaneSetup`: submits the pane setup to an existing pane, watching for (and answering) Claude Code's mid-conversation *Switch model?* / *Change effort level?* confirm; a PreModelSwitch hook's ask stops the drop instead. Today that is `/clear` only: `/model`/`/effort` are behind `paneSetsModelEffort` (session.go, off — N-070, a typed switch saves the user's default; the session-only picker road is N-079) |
 | `worktree.go` | "on a new worktree" drops (`todo/<slug>-<4hex>` branches via cats) |
 | `session.go` | `SessionOpts`, normalizers (`normalizeModel/Effort/Permission/Finish/Review`, `foldOption`), launch flags, prompt wrapping |
 | `annotations.go` | the `annots` set, the `annotSlot` table (priority, low-hanging fruit, value, info, the ⚑ flag and its note), `trimAnnotColumns` |
@@ -259,9 +259,11 @@ attaches to catway's **browser** socket, not the control socket, and sends the s
 - **Drops move the view.** A drop into a running pane ends in `agent.focus`.
   Bring the manager back with `catctl agent.focus --params
   '{"pane":<manager>}'` before the next probe script.
-- **Never send `/model` or `/effort` to a live claude pane in a test.** Since
-  Claude Code 2.1.283 each one is saved as the user's default in
-  `~/.claude/settings.json` (N-070).
+- **Never send `/model X` or `/effort X` to a live claude pane in a test.**
+  Since Claude Code 2.1.283 each one is saved as the user's default in
+  `~/.claude/settings.json` (N-070). The bare pickers' `s` (*use this
+  session only*) is the road that saves nothing (N-079); Enter in a picker
+  saves too.
 
 ## Docs and commit habits
 
