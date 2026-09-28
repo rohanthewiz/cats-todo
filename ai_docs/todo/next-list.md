@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-077
+**Next ID:** N-079
 
 ## Open
 
@@ -168,6 +168,21 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   (b) cats-todo leads every drop with an explicit ask, which still sits
   inside the paste; or (c) accept it and document it. Recommendation: (a),
   with (b) as a cheap interim for the Next List's framing.
+
+- **N-077** · raised `2026-0927-2023-batch-drop-confirm-dialog` · value medium
+  Live-test the ▶ Drop now dialog (`batchconfirm.go`) in cats with
+  `catctl probe`. Open the composer with a loop and with all at once, press
+  `alt+enter`, and dump the pane: the box should be centred over the
+  composer, the summary should read right, and the buttons should be lit.
+  Check that `esc` leaves nothing in `batches.json` and that `enter` drops.
+  Also check a short pane scrolls (`↓` and the hint's range), and that a
+  click on ✕ Back and a click off the box both go back. Unit tests cover
+  all of this against the model, but not against catway's rendering.
+
+- **N-078** · raised `2026-0927-2023-batch-drop-confirm-dialog` · value low
+  Release the drop dialog as v0.43.0 (minor: a new dialog). Bump both
+  version files, commit `chore(release): v0.43.0`, tag it, and push the
+  code and the tag. Best done after N-077.
 
 ## Roadmap
 

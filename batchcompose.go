@@ -42,6 +42,9 @@
 // prompts only when the batch is dropped or scheduled (nextItemAsPrompt), so a
 // composer abandoned with esc has written nothing anywhere.
 //
+// ▶ Drop now asks before it sends: a dialog spells the whole flow out in
+// sentences, and only its confirm drops (batchconfirm.go).
+//
 // When is the one row that decides which button applies. Empty means now, and
 // ▶ Drop now is live; a time (anything parseScheduleTime reads) means later,
 // and ◷ Schedule is. The other is greyed and says why when pressed, rather
@@ -294,6 +297,11 @@ type batchComposer struct {
 	// Batch for a new one. Saving swaps against it (see the file comment),
 	// and the tick leaves it alone while it is open (fireDueBatches).
 	edit Batch
+
+	// confirm is the dialog ▶ Drop now opens: the batch's whole flow in
+	// sentences, asked before anything is sent (batchconfirm.go). Modal
+	// while open; the draft behind it is untouched.
+	confirm batchDropConfirm
 }
 
 // defaultBatchTarget is the target a new batch starts on: a new Claude Code
@@ -949,9 +957,10 @@ func (m *model) clearSpentMarks() {
 	}
 }
 
-// dropBatch is ▶ Drop now: validate, build the record, and start the chain
-// (launchBatch). An edited batch is claimed first, so a batch that fired in
-// another pane while it was open here is not sent a second time.
+// dropBatch is ▶ Drop now once its dialog is confirmed (askDropBatch opens
+// it): validate again, build the record, and start the chain (launchBatch).
+// An edited batch is claimed first, so a batch that fired in another pane
+// while it was open here is not sent a second time.
 func (m model) dropBatch() (tea.Model, tea.Cmd) {
 	if why := m.batchDropWhy(); why != "" {
 		m.batchSay(why, true)
@@ -1118,6 +1127,11 @@ func (m model) updateBatchCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// A key ends a drag whose release went missing (the list's rule).
 		bc.dragging = false
 	}
+	// The drop dialog owns every key while it is up, as the form's context
+	// menu does on its stage.
+	if bc.confirm.open {
+		return m.updateDropConfirm(msg)
+	}
 	s := msg.String()
 	switch s {
 	case "ctrl+c":
@@ -1140,8 +1154,9 @@ func (m model) updateBatchCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		return m, m.cycleBatchFocus(-1)
 	case "shift+enter", "alt+enter":
-		// The list's drop chord, meaning the same thing here: send it.
-		return m.dropBatch()
+		// The list's drop chord, meaning the same thing here: send it —
+		// once the dialog has said what sending it will do.
+		return m.askDropBatch()
 	case "ctrl+s":
 		// The list's schedule chord.
 		return m.scheduleBatch()
@@ -1295,7 +1310,7 @@ func (m model) updateBatchCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m model) pressBatchButton(i int) (tea.Model, tea.Cmd) {
 	switch i {
 	case batchBtnDrop:
-		return m.dropBatch()
+		return m.askDropBatch()
 	case batchBtnSchedule:
 		return m.scheduleBatch()
 	case batchBtnSort:
@@ -1894,6 +1909,9 @@ func plural(n int) string {
 // in the Batch pane is highlighted and taken hold of for a drag, a settings
 // row is focused and — for the two that open something — opened.
 func (m model) clickBatchCompose(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if m.batch.confirm.open {
+		return m.clickDropConfirm(msg)
+	}
 	g := m.batchGeom()
 	x, y := msg.X, msg.Y
 	bc := &m.batch

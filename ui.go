@@ -1038,6 +1038,11 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stageBatchCompose:
 		// The blink and a paste go to whichever box holds the keys: the
 		// text box on its settings row, the Pick pane's query otherwise.
+		// Not while the drop dialog is up: a paste would edit the draft
+		// the dialog is describing, behind its back.
+		if m.batch.confirm.open {
+			return m, nil
+		}
 		if f := m.batch.setField(); f != nil {
 			*f, cmd = f.Update(msg)
 		} else if m.batch.focus == batchFocusPick {
@@ -5522,7 +5527,9 @@ func (m model) renderStage() string {
 	case stageViewOpts:
 		return m.viewViewOpts()
 	case stageBatchCompose:
-		return m.viewBatchCompose()
+		// The drop dialog floats over the composer for the menu's reason
+		// above: the composer's hit-tested rows stay where they are.
+		return m.overlayDropConfirm(m.viewBatchCompose())
 	case stageBatches:
 		return m.overlayBatchesMenu(m.viewBatches())
 	case stageBatchView:

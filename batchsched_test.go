@@ -342,6 +342,15 @@ func TestEditLosesToAFire(t *testing.T) {
 		}
 		next, cmd := m.updateBatchCompose(key)
 		nm := next.(model)
+		if key.Mod == tea.ModAlt {
+			// ▶ Drop now asks first (batchconfirm.go); the lost claim is
+			// found on the confirm, which is where the record is swapped.
+			if !nm.batch.confirm.open {
+				t.Fatalf("alt+enter: the drop dialog did not open (note %q)", nm.batch.note)
+			}
+			next, cmd = nm.updateBatchCompose(tea.KeyPressMsg{Code: tea.KeyEnter})
+			nm = next.(model)
+		}
 		if cmd != nil || nm.stage != stageBatchCompose || nm.batch.note != errBatchChanged.Error() {
 			t.Errorf("%s: cmd %v stage %v note %q", key.String(), cmd != nil, nm.stage, nm.batch.note)
 		}

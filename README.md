@@ -909,6 +909,67 @@ typed, is the surprise the grey is there to prevent. Leaving with picks on the
 table — `esc`, **✕ Cancel**, **☰ Batches** — takes a second press: the first
 says the picks are not saved until the batch is dropped or scheduled.
 
+#### Drop now asks first
+
+**▶ Drop now** doesn't send straight away. It opens a dialog over the composer
+that spells out in sentences, in order, exactly what dropping will do:
+
+```
+╭──────────────────────────────────────────────────────────────────────────╮
+│ Drop “nightly cleanup” now? · 3 prompts                                  │
+│                                                                          │
+│ Sends the prompts one at a time, in this order. The first opens a new    │
+│ Claude Code session in ~/projs/x; every later one is typed into that     │
+│ same session, only after the one before it has finished …                │
+│                                                                          │
+│  1. Fix flaky drop test                                                  │
+│     starts claude --model sonnet --effort high                           │
+│  2. Rename headings                                                      │
+│     first submits /model sonnet, /effort high · then: run /code-review   │
+│  3. Global task                                                          │
+│     first submits /model sonnet, /effort high                            │
+│                                                                          │
+│  • After each prompt, submits “/compact” to that same session and waits  │
+│    for it to finish too — but not after the last prompt.                 │
+│  • Then waits 30s before sending the next prompt.                        │
+│  • A failure stops the loop there: the prompts after it are not sent.    │
+│  …                                                                       │
+│  • A record of the batch is written before anything is sent …            │
+│  • Each prompt is marked done once it is delivered …                     │
+│                                                                          │
+│  ▶ Drop now    ✕ Back                                                    │
+│ enter confirm · esc back · ←/→ button                                    │
+╰──────────────────────────────────────────────────────────────────────────╯
+```
+
+It covers the delivery mode and where it goes: how many sessions open, on a
+worktree or not, in which directory, or which running pane. Then each prompt in
+delivery order, with what it runs with: the launch flags a new session starts
+with, the `/clear`, `/model` and `/effort` a running pane is sent first (and
+any option a running pane can't take), the context command and extra files
+asked for first, the wrap-up steps it carries, and its attached images. A loop
+adds its rules: the between command and whether it runs after the last prompt,
+the pause, the max wait and the 45-second start wait, what a failure does, the
+one wrap-up message a same-session loop sends at the end in place of each
+prompt's own, and the one-hour take-over window. Every batch ends with the
+bookkeeping: Next List items saved to the backlog first, an edited batch taken
+off its schedule, the record, and the done marks.
+
+The sentences aren't written per case. They come from the same functions the
+delivery runs (`overlaySession`, `launchArgs`, `paneSetupCommands`, the
+prompt's wrap-up, `loopFinishText`), so the dialog can't describe a flow the
+batch won't run.
+
+`enter` (or `y`, or the drop chord again) confirms; `esc`, `n`, **✕ Back** or a
+click off the box goes back with the draft untouched, and the note line says
+nothing was sent. `←/→` moves between the two buttons, and a summary taller
+than the pane scrolls with `↑/↓`, `pgup/pgdn`, `home/end`. Nothing is written
+while the dialog is up, and a paste doesn't reach the draft behind it. A batch
+that can't go at all (no picks, no socket, a time on the When row, the target
+pane gone) is refused on the note line *before* the dialog, since there would
+be nothing to confirm. Confirming runs every check again, because a schedule
+may have fired meanwhile and taken the drop guard.
+
 ### What a drop of a batch does
 
 This is *all at once* and *one prompt*; a loop is
