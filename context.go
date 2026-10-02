@@ -132,37 +132,98 @@ func isFilesystemRoot(dir string) bool {
 }
 
 // walkProjectRoot walks up from dir to the directory that owns the project
-// backlog: the nearest ancestor with an existing .cats-todo backlog wins, then
-// the nearest with a .git directory (the repo root). With neither, dir itself is
-// the root — a directory that is not in a repo and has no backlog yet gets its
-// own on first save.
+// backlog. At each directory on the way up, two questions, in this order:
 //
-// The existing-backlog pass runs to completion before the .git pass so an
-// established backlog always beats a repo root that merely encloses it — a repo
-// with a backlog in a subdirectory keeps using that subdirectory rather than
-// silently starting a second one at the root.
+//  1. Does it hold a .cats-todo directory? Then it owns the backlog — done.
+//  2. Is it a repo root (.git — a directory, or the file a worktree or a
+//     submodule has)? Then the walk stops here, and this repo root is the
+//     answer whether or not it holds a backlog yet.
+//
+// With neither marker anywhere up to the ceiling (below), dir itself is the
+// root.
+//
+//	/Users/u/.cats-todo          ← above the ceiling: never consulted from below
+//	/Users/u                     ← $HOME: the ceiling
+//	/Users/u/projs/.cats-todo    ← never reached from inside the repo below
+//	/Users/u/projs/app/.git      ← walk stops here: the root is app/
+//	/Users/u/projs/app/cmd/tool  ← launched here
+//
+// The repo is a boundary, not just a fallback. The walk used to look for a
+// backlog all the way to "/" before it ever considered .git, so a repo with
+// no backlog of its own quietly adopted the nearest unrelated one above it —
+// a ~/.cats-todo, or a parent directory's — and edits landed in a backlog
+// that had nothing to do with the project on screen. Stopping at the repo root
+// keeps a project's backlog inside the project, and leaves "no backlog yet" as
+// a state the caller can see (projectBacklogMissing) and offer to fix rather
+// than one papered over by someone else's file.
+//
+// Checking .cats-todo before .git at the same directory is what lets a repo
+// keep its backlog at the top, and a subdirectory's backlog still wins over the
+// repo root that encloses it, because the walk reaches it first.
+//
+// The ceiling covers the case with no repo to stop at. A plain directory tree
+// under the home directory (notes, scratch) can still keep one backlog at its
+// top, but the walk never looks in $HOME itself or above it: a ~/.cats-todo
+// would otherwise be the backlog of every non-repo folder in the home
+// directory, which is the same leak the repo boundary closes. $HOME is
+// consulted only when the walk *starts* there — launching in ~ asks for ~'s
+// backlog. A directory outside the home tree (/tmp, /opt/…) has no ceiling
+// short of "/", and walks there as before.
 func walkProjectRoot(dir string) string {
+	home := walkCeiling()
 	for d := dir; ; {
-		if fi, err := os.Stat(filepath.Join(d, projectConfigDirName)); err == nil && fi.IsDir() {
+		if isProjectBacklogDir(d) {
 			return d
 		}
-		parent := filepath.Dir(d)
-		if parent == d {
-			break
-		}
-		d = parent
-	}
-	for d := dir; ; {
+		// os.Stat rather than a directory check: in a linked worktree or a
+		// submodule .git is a file, and it marks a checkout's root all the same.
 		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
 			return d
 		}
 		parent := filepath.Dir(d)
-		if parent == d {
+		// Three ways out: the filesystem root (its own parent); the next step
+		// would enter $HOME from below; or the walk started at $HOME and the
+		// next step would leave it upwards.
+		if parent == d || (home != "" && (parent == home || d == home)) {
 			break
 		}
 		d = parent
 	}
 	return dir
+}
+
+// walkCeiling is the home directory the root walk stops below, cleaned so it
+// compares equal to filepath.Dir's output; "" (no ceiling) when it cannot be
+// resolved, or when it is the filesystem root itself, which the walk's own
+// stop already covers.
+func walkCeiling() string {
+	h, err := os.UserHomeDir()
+	if err != nil || h == "" {
+		return ""
+	}
+	h = filepath.Clean(h)
+	if isFilesystemRoot(h) {
+		return ""
+	}
+	return h
+}
+
+// isProjectBacklogDir reports whether dir holds a .cats-todo directory. The
+// directory, not todos.json, is the marker: a backlog whose file has not been
+// written yet (attachments, a dictionary.txt) is still that project's backlog.
+func isProjectBacklogDir(dir string) bool {
+	fi, err := os.Stat(filepath.Join(dir, projectConfigDirName))
+	return err == nil && fi.IsDir()
+}
+
+// projectBacklogMissing reports whether root is a project that has no
+// .cats-todo directory yet — the repo-root (or bare directory) answer of
+// walkProjectRoot, as opposed to one it found an existing backlog in. The
+// manager offers to create one at launch rather than conjuring it on the
+// first save; see offerCreateBacklog. Empty root (no project) is not
+// "missing": there is nothing to create.
+func projectBacklogMissing(root string) bool {
+	return root != "" && !isProjectBacklogDir(root)
 }
 
 // gatherRunContext builds the launch context. The working directory always

@@ -67,6 +67,9 @@ const (
 	// confirmImport is the arithmetic screen an import stops at: how many
 	// prompts, into which backlog, how many already here (see import.go).
 	confirmImport // remove every done todo in both scopes
+	// confirmCreateBacklog is the launch-time offer to create the project's
+	// .cats-todo when the root walk found none (see backlogoffer.go).
+	confirmCreateBacklog
 )
 
 // formMode distinguishes adding a new todo from editing an existing one.
@@ -4502,6 +4505,8 @@ func (m model) updateConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "y", "Y", "enter":
 		switch {
+		case m.confirmKind == confirmCreateBacklog:
+			m.createProjectBacklog()
 		case m.confirmKind == confirmImport:
 			return m.performImport()
 		case m.confirmKind == confirmClearDone:
@@ -4517,6 +4522,9 @@ func (m model) updateConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.backToList()
 		return m, nil
 	case "n", "N", "esc":
+		if m.confirmKind == confirmCreateBacklog {
+			m.declineProjectBacklog()
+		}
 		m.backToList()
 		return m, nil
 	}
@@ -7052,6 +7060,9 @@ func (m model) viewConfirm() string {
 	var b strings.Builder
 	if m.confirmKind == confirmImport {
 		return m.viewImportConfirm()
+	}
+	if m.confirmKind == confirmCreateBacklog {
+		return m.viewCreateBacklog()
 	}
 	if m.confirmKind == confirmClearDone {
 		b.WriteString(titleStyle.Render("Clear completed prompts?"))

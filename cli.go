@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -15,9 +16,10 @@ import (
 // addFromCLI implements `cats-todo add [-g] [-t title] [-i image]... [prompt...]`.
 // The prompt is the remaining arguments joined by spaces; with none it is read
 // from a piped stdin. The default target is the project backlog rooted at the
-// nearest .cats-todo (or .git) directory above the current directory — the same
-// root the manager TUI resolves, so both entry points reach one backlog per
-// project; -g targets the global backlog instead.
+// nearest .cats-todo above the current directory, the walk stopping at the repo
+// root (see walkProjectRoot) — the same root the manager TUI resolves, so both
+// entry points reach one backlog per project; -g targets the global backlog
+// instead.
 //
 // -i attaches an image, repeatably. The file is copied into the backlog rather
 // than referenced (see images.go), so a screenshot can be attached and then
@@ -137,6 +139,8 @@ func addFromCLI(args []string) {
 	}
 
 	var st *store
+	// freshBacklog: this add is about to create the project's .cats-todo.
+	var freshBacklog bool
 	if *global {
 		path, err := globalTodosPath()
 		if err != nil {
@@ -157,6 +161,12 @@ func addFromCLI(args []string) {
 			errExit("no project backlog here — run from a project directory, or use -g for the global backlog")
 		}
 		st = &store{scope: scopeProject, path: projectTodosPath(root)}
+		// Noted before the save creates it. add is often fed a prompt on stdin,
+		// so it cannot stop and ask the way the manager does; it goes ahead
+		// (the user did ask to save a prompt here) and says plainly that this
+		// add started a new backlog — the one moment a backlog appearing in the
+		// wrong repo, or where one was expected further up, can be noticed.
+		freshBacklog = projectBacklogMissing(root)
 	}
 
 	t := strings.TrimSpace(*title)
@@ -212,6 +222,10 @@ func addFromCLI(args []string) {
 	// at the moment it happened.
 	if s := opts.summary(); s != "" {
 		fmt.Println("  ⚙ " + s)
+	}
+	if freshBacklog {
+		fmt.Printf("  ✚ no backlog here yet, so this started one: %s — `git add %s` when you are ready\n",
+			filepath.Dir(st.path), projectConfigDirName)
 	}
 }
 

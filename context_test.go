@@ -158,6 +158,121 @@ func TestFindProjectRoot(t *testing.T) {
 		}
 	})
 
+	t.Run("the repo root is a boundary an outer backlog does not cross", func(t *testing.T) {
+		// The bug this walk used to have: a repo with no backlog of its own
+		// adopted an unrelated .cats-todo further up the tree (a ~/.cats-todo,
+		// a parent directory's), because the backlog search ran to "/" before
+		// .git was ever considered. The repo root must win, backlog or not.
+		outer := t.TempDir()
+		mkdir(t, filepath.Join(outer, projectConfigDirName))
+		repo := filepath.Join(outer, "work", "app")
+		mkdir(t, filepath.Join(repo, ".git"))
+		deep := filepath.Join(repo, "cmd", "tool")
+		mkdir(t, deep)
+
+		if got := findProjectRoot(deep); got != repo {
+			t.Errorf("findProjectRoot = %q, want the repo root %q (not the outer backlog at %q)", got, repo, outer)
+		}
+		if !projectBacklogMissing(repo) {
+			t.Error("projectBacklogMissing(repo) = false, want true: the repo has no .cats-todo of its own")
+		}
+	})
+
+	t.Run("launched at the repo root itself stops there too", func(t *testing.T) {
+		outer := t.TempDir()
+		mkdir(t, filepath.Join(outer, projectConfigDirName))
+		repo := filepath.Join(outer, "app")
+		mkdir(t, filepath.Join(repo, ".git"))
+
+		if got := findProjectRoot(repo); got != repo {
+			t.Errorf("findProjectRoot = %q, want the starting repo root %q", got, repo)
+		}
+	})
+
+	t.Run("a .git file (worktree, submodule) is a boundary too", func(t *testing.T) {
+		outer := t.TempDir()
+		mkdir(t, filepath.Join(outer, projectConfigDirName))
+		wt := filepath.Join(outer, "wt")
+		mkdir(t, wt)
+		if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := findProjectRoot(wt); got != wt {
+			t.Errorf("findProjectRoot = %q, want the worktree root %q", got, wt)
+		}
+	})
+
+	t.Run("a backlog beside .git is the repo's own", func(t *testing.T) {
+		repo := t.TempDir()
+		mkdir(t, filepath.Join(repo, ".git"))
+		mkdir(t, filepath.Join(repo, projectConfigDirName))
+		deep := filepath.Join(repo, "a")
+		mkdir(t, deep)
+
+		if got := findProjectRoot(deep); got != repo {
+			t.Errorf("findProjectRoot = %q, want %q", got, repo)
+		}
+		if projectBacklogMissing(repo) {
+			t.Error("projectBacklogMissing = true for a repo that has a .cats-todo")
+		}
+	})
+
+	t.Run("outside any repo an ancestor backlog is still found", func(t *testing.T) {
+		// No .git anywhere means no boundary: a plain directory tree keeps one
+		// backlog at its top, as before.
+		top := t.TempDir()
+		mkdir(t, filepath.Join(top, projectConfigDirName))
+		deep := filepath.Join(top, "notes", "2026")
+		mkdir(t, deep)
+
+		if got := findProjectRoot(deep); got != top {
+			t.Errorf("findProjectRoot = %q, want the ancestor backlog %q", got, top)
+		}
+	})
+
+	t.Run("a non-repo walk stops below $HOME", func(t *testing.T) {
+		// ~/.cats-todo must not become the backlog of every non-repo folder in
+		// the home directory — the same leak the repo boundary closes.
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		mkdir(t, filepath.Join(home, projectConfigDirName))
+		loose := filepath.Join(home, "scratch", "deep")
+		mkdir(t, loose)
+
+		if got := findProjectRoot(loose); got != loose {
+			t.Errorf("findProjectRoot = %q, want the directory itself %q (not $HOME's backlog)", got, loose)
+		}
+	})
+
+	t.Run("a backlog below $HOME is still found from beneath it", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		notes := filepath.Join(home, "notes")
+		mkdir(t, filepath.Join(notes, projectConfigDirName))
+		deep := filepath.Join(notes, "2026", "oct")
+		mkdir(t, deep)
+
+		if got := findProjectRoot(deep); got != notes {
+			t.Errorf("findProjectRoot = %q, want the ancestor backlog %q", got, notes)
+		}
+	})
+
+	t.Run("launched at $HOME uses its own backlog and looks no higher", func(t *testing.T) {
+		parent := t.TempDir()
+		mkdir(t, filepath.Join(parent, projectConfigDirName))
+		home := filepath.Join(parent, "u")
+		mkdir(t, home)
+		t.Setenv("HOME", home)
+
+		if got := findProjectRoot(home); got != home {
+			t.Errorf("findProjectRoot($HOME) = %q, want $HOME itself, not the backlog above it", got)
+		}
+		mkdir(t, filepath.Join(home, projectConfigDirName))
+		if got := findProjectRoot(home); got != home {
+			t.Errorf("findProjectRoot($HOME) with ~/.cats-todo = %q, want $HOME", got)
+		}
+	})
+
 	t.Run("no markers roots the directory itself", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "loose")
 		mkdir(t, dir)

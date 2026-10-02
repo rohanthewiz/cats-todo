@@ -27,7 +27,9 @@ func runTodoUI(scope launchScope) {
 		errExit(err)
 	}
 
-	runProgram(newModel(ctx, project, global, client))
+	// A project with no .cats-todo yet opens on the offer to create one rather
+	// than on a list that would silently create it on the first save.
+	runProgram(newModel(ctx, project, global, client).offerCreateBacklog())
 }
 
 // runProgram runs a model as the TUI and hands the terminal back afterwards.

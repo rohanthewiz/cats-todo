@@ -19,9 +19,43 @@ cats-todo init                         # give this project a backlog of its own
 ```
 
 Both the manager and `add` scope the project backlog to the same place: the
-nearest ancestor holding a `.cats-todo/` directory, else the repo root, else the
-current directory — so it does not matter which subdirectory of a project you
-launch from. A drop into a fresh tab roots that tab there too.
+nearest ancestor holding a `.cats-todo/` directory, searching upwards **no
+further than the repo root**, and else the repo root itself (or, outside any
+repo, the current directory) — so it does not matter which subdirectory of a
+project you launch from. A drop into a fresh tab roots that tab there too.
+
+The repo root is a boundary, not just a fallback. The search used to run all
+the way to `/` before it considered `.git`, so a repo with no backlog of its own
+quietly picked up an unrelated `.cats-todo/` further up the tree (a
+`~/.cats-todo`, a parent folder's) and edits landed there. Now a repo without
+one is said to have none. The manager opens on an offer, naming the file it
+would create:
+
+```
+No backlog in app
+
+  ~/work/app has no .cats-todo directory.
+  The search for a backlog stops at the repo root, so one further up the tree is not used here.
+
+  Create ~/work/app/.cats-todo/todos.json?
+
+y create · n / esc continue with the global backlog
+```
+
+`y` (or enter) creates an empty backlog there. `n`/`esc` creates nothing and
+shows the global backlog only for this launch (on a `--project` launch, no
+backlog at all), so a later save cannot create the directory behind your back.
+The answer is not remembered, because a remembered "no" would be one more hidden
+thing deciding which backlog is on screen. `add` can't stop to ask, since its
+prompt often comes on stdin. It goes ahead, because you did ask it to save a
+prompt here, and says on a second line that it started a new backlog.
+
+Outside any repo the search stops below `$HOME`. A plain directory tree under
+your home (notes, scratch) can still keep one `.cats-todo/` at its top, but
+`~/.cats-todo` is never picked up from a folder beneath it. Otherwise it would
+be the backlog of every non-repo folder in your home directory, the same leak
+the repo boundary closes. Launching *in* `~` uses `~`'s own backlog. A directory
+outside the home tree (`/tmp`, `/opt/…`) searches up to `/` as before.
 `-p`/`--project` and `-g`/`--global` pin the manager to a single backlog
 (project-only works even when its backlog is still empty). The cats plugins
 dialog uses exactly these two as its manifest actions — "run" offers "this
@@ -739,8 +773,8 @@ The picker's rows are the places the prompt could go, most likely first:
   to the highlighted folder.
 
 A destination directory finds its backlog the way the manager's own launch
-directory does — the nearest ancestor with a `.cats-todo`, else the git root,
-else the directory itself — so pointing at a subdirectory reaches the project's
+directory does — the nearest ancestor with a `.cats-todo` up to the repo root,
+else the repo root, else the directory itself — so pointing at a subdirectory reaches the project's
 one backlog, and pointing at a project with none yet creates it, exactly as
 `cats-todo add` there would. What travels: the title, the prompt, the
 attachments (copied into the destination's own `images/`), the session options,
@@ -1824,8 +1858,16 @@ words. The value must be attached with `=`, because the words after a bare
 `--flag` are the prompt — which is the whole shape of this command.
 
 Without `-g`, `add` writes to the project backlog rooted the way everything else
-here roots it — nearest `.cats-todo/`, else the repo root, else the current
-directory. Run it somewhere no project owns, and rather than inventing a backlog
+here roots it — nearest `.cats-todo/` up to the repo root, else the repo root,
+else the current directory. When that add is the one that creates the backlog,
+it says so:
+
+```
+added to the project backlog (…/app/.cats-todo/todos.json)
+  ✚ no backlog here yet, so this started one: …/app/.cats-todo — `git add .cats-todo` when you are ready
+```
+
+Run it somewhere no project owns, and rather than inventing a backlog
 in the current directory it stops and says so, pointing at `-g`:
 
 ```
