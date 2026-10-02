@@ -40,7 +40,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-080
+**Next ID:** N-082
 
 ## Open
 
@@ -209,6 +209,22 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   `paneSetsModelEffort` (session.go) with commands for this road, and run
   N-017, N-043 and N-044 live: this road saves nothing, so a live test is
   safe.
+
+- **N-080** · raised `2026-1002-1322-backlog-search-repo-boundary` · value low
+  Export into a project directory with no `.cats-todo` still creates the
+  backlog silently (`export.go`, the save into `projectTodosPath(root)`).
+  The manager now asks before creating one (`backlogoffer.go`) and `add`
+  says so when it starts one; export does neither. Say it in the status
+  line ("started a new backlog in <dir>"), or ask first, so a backlog
+  never appears unannounced.
+
+- **N-081** · raised `2026-1002-1322-backlog-search-repo-boundary` · value low
+  The manager's create-backlog offer is asked on every launch in a project
+  that has none, because a "no" is deliberately not remembered (a hidden
+  remembered answer would be one more thing deciding which backlog is on
+  screen). If the repeated ask becomes a nuisance in repos that only ever
+  use the global backlog, consider remembering a decline per repo root,
+  visibly (named in the header or the View panel).
 
 ## Roadmap
 
