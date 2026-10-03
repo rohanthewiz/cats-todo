@@ -62,8 +62,8 @@ const (
 // the dwell), and is documented there. The page has no note pad or drag, so
 // its context menu (nextmenu.go) is the one surface a card is refused over.
 func (m model) nextHoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
-	if m.nextMenu.open {
-		// The menu has taken over the page the card floats on, so the warm
+	if m.nextMenu.open || m.nextPad.open {
+		// The menu (or the note pad) has taken over the page the card floats on, so the warm
 		// window closes with it, as hoverMotion's does under the list's menu.
 		m.clearHover()
 		return m, nil

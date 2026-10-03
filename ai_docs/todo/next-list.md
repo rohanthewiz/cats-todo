@@ -7,7 +7,11 @@ doc's `## Next` says only `Closed: N-… Raised: N-…`, so each item has one
 home, and an item that disappears shows up as a deletion in git history.
 
 The cats-todo **Next List** page (`ctrl+g`, `nextlist.go`) reads the Open and
-Roadmap sections of this file, so keep the item grammar below exact.
+Roadmap sections of this file, so keep the item grammar below exact. It also
+writes three moves the user makes there (`nextedit.go`): ✓ Close as done (to
+the top of Closed), ⇣/⇡ between Open and Roadmap, and ⊘ Mark as non-goal. The
+records it writes look like `- **N-###** · closed <date> · raised \`<stem>\``
+(or `declined <date>`), with `— <note>` on the next line.
 
 Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 `2026-0904-1132-form-toolbar-to-the-top` … `2026-0924-1231-prompt-editor-autosave`.
@@ -40,7 +44,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-082
+**Next ID:** N-083
 
 ## Open
 
@@ -225,6 +229,15 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   screen). If the repeated ask becomes a nuisance in repos that only ever
   use the global backlog, consider remembering a decline per repo root,
   visibly (named in the header or the View panel).
+
+- **N-082** · raised `2026-1003-1147-next-list-close-park-decline` · value medium
+  Live-test the Next List's three moves in cats (`catctl probe`, a scratch
+  repo with a copy of a real `next-list.md`): `ctrl+t` with a comment, a
+  right-click ⊘ Mark as non-goal… (the pad anchored at the menu's cell),
+  `ctrl+f` twice (Open → Roadmap → Open, file byte-identical), and a move
+  refused after another pane edited the file. Only unit tests and rendered
+  frames have exercised them. Also check the 17-row menu on a short pane,
+  and that the footer's two lines read well.
 
 ## Roadmap
 

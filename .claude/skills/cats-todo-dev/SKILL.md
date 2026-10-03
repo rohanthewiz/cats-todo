@@ -56,6 +56,8 @@ and the rest stay local.
 | `promptundo.go` | ↶ Undo (`cmd+z`/`ctrl+z`) and ↷ Redo (`shift+cmd+z`/`ctrl+y`): the per-session history and its redo stack (cleared by the next real edit), its coalescing rule, and the commit point `Update` calls (`route` is the old `Update` body); the title keeps a second history of the same type (`titleUndo`), and `undoForm`/`redoForm` pick by focus |
 | `autosave.go` | the form's timed autosave (45s default, `autosaveSeconds` in settings.json): throttle timer (generation-guarded tick), `formSig` change detection, the add→edit switch, and cancel's revert |
 | `nextlist.go` | the Next List page (`stageNextList`): parses `ai_docs/todo/next-list.md` (Open + Roadmap), one-run-of-text rows cut to the pane, ✚ New prompt → prefilled add form (`beginAddWith`), ✉ Send → the drop picker with an unsaved prompt (`sendFromNext`, `finishNextDrop`), ↻ Refresh |
+| `nextedit.go` | the Next List's one write path: `moveNextItemText` splices an item by ID between sections of the file as it is now (Open ⇄ Roadmap verbatim, in ID order; Closed on top / Non-goals in ID order as `· closed\|declined <date> · raised` records with a `— note` body, the item's text when there is no note; a missing section created in place), `moveNextItemFile` re-reads and writes via temp + rename |
+| `nextmove.go` | the page's side of those moves: `ctrl+t` ✓ Close as done…, `ctrl+f` ⇣ Move to Roadmap / ⇡ Move to Open, `ctrl+x` ⊘ Mark as non-goal…; `nextNotePad` (the ⚑ pad's shape: modal, menu-anchored or centred) asks for the record's words; `moveNext` writes, closes an open backlog copy on Close, re-reads and moves the highlight to the `neighbour` |
 | `nextmenu.go` | the Next List's right-click menu (`nextMenu`, on `menuBox`): it makes a backlog prompt from the item — draft form (± ⚙ Session / ◫ Images panel), ✉ Send unsaved, ◷ Schedule (add or reuse, then the list's scheduler), ⤓ Add in one press with a mark (`nextMenuAddMark`), value carried from the file; `nextBacklogCopy` (an open prompt starting with `nextItemCite`) greys the Add rows; ⧉ Copy ID / as prompt |
 | `nexthover.go` | the Next List's hover card: `nextHoverMotion`, `nextCardLines` (ID · section, ≤5 text lines, value · raised — 7 rows max); shares the list card's state (`m.hover`/`hoverPend`, whose `stage` keeps a dwell on its own page) |
 | `batch.go` | a batch (several prompts dropped as one unit): `Batch`/`BatchItem`/`BatchRun`, `batchStore` (`batches.json` beside `todos.json`, store's reload-then-write discipline), `overlaySession` (batch options win per field), `overriddenFields` (the ✱), `combinedPrompt`; the states (scheduled / missed / unscheduled are plans, `editable`; running / done are history), `swapBatch`/`takeBatch` (every change to a plan is a compare-and-swap on state + `At` — the claim rule), `batchWatch` (stat-keyed read cache for the tick and the list's ⧉ marks), `pendingRefs` |
@@ -152,7 +154,9 @@ and the rest stay local.
   selection when there is one) ·
   `ctrl+w` clear done · `ctrl+r` import · `ctrl+g` Next List page (there `ctrl+r` is
   refresh, `enter` drafts a prompt, `shift/alt+enter` sends the item to the drop
-  picker unsaved — `nextDrop`/`dropSubject`, esc back to the page; right-click an item for its menu;
+  picker unsaved — `nextDrop`/`dropSubject`, esc back to the page; `ctrl+t` close as
+  done, `ctrl+f` Open ⇄ Roadmap, `ctrl+x` non-goal (`nextmove.go`, the only writes to
+  the file); right-click an item for its menu;
   `ctrl+k` a batch composer on the page's items) · `tab` button row · `esc`/`ctrl+c` quit.
 - **Batch composer:** `tab` walks pick → batch → settings → buttons · `space`/`enter`
   tick (Pick pane; the filter holds no spaces) · `ctrl+a` all visible · `ctrl+g`

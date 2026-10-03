@@ -22,6 +22,9 @@
 //	│ ⤓ Add as ▲ critical priority   │
 //	│ ⤓ Add as ｉ info               │
 //	│ ⤓ Add as ⚑ flagged             │
+//	│ ✓ Close as done…        ctrl+t │   the item itself, moved in the file:
+//	│ ⇣ Move to Roadmap       ctrl+f │   … to Closed (with a note), Roadmap
+//	│ ⊘ Mark as non-goal…     ctrl+x │   (⇡ Move to Open there), Non-goals
 //	│ ⧉ Copy ID: N-014               │   the item's words, off the page
 //	│ ⧉ Copy as prompt               │
 //	╰────────────────────────────────╯
@@ -29,8 +32,14 @@
 // Order runs from least to most committing, as the backlog's menu does: the
 // form rows write nothing until the form saves, Send writes only a done record
 // once the drop has landed (recordNextSend), Schedule and the Add rows write a
-// backlog prompt, and the copies — the quiet ones, which change nothing but the
-// clipboard — close the box.
+// backlog prompt, the move rows change the file itself (nextmove.go), and the
+// copies — the quiet ones, which change nothing but the clipboard — close the
+// box.
+//
+// The move rows are the exception to the paragraph above: they act on the
+// item, not on a prompt made from it. The page reads the file, but closing,
+// parking and declining are the user's decisions, made where the user is
+// looking at the item, so the page writes those three (see nextedit.go).
 //
 // Every saved prompt carries the item's value (the file rates items on the
 // backlog's own three levels), exactly as the draft form does. The Add rows
@@ -69,6 +78,9 @@ const (
 	nextMenuAddCritical
 	nextMenuAddInfo
 	nextMenuAddFlag
+	nextMenuClose
+	nextMenuPark
+	nextMenuDecline
 	nextMenuCopyID
 	nextMenuCopyPrompt
 )
@@ -112,6 +124,12 @@ type nextMenu struct {
 // button gesture, and a right press that armed one would leave the page
 // mid-gesture behind a menu about to be dismissed.
 func (m model) rightClickNext(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	// An open note pad answers the press first, whichever button: a click
+	// off a floating box is "never mind" (see clickNextPad), and a menu must
+	// not open behind it. The next press gets the menu.
+	if m.nextPad.open {
+		return m.clickNextPad(msg)
+	}
 	i, ok := m.next.list.rowAtLine(msg.Y - nextRowsRow)
 	if !ok || !m.next.list.focusRow(i) {
 		m.nextMenu = nextMenu{}
@@ -199,6 +217,12 @@ func (m model) openNextMenu(msg tea.MouseClickMsg, it nextItem) (tea.Model, tea.
 		add(nextMenuAddCritical, "⤓ Add as "+prioCriticalGlyph+" critical priority"),
 		add(nextMenuAddInfo, "⤓ Add as "+infoGlyph+" info"),
 		add(nextMenuAddFlag, "⤓ Add as "+flagGlyph+" flagged"),
+		// The item's own fate, in the file. The two that leave a record ask
+		// for its words first (the …); the park row names where the item
+		// will go, which depends on where it is.
+		{act: nextMenuClose, label: "✓ Close as done…", hint: "ctrl+t"},
+		{act: nextMenuPark, label: nextParkLabel(it), hint: "ctrl+f"},
+		{act: nextMenuDecline, label: "⊘ Mark as non-goal…", hint: "ctrl+x"},
 		// The ID is on the label so the row says exactly what the clipboard
 		// will hold, and so the box names which item it is about, since it
 		// floats off the row.
@@ -255,6 +279,9 @@ func (m model) pressNextMenu(i int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	row, it := m.nextMenu.items[i], m.nextMenu.item
+	// The box's cell, kept for a note pad to open on: the answer appears
+	// where the question was asked.
+	bx, by := m.nextMenu.x, m.nextMenu.y
 	m.nextMenu = nextMenu{}
 	if !row.live() {
 		m.next.say(row.why, false)
@@ -282,6 +309,12 @@ func (m model) pressNextMenu(i int) (tea.Model, tea.Cmd) {
 		return m.scheduleNextItem(it)
 	case nextMenuBatch:
 		return m.beginBatchCompose(stageNextList, batchSrcNext, []batchCand{{next: it, title: nextItemTitle(it)}})
+	case nextMenuClose:
+		return m.askNextNote(it, nextToClosed, bx, by, true)
+	case nextMenuPark:
+		return m.parkNextItem(it)
+	case nextMenuDecline:
+		return m.askNextNote(it, nextToNonGoals, bx, by, true)
 	case nextMenuCopyID:
 		m.next.say("copied "+it.ID, false)
 		return m, copyTextToClipboard(it.ID)

@@ -1,9 +1,12 @@
 // nextlist.go — the Next List page: a project's living list of follow-ups
 // (ai_docs/todo/next-list.md), shown as rows a prompt can be started from.
 //
-// The file is written and kept by the /next-list and /sess-save skills, not by
-// this program, so the page only reads it. It is a Markdown document with a
-// small fixed grammar, and only its two "still to do" sections are listed:
+// The file is written and kept by the /next-list and /sess-save skills. The
+// page reads it, and writes only the three decisions that are the user's to
+// make about an item — close it as done, move it between Open and Roadmap,
+// decline it as a non-goal (nextmove.go, nextedit.go). It is a Markdown
+// document with a small fixed grammar, and only its two "still to do"
+// sections are listed:
 //
 //	## Open                                         ← what is next
 //	- **N-014** · raised `2026-0904-…` · value medium
@@ -35,6 +38,10 @@
 // prompt that is never written to any backlog: the item already has a home in
 // the file, and a backlog copy would be a second record of the same work for
 // someone to close. The agent is told the item's ID, so it can close it there.
+//
+// An item can also be moved in the file: ✓ Close as done (ctrl+t), ⇣ Move to
+// Roadmap / ⇡ Move to Open (ctrl+f), ⊘ Mark as non-goal (ctrl+x). The first and
+// last ask for the record's words in a pad first.
 //
 // The file is re-read on open and on ↻ Refresh, never watched: it is edited in
 // another pane (by a session wrapping up, usually), and a refresh the user asks
@@ -268,19 +275,30 @@ func newNextPage(root string) nextPage {
 // where it was.
 func (p *nextPage) reload(width, height int) {
 	keep, _ := p.highlighted()
-	p.items, p.path, p.err = loadNextList(p.root)
-	p.resize(width, height)
-	for i, it := range p.items {
-		if it.ID == keep.ID && keep.ID != "" {
-			p.list.selectRef(i)
-			break
-		}
-	}
+	p.reread(width, height, keep.ID)
 	if p.err != "" {
 		p.say("", false)
 		return
 	}
 	p.say(fmt.Sprintf("refreshed · %d items", len(p.items)), false)
+}
+
+// reread is reload without the note: re-read the file and put the highlight
+// on the item keep names, when it is still listed. A move off the page
+// (nextmove.go) passes the item that should take the moved one's place, since
+// the moved one is gone.
+func (p *nextPage) reread(width, height int, keep string) {
+	p.items, p.path, p.err = loadNextList(p.root)
+	p.resize(width, height)
+	if keep == "" {
+		return
+	}
+	for i, it := range p.items {
+		if it.ID == keep {
+			p.list.selectRef(i)
+			break
+		}
+	}
 }
 
 // say sets the heading's feedback line. The two fields change together so a
@@ -848,6 +866,11 @@ func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.nextMenu.open {
 		return m.updateNextMenu(msg)
 	}
+	// The note pad likewise, and more so: it is a field, so a printable key
+	// is a letter of the note, never a chord acting from behind it.
+	if m.nextPad.open {
+		return m.updateNextPad(msg)
+	}
 	// The hand is on the keyboard: the hover card goes before the key is read,
 	// as on the list (a card over rows the keys are walking would describe a
 	// row the highlight has left) — and every way off this page is a key or a
@@ -896,6 +919,14 @@ func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// The batch composer, on this page's items: several of them, picked
 		// and ordered, to agents in one go.
 		return m.beginBatchCompose(stageNextList, batchSrcNext, nil)
+	case "ctrl+t":
+		// The item's three decisions (nextmove.go), on the list's chords for
+		// the nearest acts: done, freeze (park), remove.
+		return m.closeFromNext()
+	case "ctrl+f":
+		return m.parkFromNext()
+	case "ctrl+x":
+		return m.declineFromNext()
 	}
 	m.next.say("", false)
 	return m, m.next.list.editQuery(msg)
@@ -911,6 +942,10 @@ func (m model) clickNext(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// only dismisses, and the chip or row underneath must not also act.
 	if m.nextMenu.open {
 		return m.clickNextMenu(msg)
+	}
+	// The note pad on the same terms (see clickNextPad).
+	if m.nextPad.open {
+		return m.clickNextPad(msg)
 	}
 	if msg.Y == nextBarRow {
 		for i, c := range m.nextChips() {
@@ -978,7 +1013,7 @@ func (m model) viewNextList() string {
 	// segment a narrow pane drops (fitFooter cuts from the tail), and the
 	// least needed, since everything on the menu is on the bar or a chord too
 	// except the two copies.
-	segs := []string{"dbl-click new prompt", "↑/↓ choose", "type to filter", "ctrl+k batch", "right-click menu"}
+	segs := []string{"dbl-click new prompt", "↑/↓ choose", "type to filter", "ctrl+k batch", "ctrl+t done", "ctrl+f roadmap", "ctrl+x non-goal", "right-click menu"}
 	if m.nextBarTier() != tierHints {
 		// The chips stopped teaching their chords, so the footer takes over.
 		segs = append([]string{"enter new prompt", m.modEnter() + " send", "ctrl+r refresh", "esc back"}, segs...)

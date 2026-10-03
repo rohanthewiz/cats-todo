@@ -1423,8 +1423,9 @@ form's ✉ Send (save, then drop). The difference is only the order. Nothing is
 written before the drop, so backing out of the picker, or a failed send, leaves
 no row behind. If the backlog already holds an open copy of the item (from ⤓ Add
 to backlog), that copy is the one marked done rather than a second one added.
-Closing the item itself is still left to the file: the agent that did the work,
-or the next session wrap-up, moves it to Closed. `esc` in the picker comes back
+Closing the item itself is a separate step: the agent that did the work, the
+next session wrap-up, or you, with [✓ Close as done](#closing-parking-and-declining-an-item),
+moves it to Closed. `esc` in the picker comes back
 to this page, with the highlight still on the item. The outcome (`N-014 dropped
 → … · recorded done in the project backlog`, or why it failed) is shown
 on the page's heading and in the list's status line, since a slow new-session
@@ -1472,11 +1473,12 @@ for this, the same cost the list pays.
 
 **Right-click an item** for its context menu. It uses the same box and keys as
 [the list's](#the-lists-context-menu). A Next List item is not a backlog
-prompt: it is a paragraph in a file this page only reads. So everything the add
-form can set (session options, attachments, marks, a schedule) belongs to a
-backlog prompt, and none of it can be applied to the item itself. What the menu
-does instead is make that prompt from the item, with the setting already
-applied:
+prompt: it is a paragraph in a file. So everything the add form can set
+(session options, attachments, marks, a schedule) belongs to a backlog prompt,
+and none of it can be applied to the item itself. Most of the menu instead
+makes that prompt from the item, with the setting already applied. Three rows
+act on the item itself, moving it in the file
+([below](#closing-parking-and-declining-an-item)):
 
 ```
 ╭────────────────────────────────╮
@@ -1492,6 +1494,9 @@ applied:
 │ ⤓ Add as ▲ critical priority   │
 │ ⤓ Add as ｉ info               │
 │ ⤓ Add as ⚑ flagged             │
+│ ✓ Close as done…        ctrl+t │
+│ ⇣ Move to Roadmap       ctrl+f │
+│ ⊘ Mark as non-goal…     ctrl+x │
 │ ⧉ Copy ID: N-014               │
 │ ⧉ Copy as prompt               │
 ╰────────────────────────────────╯
@@ -1512,6 +1517,9 @@ The rows run from least to most committing:
 - **⤓ Add to backlog** saves the item in one press, with no form, and stays on
   the page. The rows under it save it with one mark already set. The heading
   confirms where it went (`added N-014 as a quick win to the project backlog`).
+- **✓ Close as done…**, **⇣ Move to Roadmap** (**⇡ Move to Open** on a
+  Roadmap item) and **⊘ Mark as non-goal…** move the item itself in the
+  file, as their chords do. See the next section.
 - **⧉ Copy ID** and **⧉ Copy as prompt** are the only rows that leave nothing
   behind. **Copy ID** puts the bare ID on the clipboard, ready to cite in a
   commit or a chat. **Copy as prompt** copies the exact text ✉ Send would
@@ -1537,12 +1545,73 @@ same words the chord uses. That covers Send and Schedule without a cats socket
 no backlog to write into.
 
 ↻ Refresh and ← Back are not on the menu. They act on the page, not on an
-item, so they stay on the bar, just as the list's menu leaves out Import. The
-page never writes the file, so closing or re-rating an item is still done in
-the file itself. As on the list, a right-click anywhere but an item opens
+item, so they stay on the bar, just as the list's menu leaves out Import.
+Re-rating or rewording an item is still done in the file itself. As on the list, a right-click anywhere but an item opens
 nothing (and closes a menu that is open), a click off the box closes it
 without doing anything else, and the hover card stays down while the menu is
 up.
+
+### Closing, parking and declining an item
+
+Three decisions about an item are yours alone, and the page is where you are
+looking at it when you make them. So the page writes these three into the file
+and nothing else. It never re-rates, rewords, renumbers or deletes an item.
+
+| Chord | Menu row | Moves the item to |
+|---|---|---|
+| `ctrl+t` | ✓ Close as done… | the top of **Closed**, after asking what showed it's done |
+| `ctrl+f` | ⇣ Move to Roadmap / ⇡ Move to Open | **Roadmap**, or back to **Open**, in one press |
+| `ctrl+x` | ⊘ Mark as non-goal… | **Non-goals**, after asking why not |
+
+The chords are the list's own for the nearest act: `ctrl+t` marks a prompt
+done, `ctrl+f` freezes one ("not now"), and `ctrl+x` removes one. Here none of
+them deletes anything. The file's rule is that nothing leaves Open or Roadmap
+without a line in another section.
+
+Close and non-goal open a small pad, where the menu was or centred for a
+chord:
+
+```
+╭──────────────────────────────────────────────────────────────╮
+│ ✓ Close N-012 as done                                        │
+│ Consider back-tagging the releases that have a chore(rele…   │
+│ what showed it's done (optional)                             │
+│ enter close as done · esc cancel                             │
+╰──────────────────────────────────────────────────────────────╯
+```
+
+`enter` moves the item, and `esc` or a click off the pad leaves it where it
+was. The words are optional. Without them, the item's own text becomes the
+record's body, so a Closed or Non-goals entry still says what it was about.
+The entries follow the file's grammar:
+
+```
+- **N-012** · closed 2026-10-03 · raised `2026-0912-2234-carried-indent-and-release`
+  — Back-tagged all five; `git tag -l` lists them.
+- **N-033** · declined 2026-10-03 · raised `2026-0924-1146-info-mark-blue-chip`
+  — The chip reads fine in every theme we use.
+```
+
+A Closed entry goes on top, because Closed is newest first. A Non-goals entry
+goes in ID order with no blank line between entries. A move between Open and
+Roadmap carries the item's lines verbatim, value and all, into ID order. It
+takes one press, since the same chord moves it back. A section the file lacks
+(an older file may have no Roadmap) is created in its place.
+
+Closing an item also marks its open backlog copy done, if it has one: the
+work that prompt was for is finished. Declining one leaves its copy alone,
+since deleting a prompt is your call, and the heading says the copy is still
+open.
+
+The write is a splice on the file as it is **now**. The page re-reads the file
+at the moment of writing and finds the item by its ID, so edits another pane
+made since the page loaded are kept. The new file goes through a temporary
+file and a rename, so a reader never sees half of one. If the item has left
+Open and Roadmap in the meantime, the move is refused in words and nothing is
+written. Afterwards the page re-reads the file. The highlight stays on a parked
+item, or moves to the next item after one that was closed or declined, so a
+run of `ctrl+t`s walks down the page. The file is in git, so `git diff` shows
+every move.
 
 ## Sending to a machine on the local network
 

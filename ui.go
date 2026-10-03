@@ -463,6 +463,9 @@ type model struct {
 	// because its rows mean different things and it carries an item rather
 	// than a todoRef; the zero value is "closed", as there.
 	nextMenu nextMenu
+	// The page's note pad (nextmove.go): ✓ Close as done… and ⊘ Mark as
+	// non-goal… ask for the record's words in it before the item is moved.
+	nextPad nextNotePad
 	// The Batches page's context menu (batchmenu.go): right-click a batch.
 	// Its own field for the same reason as nextMenu's: it carries a batch ID.
 	batchesMenu batchesMenu
@@ -762,6 +765,10 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.flagPad.open {
 			m.flagPad.x, m.flagPad.y = placeBelowRight(m.flagPad.ax, m.flagPad.ay, m.flagPad.w, m.flagPad.h, m.width, m.height)
 		}
+		// The Next List page's pad likewise, by its own placement rule.
+		if m.nextPad.open {
+			m.placeNextPad()
+		}
 		// And the hover card with them, for the same reason and one more: it was
 		// placed against a row that has just been re-laid-out, so it would be
 		// naming a prompt that is no longer under it.
@@ -1037,6 +1044,11 @@ func (m model) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stageSpell:
 		cmd = m.spellList.editQuery(msg)
 	case stageNextList:
+		// The note pad is modal, so the blink and a paste are its field's.
+		if m.nextPad.open {
+			m.nextPad.input, cmd = m.nextPad.input.Update(msg)
+			return m, cmd
+		}
 		cmd = m.next.list.editQuery(msg)
 	case stageBatchCompose:
 		// The blink and a paste go to whichever box holds the keys: the
@@ -2212,6 +2224,9 @@ func (m *model) backToList() {
 	// The Batches page's, for the same reason and its ctrl+k.
 	m.nextMenu = nextMenu{}
 	m.batchesMenu = batchesMenu{}
+	// The Next List page's note pad likewise. Nothing was moved while it was
+	// up, so dropping it moves nothing.
+	m.nextPad = nextNotePad{}
 	// The note pad goes with it, and for the same reason: it is a box floated
 	// over the list, and one left standing would be composited over a screen
 	// nobody is on and would swallow the first keystroke back. Its words are
@@ -5551,7 +5566,8 @@ func (m model) renderStage() string {
 		// underneath.
 		// The menu goes on top of the card, as on the list: it is the box
 		// that can be pressed.
-		return m.overlayNextMenu(m.overlayHoverCard(m.viewNextList()))
+		// The note pad goes on top of both: it is the one taking the keys.
+		return m.overlayNextPad(m.overlayNextMenu(m.overlayHoverCard(m.viewNextList())))
 	default:
 		// The menu floats over the list rather than replacing it, and is
 		// composited here rather than inside viewList for the reason the form's
