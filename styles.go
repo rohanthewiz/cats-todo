@@ -517,8 +517,8 @@ var (
 	// The Next List hover card's body (nexthover.go). That card is read, not
 	// glanced at — up to thirteen lines of a follow-up's text — and colMuted
 	// was a touch dim for that much reading. colCardBody lifts it and warms it
-	// toward yellow, so the text reads as paper under the card's title rather
-	// than as another grey label. It stays below colFg, so the title/body/fields
+	// a touch toward yellow, so the text reads as paper under the card's title
+	// rather than as another grey label. It stays below colFg, so the title/body/fields
 	// ramp still holds. A separate style rather than a change to hoverBodyStyle:
 	// the list's hover card and the flag-note pad share that one and weren't
 	// asked to change.
@@ -527,7 +527,10 @@ var (
 				Padding(0, 1)
 )
 
-// A pale, low-saturation yellow (53° 28% 75%): brighter than colMuted, a step
+// A pale, low-saturation warm grey (51° 14% 80%): brighter than colMuted, a step
 // under colFg, and only just warm enough to read as a tint on colPanel.
-// Lifted from #cbc7a9 with the grey ramp.
-const colCardBody = "#d0ccae"
+// Lifted from #cbc7a9 with the grey ramp, then #d0ccae (53° 27% 75%), which
+// read as a color rather than a tint — too yellow. Saturation was halved and
+// lightness raised five points. The ceiling is colFg: by luminance this is
+// ~209 against colFg's ~219, so the bold title still leads the card's ramp.
+const colCardBody = "#d3d1c5"

@@ -131,6 +131,9 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   quiet, and that the Next List card's yellow stays a tint, not a color.
   **Needs the user**: it is about the user's own theme. Cats' web page in
   Chrome drew in a light theme, so it could not stand in (2026-09-27).
+  The card's yellow read as a color, not a tint: `colCardBody` went
+  `#d0ccae` → `#d3d1c5`, half the saturation and five points lighter
+  (2026-10-05). The card body still needs an eyeball in cats.
 
 - **N-071** · raised `2026-0927-0037-probe-driven-live-tests` · value low
   Arrow keys slow down linearly with the prompt's length: measured live,
