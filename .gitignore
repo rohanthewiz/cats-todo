@@ -17,3 +17,6 @@ bin/
 # build` with no -o drops it here named after the module, and a stray 10 MB
 # binary showing up as untracked is noise on every status.
 /cats-todo
+
+# Cats Editor
+.ced
