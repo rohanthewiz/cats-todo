@@ -1134,6 +1134,9 @@ func (m *model) cycleBatchFocus(delta int) tea.Cmd {
 }
 
 func (m model) updateBatchCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// The hand is on the keyboard: the Pick pane's hover card goes before the
+	// key is read, as the list's does (updateList).
+	m.clearHover()
 	bc := &m.batch
 	if bc.dragging {
 		// A key ends a drag whose release went missing (the list's rule).
@@ -1545,8 +1548,10 @@ func (m model) viewBatchCompose() string {
 		right = m.batchPaneLines(g)
 	}
 	// The rule is drawn in the accent while the splitter is held, the one
-	// sign it gives that the press took: cell-motion mouse reporting sends no
-	// motion without a button down, so there is no hover to light it before.
+	// sign it gives that the press took. The stage does hear idle motion now
+	// (for the Pick pane's card, batchhover.go), but the rule stays unlit
+	// until pressed: a column that lit up whenever the pointer crossed it on
+	// its way between the panes would flicker on every sweep.
 	sep := descStyle.Render(batchPaneSep)
 	if m.batch.splitDrag {
 		sep = promptStyle.Render(batchPaneSep)

@@ -885,6 +885,12 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.stage == stageNextList {
 			return m.nextHoverMotion(msg)
 		}
+		// And the batch composer, for its Pick pane's card (batchhover.go).
+		// The two drags were answered above, so what reaches here is the
+		// pointer with nothing held.
+		if m.stage == stageBatchCompose {
+			return m.batchHoverMotion(msg)
+		}
 	case hoverTickMsg:
 		// The list's dwell timer, answered above the stage switch for the same
 		// reason it is armed at all: the tick is about a rest that has already
@@ -5516,11 +5522,17 @@ func (m model) View() tea.View {
 	//
 	// The Next List page pays the same price for the same reason: its rows are
 	// items cut to one line, and its card (nexthover.go) is the rest of them.
+	//
+	// The batch composer pays it too: its Pick pane is a column of titles cut
+	// to half a pane, and the rows ticked there are the prompts about to be
+	// sent, so it floats the same card (batchhover.go). All motion is a
+	// superset of cell motion, so its row and splitter drags are heard as
+	// before.
 	switch {
-	case m.stage == stageList || m.stage == stageNextList:
+	case m.stage == stageList || m.stage == stageNextList || m.stage == stageBatchCompose:
 		v.MouseMode = tea.MouseModeAllMotion
 	case m.stage == stageTarget || m.stage == stageForm || m.stage == stageFiles || m.stage == stageSnippets || m.stage == stageExport || m.stage == stageImport || m.stage == stageSpell || m.stage == stageViewOpts ||
-		m.stage == stageBatchCompose || m.stage == stageBatches:
+		m.stage == stageBatches:
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -5567,8 +5579,10 @@ func (m model) renderStage() string {
 		return m.viewViewOpts()
 	case stageBatchCompose:
 		// The drop dialog floats over the composer for the menu's reason
-		// above: the composer's hit-tested rows stay where they are.
-		return m.overlayDropConfirm(m.viewBatchCompose())
+		// above: the composer's hit-tested rows stay where they are. The
+		// Pick pane's hover card goes on under it, since the dialog is the
+		// box that takes the keys (and none is built while it is up).
+		return m.overlayDropConfirm(m.overlayHoverCard(m.viewBatchCompose()))
 	case stageBatches:
 		return m.overlayBatchesMenu(m.viewBatches())
 	case stageBatchView:

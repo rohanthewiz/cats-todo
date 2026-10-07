@@ -104,6 +104,13 @@ func (m model) nextCardFor(row, x, y int) (hoverCard, bool) {
 	if !ok || idx < 0 || idx >= len(m.next.items) {
 		return hoverCard{}, false
 	}
+	return m.nextItemCard(m.next.items[idx], row, x, y)
+}
+
+// nextItemCard builds and places the card for one item. It is apart from
+// nextCardFor so the batch composer's Pick pane (batchhover.go), which holds
+// its own copy of the items, floats the very same card over its Next List tab.
+func (m model) nextItemCard(it nextItem, row, x, y int) (hoverCard, bool) {
 	const chrome = 4 // border + one space of padding each side, as buildHoverCard
 	w := min(nextCardWidth, m.width-2)
 	if w < hoverCardMin || m.height < 6 {
@@ -113,7 +120,7 @@ func (m model) nextCardFor(row, x, y int) (hoverCard, bool) {
 	// is its rows plus two border rows, and one row is left so the card can
 	// sit off the pointer's line rather than over it.
 	bodyMax := min(nextCardBodyLines, m.height-3-(nextCardMaxRows-nextCardBodyLines))
-	lines := nextCardLinesMax(m.next.items[idx], w-chrome, max(bodyMax, 1))
+	lines := nextCardLinesMax(it, w-chrome, max(bodyMax, 1))
 	card := hoverCard{open: true, row: row, lines: lines, w: w, h: len(lines) + 2}
 	card.x, card.y = placeBelowRight(x, y, card.w, card.h, m.width, m.height)
 	return card, true

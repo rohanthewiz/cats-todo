@@ -278,6 +278,9 @@ func (m model) hoverDwell(msg hoverTickMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.stage == stageBatchCompose {
+		return m.batchHoverDwell(p)
+	}
 	if m.stage != stageList || m.listMenu.open || m.flagPad.open || m.dragging {
 		return m, nil
 	}

@@ -263,7 +263,7 @@ and never on one stray gesture: it takes a click on the prompt, a click on
 **Send**, and then a click on the target you meant. Pausing instead of running
 is the one thing the pointer does not offer, because it is a modifier chord.
 Mouse reporting is only asked for on the screens with something to click — and
-only the list and the Next List ask for idle motion, which is what their hover cards are drawn from;
+only the list, the Next List and the batch composer ask for idle motion, which is what their hover cards are drawn from;
 the prompt view leaves the terminal's own text selection alone.
 
 A backlog longer than the pane **scrolls**, and says so. The list keeps a window
@@ -903,6 +903,15 @@ dragging past one parks the rule there. Where you let go is saved to
 `~/.config/cats-todo/settings.json` as `batchSplit` — the Pick pane's share of
 the width, a fraction such as `0.6` — so every later composer opens split the
 same way, at whatever width the pane happens to be. The default is 0.45.
+
+**Rest the pointer on a Pick row** and it gets [the hover card](#the-hover-card)
+it would get on its own page — the backlog card for a prompt, the Next List
+card for an item — so "which one was this?" is answered before it is ticked,
+without leaving the composer. **Not on the checkbox**, though: the `[ ]`/`[x]`
+cells are the thing the hand is reaching to press, so resting there brings no
+card, and moving onto the box takes down the one the title opened. The Batch
+pane's rows get no card; they are the picks the left pane already described,
+and a press on one starts a drag.
 
 **The settings** are five rows under the batch (and five more under Deliver
 while it says loop — see [Looping a batch](#looping-a-batch)):
@@ -1742,8 +1751,9 @@ card is built at all, because those gestures already own the pointer.
 
 The one cost is that the list asks the terminal to report *all* pointer motion
 rather than only motion under a held button. That is a message per cell the
-pointer crosses, and it is paid only on the list and on
-[the Next List](#the-next-list), which has a card of its own. The prompt view,
+pointer crosses, and it is paid only on the list, on
+[the Next List](#the-next-list), which has a card of its own, and in the batch
+composer, whose Pick pane borrows both. The prompt view,
 the one screen whose text gets copied out, still claims no mouse at all.
 
 ## The list's context menu
