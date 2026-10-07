@@ -36,12 +36,18 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - **Open** is what we intend to pick up next. **Roadmap** is wanted, but
   later: parked, not declined. **Non-goals** are what we are likely never to
   do, kept here so they stay visibly declined.
-- **Nothing leaves Open or Roadmap without a line in another section.** A
-  finished item moves to Closed with its date and what showed it. A declined
-  one moves to Non-goals with its reason. A duplicate moves to Closed as
-  `merged into N-xxx`. Moving between Open and Roadmap is fine.
-- **Open and Roadmap stay in ID order.** Sorting is done by `/next-list` when
-  it prints a view, never in this file.
+- **Validate** sits directly below Open: items whose remaining work is purely
+  testing (a hand check in a real terminal or app, a run on real data or
+  hardware, or a test to write or repair), with no product change planned. A
+  check that finds a defect raises it as a new Open item; an Open item whose
+  fix has landed but is unchecked moves to Validate.
+- **Nothing leaves Open, Validate or Roadmap without a line in another
+  section.** A finished item moves to Closed with its date and what showed
+  it. A declined one moves to Non-goals with its reason. A duplicate moves
+  to Closed as `merged into N-xxx`. Moving among Open, Validate and Roadmap
+  is fine.
+- **Open, Validate and Roadmap stay in ID order.** Sorting is done by
+  `/next-list` when it prints a view, never in this file.
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
@@ -55,6 +61,108 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   2026-09-24). Not asked for; raise it with the user before doing it. *Lapsed* in
   `2026-0922-0943-info-annotation`.
   **Needs the user**, as the item says (2026-09-27).
+
+- **N-071** · raised `2026-0927-0037-probe-driven-live-tests` · value low
+  Arrow keys slow down linearly with the prompt's length: measured live,
+  ~7ms per key at 30 lines, ~20ms at 300 and ~50ms at 1,000. In process,
+  1,000 lines cost ~13ms in Update and ~10ms in View, and 3,000 lines cost
+  ~37ms + ~28ms. The cost is bubbles' textarea (v2.1.1): `Update` and
+  `View` both render every line of the value into the viewport
+  (`textarea.go:1329` and `:1455`) and let it slice. cats-todo adds almost
+  nothing on top. At a fast key repeat (~30ms), a held arrow falls behind
+  past a few hundred lines. The fix is a textarea that renders only the
+  rows in view: a fork, or an upstream patch.
+  **Needs the user**: the fix is a textarea fork or an upstream patch to
+  bubbles, which is a dependency decision (2026-09-27).
+
+- **N-072** · raised `2026-0927-0053-live-autosave-and-next-send` · value high
+  Claude Code 2.1.283 hands a dropped prompt to the model as pasted text,
+  not as the user's request. `pane.send_input` is a bracketed paste, and
+  Claude Code tags pasted input `<pasted_content>` (flag-gated, `FP()` in
+  the binary), whose instructions the model is told to follow only where
+  the user's own words ask. A drop is all paste, so Opus 5.5 said: "Your
+  message contains only pasted text, with nothing you wrote around it, so I
+  haven't acted on it yet." Measured on fresh panes: realistic read-only
+  tasks were done by Opus (framed as a Next List item or not) and by a
+  fresh Haiku session. A synthetic "reply with only ALPHA11" was declined
+  by Opus and Haiku once framed as `Next list item N-001 (…):`, but done
+  bare. Sonnet 5 did it either way. Haiku declined a realistic Next List
+  item in a pane whose conversation was already about pasted content. The
+  risk is highest where nobody watches: a scheduled drop or a batch loop
+  sees the pane go idle after a question and counts the prompt as sent.
+  **Needs the user** (the road is cats' wire): (a) a typed send in cats,
+  key events with shift+enter for newlines, so the message is the user's;
+  (b) cats-todo leads every drop with an explicit ask, which still sits
+  inside the paste; or (c) accept it and document it. Recommendation: (a),
+  with (b) as a cheap interim for the Next List's framing.
+  2026-09-27 (`2026-0927-2122-paste-ask-interim-and-closed-workspace`): the
+  user chose **(a), with (b) as the interim**. (b) is in: every drop, and a
+  loop's wrap-up message, leads with `pasteAsk` (drop.go, `withPasteAsk`),
+  and slash commands go bare. Live, one run each on the framed "reply
+  ALPHA11" prompt: Haiku 4.5 declined without the ask and did it with it,
+  and Opus 5.5 did it both ways this time. A second Haiku round was set up
+  but never sent. What is left is (a): a key-sending verb in cats' wire,
+  built on the browser path's key encoder that `catctl probe` already uses,
+  a `go.mod` pin bump here, and drops sent as keys with shift+enter for
+  newlines. Then a live check that Claude Code doesn't take a fast key burst
+  for a paste. The same verb unblocks N-079.
+
+- **N-078** · raised `2026-0927-2023-batch-drop-confirm-dialog` · value low
+  Release the drop dialog as v0.43.0 (minor: a new dialog). Bump both
+  version files, commit `chore(release): v0.43.0`, tag it, and push the
+  code and the tag. Best done after N-077.
+
+- **N-079** · raised `2026-0927-2107-pane-drops-stop-saving-defaults` · value medium
+  Switch a running claude pane's model and effort for that session only,
+  through the pickers the bare commands open (N-070's road (c)). Found in
+  the 2.1.283 binary: `/model` with no argument opens the ModelPicker. It
+  starts in search mode, so typing filters and `↓` moves into the list, and
+  there `s` is `modelPicker:thisSessionOnly` (its footer says `s use this
+  session only`) while Enter is `set as default`. `←/→` in that picker move
+  effort. `/effort` with no argument opens the EffortSlider: `←/→` move, `s`
+  is `effortSlider:thisSessionOnly`, Enter saves. The typed `/model X`
+  saves whenever the session is interactive, and no flag turns that off.
+  What it needs: (1) a way to send `↓`, `←/→` and a bare `s` as keys, since
+  `pane.send_input` pastes its text and Enter is its only bare key. That is
+  a new verb in cats' wire, the same thing N-072 (a) asks for. (2) Never
+  press Enter inside a picker. With an empty filter it saves the default,
+  so `↓` is the way into the list. (3) Wait for `… for this session only`
+  and stop the drop if the pane says `saved as your default`. (4) The
+  slider has no absolute position, so walk it to one end first. (5) `s` is
+  a default binding the user can remap in `keybindings.json`. Then turn on
+  `paneSetsModelEffort` (session.go) with commands for this road, and run
+  N-017, N-043 and N-044 live: this road saves nothing, so a live test is
+  safe.
+
+- **N-080** · raised `2026-1002-1322-backlog-search-repo-boundary` · value low
+  Export into a project directory with no `.cats-todo` still creates the
+  backlog silently (`export.go`, the save into `projectTodosPath(root)`).
+  The manager now asks before creating one (`backlogoffer.go`) and `add`
+  says so when it starts one; export does neither. Say it in the status
+  line ("started a new backlog in <dir>"), or ask first, so a backlog
+  never appears unannounced.
+
+- **N-081** · raised `2026-1002-1322-backlog-search-repo-boundary` · value low
+  The manager's create-backlog offer is asked on every launch in a project
+  that has none, because a "no" is deliberately not remembered (a hidden
+  remembered answer would be one more thing deciding which backlog is on
+  screen). If the repeated ask becomes a nuisance in repos that only ever
+  use the global backlog, consider remembering a decline per repo root,
+  visibly (named in the header or the View panel).
+
+- **N-084** · raised `2026-1007-0200-batch-splitter-and-bracket-checkboxes` · value low
+  The composer's splitter has no way back to the default split (0.45) short
+  of dragging there or deleting `batchSplit` from settings.json. If that is
+  ever missed, a double-click on the rule (counted the way `promptClickCount`
+  counts presses) could reset it.
+
+## Validate
+
+Items whose remaining work is purely testing: hand checks in a real terminal
+or app, runs on real data or hardware, and tests to write or repair. No
+product change is planned unless a check finds a defect, which is then raised
+as a new Open item. Split out of Open on 2026-10-07; each item kept its ID
+and `raised`.
 
 - **N-017** · raised `2026-0913-1932-existing-pane-session-settings` · value medium
   Live-test an existing-pane drop into a real claude pane with model and
@@ -137,51 +245,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   `#d0ccae` → `#d3d1c5`, half the saturation and five points lighter
   (2026-10-05). The card body still needs an eyeball in cats.
 
-- **N-071** · raised `2026-0927-0037-probe-driven-live-tests` · value low
-  Arrow keys slow down linearly with the prompt's length: measured live,
-  ~7ms per key at 30 lines, ~20ms at 300 and ~50ms at 1,000. In process,
-  1,000 lines cost ~13ms in Update and ~10ms in View, and 3,000 lines cost
-  ~37ms + ~28ms. The cost is bubbles' textarea (v2.1.1): `Update` and
-  `View` both render every line of the value into the viewport
-  (`textarea.go:1329` and `:1455`) and let it slice. cats-todo adds almost
-  nothing on top. At a fast key repeat (~30ms), a held arrow falls behind
-  past a few hundred lines. The fix is a textarea that renders only the
-  rows in view: a fork, or an upstream patch.
-  **Needs the user**: the fix is a textarea fork or an upstream patch to
-  bubbles, which is a dependency decision (2026-09-27).
-
-- **N-072** · raised `2026-0927-0053-live-autosave-and-next-send` · value high
-  Claude Code 2.1.283 hands a dropped prompt to the model as pasted text,
-  not as the user's request. `pane.send_input` is a bracketed paste, and
-  Claude Code tags pasted input `<pasted_content>` (flag-gated, `FP()` in
-  the binary), whose instructions the model is told to follow only where
-  the user's own words ask. A drop is all paste, so Opus 5.5 said: "Your
-  message contains only pasted text, with nothing you wrote around it, so I
-  haven't acted on it yet." Measured on fresh panes: realistic read-only
-  tasks were done by Opus (framed as a Next List item or not) and by a
-  fresh Haiku session. A synthetic "reply with only ALPHA11" was declined
-  by Opus and Haiku once framed as `Next list item N-001 (…):`, but done
-  bare. Sonnet 5 did it either way. Haiku declined a realistic Next List
-  item in a pane whose conversation was already about pasted content. The
-  risk is highest where nobody watches: a scheduled drop or a batch loop
-  sees the pane go idle after a question and counts the prompt as sent.
-  **Needs the user** (the road is cats' wire): (a) a typed send in cats,
-  key events with shift+enter for newlines, so the message is the user's;
-  (b) cats-todo leads every drop with an explicit ask, which still sits
-  inside the paste; or (c) accept it and document it. Recommendation: (a),
-  with (b) as a cheap interim for the Next List's framing.
-  2026-09-27 (`2026-0927-2122-paste-ask-interim-and-closed-workspace`): the
-  user chose **(a), with (b) as the interim**. (b) is in: every drop, and a
-  loop's wrap-up message, leads with `pasteAsk` (drop.go, `withPasteAsk`),
-  and slash commands go bare. Live, one run each on the framed "reply
-  ALPHA11" prompt: Haiku 4.5 declined without the ask and did it with it,
-  and Opus 5.5 did it both ways this time. A second Haiku round was set up
-  but never sent. What is left is (a): a key-sending verb in cats' wire,
-  built on the browser path's key encoder that `catctl probe` already uses,
-  a `go.mod` pin bump here, and drops sent as keys with shift+enter for
-  newlines. Then a live check that Claude Code doesn't take a fast key burst
-  for a paste. The same verb unblocks N-079.
-
 - **N-077** · raised `2026-0927-2023-batch-drop-confirm-dialog` · value medium
   Live-test the ▶ Drop now dialog (`batchconfirm.go`) in cats with
   `catctl probe`. Open the composer with a loop and with all at once, press
@@ -192,57 +255,19 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   click on ✕ Back and a click off the box both go back. Unit tests cover
   all of this against the model, but not against catway's rendering.
 
-- **N-078** · raised `2026-0927-2023-batch-drop-confirm-dialog` · value low
-  Release the drop dialog as v0.43.0 (minor: a new dialog). Bump both
-  version files, commit `chore(release): v0.43.0`, tag it, and push the
-  code and the tag. Best done after N-077.
-
-- **N-079** · raised `2026-0927-2107-pane-drops-stop-saving-defaults` · value medium
-  Switch a running claude pane's model and effort for that session only,
-  through the pickers the bare commands open (N-070's road (c)). Found in
-  the 2.1.283 binary: `/model` with no argument opens the ModelPicker. It
-  starts in search mode, so typing filters and `↓` moves into the list, and
-  there `s` is `modelPicker:thisSessionOnly` (its footer says `s use this
-  session only`) while Enter is `set as default`. `←/→` in that picker move
-  effort. `/effort` with no argument opens the EffortSlider: `←/→` move, `s`
-  is `effortSlider:thisSessionOnly`, Enter saves. The typed `/model X`
-  saves whenever the session is interactive, and no flag turns that off.
-  What it needs: (1) a way to send `↓`, `←/→` and a bare `s` as keys, since
-  `pane.send_input` pastes its text and Enter is its only bare key. That is
-  a new verb in cats' wire, the same thing N-072 (a) asks for. (2) Never
-  press Enter inside a picker. With an empty filter it saves the default,
-  so `↓` is the way into the list. (3) Wait for `… for this session only`
-  and stop the drop if the pane says `saved as your default`. (4) The
-  slider has no absolute position, so walk it to one end first. (5) `s` is
-  a default binding the user can remap in `keybindings.json`. Then turn on
-  `paneSetsModelEffort` (session.go) with commands for this road, and run
-  N-017, N-043 and N-044 live: this road saves nothing, so a live test is
-  safe.
-
-- **N-080** · raised `2026-1002-1322-backlog-search-repo-boundary` · value low
-  Export into a project directory with no `.cats-todo` still creates the
-  backlog silently (`export.go`, the save into `projectTodosPath(root)`).
-  The manager now asks before creating one (`backlogoffer.go`) and `add`
-  says so when it starts one; export does neither. Say it in the status
-  line ("started a new backlog in <dir>"), or ask first, so a backlog
-  never appears unannounced.
-
-- **N-081** · raised `2026-1002-1322-backlog-search-repo-boundary` · value low
-  The manager's create-backlog offer is asked on every launch in a project
-  that has none, because a "no" is deliberately not remembered (a hidden
-  remembered answer would be one more thing deciding which backlog is on
-  screen). If the repeated ask becomes a nuisance in repos that only ever
-  use the global backlog, consider remembering a decline per repo root,
-  visibly (named in the header or the View panel).
-
 - **N-082** · raised `2026-1003-1147-next-list-close-park-decline` · value medium
-  Live-test the Next List's three moves in cats (`catctl probe`, a scratch
+  Live-test the Next List's four moves in cats (`catctl probe`, a scratch
   repo with a copy of a real `next-list.md`): `ctrl+t` with a comment, a
   right-click ⊘ Mark as non-goal… (the pad anchored at the menu's cell),
-  `ctrl+f` twice (Open → Roadmap → Open, file byte-identical), and a move
-  refused after another pane edited the file. Only unit tests and rendered
-  frames have exercised them. Also check the 17-row menu on a short pane,
-  and that the footer's two lines read well.
+  `ctrl+f` twice (Open → Roadmap → Open, file byte-identical), ◎ Move to
+  Validate and then its ⇡ Move to Open (the file gains only an empty
+  `## Validate` if it had none), `ctrl+f` on a Validate item (→ Roadmap),
+  and a move refused after another pane edited the file. Only unit tests
+  and rendered frames have exercised them. The user tried the v0.45.0 build
+  by hand (`go run`, `2026-1007-1526-next-list-validate-section-v0.45.0`)
+  and found it good, but no scripted probe run has been made. Also check
+  the 18-row menu on a short pane, and that the footer's two lines read
+  well.
 
 - **N-083** · raised `2026-1007-0200-batch-splitter-and-bracket-checkboxes` · value medium
   Live-test the batch composer's splitter and the `[ ]`/`[x]` checkboxes in
@@ -257,12 +282,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   then on its `[ ]`/`[x]` (no card, and a standing one comes down); the Next
   List tab's card; and that a splitter drag still works under all-motion
   mouse mode. Only unit tests and rendered frames have seen them.
-
-- **N-084** · raised `2026-1007-0200-batch-splitter-and-bracket-checkboxes` · value low
-  The composer's splitter has no way back to the default split (0.45) short
-  of dragging there or deleting `batchSplit` from settings.json. If that is
-  ever missed, a double-click on the rule (counted the way `promptClickCount`
-  counts presses) could reset it.
 
 ## Roadmap
 
