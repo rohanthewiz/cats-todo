@@ -251,7 +251,11 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   the composer and see it keep the split; check the rule lights green while
   held. Then look at the checkboxes by eye in the Pick pane, the annotation
   bar (including the 29-cell bare tier in a 30-column pane), the list menu
-  and the spelling panel. Only unit tests and rendered frames have seen them.
+  and the spelling panel. Also the composer's hover card
+  (`2026-1007-0210-composer-hover-card`): rest on a Pick row's title (card),
+  then on its `[ ]`/`[x]` (no card, and a standing one comes down); the Next
+  List tab's card; and that a splitter drag still works under all-motion
+  mouse mode. Only unit tests and rendered frames have seen them.
 
 - **N-084** · raised `2026-1007-0200-batch-splitter-and-bracket-checkboxes` · value low
   The composer's splitter has no way back to the default split (0.45) short
