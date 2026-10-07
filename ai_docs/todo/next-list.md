@@ -44,7 +44,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-083
+**Next ID:** N-085
 
 ## Open
 
@@ -90,7 +90,8 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   Check the value marks and the annotation bar by eye in cats: that 🔷 draws
   two cells in the cats font, that the faint `│` rules read as dividers, and
   that the bare tier's reverse-lit radio is visible. At 100 cells the bar keeps
-  the Value/Priority labels and drops the checkbox words (the words need 104);
+  the Value/Priority labels and drops the checkbox words (the words need 110
+  since the checkboxes became `[ ]`, three cells; 104 before);
   swap the two tiers if the words turn out to matter more.
   Seen 2026-09-27 in cats' web page (light theme, `2026-0927-0145-hover-card-live-and-release`): the `│` rules
   are faint but read as dividers. 🔷 draws as a flat slate diamond, wider
@@ -241,6 +242,22 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   refused after another pane edited the file. Only unit tests and rendered
   frames have exercised them. Also check the 17-row menu on a short pane,
   and that the footer's two lines read well.
+
+- **N-083** · raised `2026-1007-0200-batch-splitter-and-bracket-checkboxes` · value medium
+  Live-test the batch composer's splitter and the `[ ]`/`[x]` checkboxes in
+  cats. `catctl probe` has no motion op, so drag the rule from cats' page in
+  Chrome (`http://127.0.0.1:8422/?ws=<id>`): press on the `│` (or the blank
+  either side), drag both ways past the 24/36-column limits, let go, reopen
+  the composer and see it keep the split; check the rule lights green while
+  held. Then look at the checkboxes by eye in the Pick pane, the annotation
+  bar (including the 29-cell bare tier in a 30-column pane), the list menu
+  and the spelling panel. Only unit tests and rendered frames have seen them.
+
+- **N-084** · raised `2026-1007-0200-batch-splitter-and-bracket-checkboxes` · value low
+  The composer's splitter has no way back to the default split (0.45) short
+  of dragging there or deleting `batchSplit` from settings.json. If that is
+  ever missed, a double-click on the rule (counted the way `promptClickCount`
+  counts presses) could reset it.
 
 ## Roadmap
 
