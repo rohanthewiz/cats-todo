@@ -202,6 +202,56 @@ func TestNextMoveBetweenOpenAndRoadmap(t *testing.T) {
 	}
 }
 
+// TestNextMoveToValidate: Validate is a "still to do" section like Open and
+// Roadmap — the item travels verbatim, in ID order, a blank between items. A
+// file without the section gets it directly below Open (before Roadmap), where
+// the next-list skill puts it, and keeps it once emptied again.
+func TestNextMoveToValidate(t *testing.T) {
+	out := mustMove(t, editNextList, nextMoveReq{ID: "N-008", To: nextToValidate})
+	if !strings.Contains(out, "  Five.\n\n## Validate\n\n- **N-008** · raised `s-eight` · value medium\n  Eight.\n\n## Roadmap\n") {
+		t.Fatalf("Validate not made below Open, before Roadmap:\n%s", out)
+	}
+
+	// From the Roadmap too, and into ID order above the item already there.
+	out = mustMove(t, out, nextMoveReq{ID: "N-003", To: nextToValidate})
+	out = mustMove(t, out, nextMoveReq{ID: "N-002", To: nextToValidate})
+	wantVal := "\n" +
+		"- **N-002** · raised `s-two` · value high\n" +
+		"  Two, over\n" +
+		"  two lines.\n" +
+		"\n" +
+		"- **N-003** · raised `s-three` · value low\n" +
+		"  Three.\n" +
+		"\n" +
+		"- **N-008** · raised `s-eight` · value medium\n" +
+		"  Eight.\n"
+	if got := sectionText(t, out, "Validate"); got != wantVal {
+		t.Errorf("Validate:\n%q\nwant\n%q", got, wantVal)
+	}
+	if got := sectionText(t, out, "Roadmap"); got != "\nWanted, but later.\n" {
+		t.Errorf("Roadmap should keep only its prose: %q", got)
+	}
+
+	// Each one back where it came from: the file is the original plus the
+	// now-empty Validate section, which stays (the file's sections are its
+	// shape, and the next move to Validate will want it).
+	out = mustMove(t, out, nextMoveReq{ID: "N-002", To: nextToOpen})
+	out = mustMove(t, out, nextMoveReq{ID: "N-003", To: nextToRoadmap})
+	out = mustMove(t, out, nextMoveReq{ID: "N-008", To: nextToOpen})
+	if want := strings.Replace(editNextList, "## Roadmap\n", "## Validate\n\n## Roadmap\n", 1); out != want {
+		t.Errorf("round trip:\n%s\nwant\n%s", out, want)
+	}
+
+	// A Validate item can be closed straight from there, which is how a check
+	// that passed leaves the list.
+	out = mustMove(t, editNextList, nextMoveReq{ID: "N-005", To: nextToValidate})
+	out = mustMove(t, out, nextMoveReq{ID: "N-005", To: nextToClosed, Note: "Checked in cats."})
+	if strings.Contains(sectionText(t, out, "Validate"), "N-005") ||
+		!strings.Contains(sectionText(t, out, "Closed"), "- **N-005** · closed 2026-10-03 · raised `s-five`\n  — Checked in cats.\n") {
+		t.Errorf("N-005 not closed from Validate:\n%s", out)
+	}
+}
+
 // TestNextMoveIntoAnEmptySection: the first entry of an empty section is set
 // off from the heading by a blank, and from the next heading by another.
 func TestNextMoveIntoAnEmptySection(t *testing.T) {
@@ -235,8 +285,9 @@ func TestNextMoveCreatesAMissingSection(t *testing.T) {
 	}
 }
 
-// TestNextMoveRefusals: an item not in Open/Roadmap (moved elsewhere since the
-// page loaded), and a move to where it already is, are refused in words.
+// TestNextMoveRefusals: an item not in Open/Validate/Roadmap (moved elsewhere
+// since the page loaded), and a move to where it already is, are refused in
+// words.
 func TestNextMoveRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		req  nextMoveReq
@@ -247,6 +298,20 @@ func TestNextMoveRefusals(t *testing.T) {
 		{nextMoveReq{ID: "N-003", To: nextToRoadmap}, "already in Roadmap"},
 	} {
 		_, _, err := moveNextItemText(editNextList, tc.req)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: err = %v, want one saying %q", tc.req, err, tc.want)
+		}
+	}
+	// And in Validate: already there is refused the same way.
+	val := mustMove(t, editNextList, nextMoveReq{ID: "N-002", To: nextToValidate})
+	for _, tc := range []struct {
+		req  nextMoveReq
+		want string
+	}{
+		{nextMoveReq{ID: "N-002", To: nextToValidate}, "already in Validate"},
+		{nextMoveReq{ID: "N-004", To: nextToValidate}, "no longer Open, in Validate or on the Roadmap"},
+	} {
+		_, _, err := moveNextItemText(val, tc.req)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%+v: err = %v, want one saying %q", tc.req, err, tc.want)
 		}

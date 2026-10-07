@@ -6,11 +6,12 @@ they find stale. They do not copy the list into their session doc. A session
 doc's `## Next` says only `Closed: N-… Raised: N-…`, so each item has one
 home, and an item that disappears shows up as a deletion in git history.
 
-The cats-todo **Next List** page (`ctrl+g`, `nextlist.go`) reads the Open and
-Roadmap sections of this file, so keep the item grammar below exact. It also
-writes three moves the user makes there (`nextedit.go`): ✓ Close as done (to
-the top of Closed), ⇣/⇡ between Open and Roadmap, and ⊘ Mark as non-goal. The
-records it writes look like `- **N-###** · closed <date> · raised \`<stem>\``
+The cats-todo **Next List** page (`ctrl+g`, `nextlist.go`) reads the Open,
+Validate and Roadmap sections of this file, so keep the item grammar below
+exact. It also writes four moves the user makes there (`nextedit.go`): ✓ Close
+as done (to the top of Closed), ◎ Move to Validate (⇡ back to Open), ⇣/⇡
+between Open and Roadmap, and ⊘ Mark as non-goal. The records it writes look
+like `- **N-###** · closed <date> · raised \`<stem>\``
 (or `declined <date>`), with `— <note>` on the next line.
 
 Seeded 2026-09-24 by `/next-list seed` from the 15 session docs

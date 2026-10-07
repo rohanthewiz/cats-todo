@@ -23,8 +23,9 @@
 //	│ ⤓ Add as ｉ info               │
 //	│ ⤓ Add as ⚑ flagged             │
 //	│ ✓ Close as done…        ctrl+t │   the item itself, moved in the file:
-//	│ ⇣ Move to Roadmap       ctrl+f │   … to Closed (with a note), Roadmap
-//	│ ⊘ Mark as non-goal…     ctrl+x │   (⇡ Move to Open there), Non-goals
+//	│ ◎ Move to Validate             │   … to Closed (with a note), Validate
+//	│ ⇣ Move to Roadmap       ctrl+f │   or Roadmap (⇡ Move to Open from
+//	│ ⊘ Mark as non-goal…     ctrl+x │   either), Non-goals (with a note)
 //	│ ⧉ Copy ID: N-014               │   the item's words, off the page
 //	│ ⧉ Copy as prompt               │
 //	╰────────────────────────────────╯
@@ -38,8 +39,9 @@
 //
 // The move rows are the exception to the paragraph above: they act on the
 // item, not on a prompt made from it. The page reads the file, but closing,
-// parking and declining are the user's decisions, made where the user is
-// looking at the item, so the page writes those three (see nextedit.go).
+// validating, parking and declining are the user's decisions, made where the
+// user is looking at the item, so the page writes those four (see
+// nextedit.go).
 //
 // Every saved prompt carries the item's value (the file rates items on the
 // backlog's own three levels), exactly as the draft form does. The Add rows
@@ -79,6 +81,7 @@ const (
 	nextMenuAddInfo
 	nextMenuAddFlag
 	nextMenuClose
+	nextMenuValidate
 	nextMenuPark
 	nextMenuDecline
 	nextMenuCopyID
@@ -218,9 +221,12 @@ func (m model) openNextMenu(msg tea.MouseClickMsg, it nextItem) (tea.Model, tea.
 		add(nextMenuAddInfo, "⤓ Add as "+infoGlyph+" info"),
 		add(nextMenuAddFlag, "⤓ Add as "+flagGlyph+" flagged"),
 		// The item's own fate, in the file. The two that leave a record ask
-		// for its words first (the …); the park row names where the item
-		// will go, which depends on where it is.
+		// for its words first (the …); the Validate and park rows name where
+		// the item will go, which depends on where it is. The two one-press
+		// moves sit together between the two records, Validate first: it is
+		// the step before ✓ Close for an item whose build work is done.
 		{act: nextMenuClose, label: "✓ Close as done…", hint: "ctrl+t"},
+		{act: nextMenuValidate, label: nextValidateLabel(it)},
 		{act: nextMenuPark, label: nextParkLabel(it), hint: "ctrl+f"},
 		{act: nextMenuDecline, label: "⊘ Mark as non-goal…", hint: "ctrl+x"},
 		// The ID is on the label so the row says exactly what the clipboard
@@ -311,6 +317,8 @@ func (m model) pressNextMenu(i int) (tea.Model, tea.Cmd) {
 		return m.beginBatchCompose(stageNextList, batchSrcNext, []batchCand{{next: it, title: nextItemTitle(it)}})
 	case nextMenuClose:
 		return m.askNextNote(it, nextToClosed, bx, by, true)
+	case nextMenuValidate:
+		return m.validateNextItem(it)
 	case nextMenuPark:
 		return m.parkNextItem(it)
 	case nextMenuDecline:

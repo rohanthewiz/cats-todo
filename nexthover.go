@@ -136,8 +136,9 @@ func (m model) nextItemCard(it nextItem, row, x, y int) (hoverCard, bool) {
 //
 // The ID leads for the reason the backlog card's title does — the box is
 // placed off the row, among others, so it has to name which one it is about —
-// and it carries the section, since the heading that says Open or Roadmap has
-// usually scrolled out of sight by the time a long list is being read.
+// and it carries the section, since the heading that says Open, Validate or
+// Roadmap has usually scrolled out of sight by the time a long list is being
+// read.
 func nextCardLines(it nextItem, inner int) []string {
 	return nextCardLinesMax(it, inner, nextCardBodyLines)
 }

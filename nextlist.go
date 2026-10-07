@@ -2,22 +2,23 @@
 // (ai_docs/todo/next-list.md), shown as rows a prompt can be started from.
 //
 // The file is written and kept by the /next-list and /sess-save skills. The
-// page reads it, and writes only the three decisions that are the user's to
-// make about an item — close it as done, move it between Open and Roadmap,
-// decline it as a non-goal (nextmove.go, nextedit.go). It is a Markdown
-// document with a small fixed grammar, and only its two "still to do"
-// sections are listed:
+// page reads it, and writes only the four decisions that are the user's to
+// make about an item — close it as done, move it to Validate, move it between
+// Open and Roadmap, decline it as a non-goal (nextmove.go, nextedit.go). It is
+// a Markdown document with a small fixed grammar, and only its three "still to
+// do" sections are listed:
 //
-//	## Open                                         ← what is next
+//	## Open                                         ← the next build work
 //	- **N-014** · raised `2026-0904-…` · value medium
 //	  The item's text, indented two columns, over as
 //	  many lines (and sub-bullets) as it needs.
+//	## Validate                                     ← the next checks to run
 //	## Roadmap                                      ← wanted, but later
 //	## Non-goals / ## Closed                        ← not listed: nothing to start
 //
 // The page is a full-screen stage of the list, the same shape as the pickers:
 //
-//	Next list  ai_docs/todo/next-list.md · 12 open · 3 roadmap
+//	Next list  ai_docs/todo/next-list.md · 12 open · 2 to validate · 3 roadmap
 //
 //	╭ 🔍 query ───────────────────╮  15/15
 //
@@ -39,9 +40,10 @@
 // the file, and a backlog copy would be a second record of the same work for
 // someone to close. The agent is told the item's ID, so it can close it there.
 //
-// An item can also be moved in the file: ✓ Close as done (ctrl+t), ⇣ Move to
-// Roadmap / ⇡ Move to Open (ctrl+f), ⊘ Mark as non-goal (ctrl+x). The first and
-// last ask for the record's words in a pad first.
+// An item can also be moved in the file: ✓ Close as done (ctrl+t), ◎ Move to
+// Validate (the context menu only), ⇣ Move to Roadmap / ⇡ Move to Open
+// (ctrl+f), ⊘ Mark as non-goal (ctrl+x). Close and non-goal ask for the
+// record's words in a pad first.
 //
 // The file is re-read on open and on ↻ Refresh, never watched: it is edited in
 // another pane (by a session wrapping up, usually), and a refresh the user asks
@@ -73,7 +75,7 @@ type nextItem struct {
 	ID      string // "N-014" — permanent, and what a prompt made from it cites
 	Value   string // "high" / "medium" / "low", or "" when the header has none
 	Raised  string // the session-doc stem the item first appeared in
-	Section string // "Open" or "Roadmap"
+	Section string // "Open", "Validate" or "Roadmap"
 	// Text is the item's body with its two-column indent removed, newlines and
 	// sub-bullets intact: the row flattens it, but a prompt made from it keeps
 	// the shape it was written in.
@@ -91,9 +93,26 @@ var (
 )
 
 // nextListedSections are the sections the page shows, in the order it shows
-// them. Non-goals and Closed hold items too, but nothing there is waiting to be
-// started, and a page for picking what to do next has no use for them.
-var nextListedSections = []string{"Open", "Roadmap"}
+// them — the file's own order (nextSectionOrder). Non-goals and Closed hold
+// items too, but nothing there is waiting to be started, and a page for
+// picking what to do next has no use for them.
+//
+// Validate is listed although its items are not build work: a check still has
+// to be run, and when it passes the item is closed from here (✓ Close as
+// done), which needs it on the page.
+var nextListedSections = []string{"Open", "Validate", "Roadmap"}
+
+// nextListed says a heading names one of the listed sections, in any case —
+// the test both the parser and the splice (findNextBlock) apply, so the page
+// can move exactly the items it shows.
+func nextListed(s string) bool {
+	for _, want := range nextListedSections {
+		if strings.EqualFold(s, want) {
+			return true
+		}
+	}
+	return false
+}
 
 // parseNextList pulls the listed sections' items out of the file, in file
 // order (which the file's own conventions keep in ID order).
@@ -127,15 +146,6 @@ func parseNextList(src string) []nextItem {
 		items = append(items, *cur)
 		cur, body = nil, nil
 	}
-	listed := func(s string) bool {
-		for _, want := range nextListedSections {
-			if strings.EqualFold(s, want) {
-				return true
-			}
-		}
-		return false
-	}
-
 	for _, ln := range strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n") {
 		if strings.HasPrefix(ln, "## ") {
 			flush()
@@ -147,7 +157,7 @@ func parseNextList(src string) []nextItem {
 			continue
 		}
 		flush()
-		if !listed(section) {
+		if !nextListed(section) {
 			continue
 		}
 		mt := nextHeaderRe.FindStringSubmatch(ln)
@@ -235,7 +245,7 @@ func loadNextList(root string) (items []nextItem, path, errMsg string) {
 	}
 	items = parseNextList(string(data))
 	if len(items) == 0 {
-		return nil, path, "nothing Open or on the Roadmap in " + nextListRel
+		return nil, path, "nothing Open, in Validate or on the Roadmap in " + nextListRel
 	}
 	return items, path, ""
 }
@@ -395,7 +405,8 @@ func (p *nextPage) rebuild() {
 			annots:     []annotMark{nextValueMark(it.Value), nextBacklogMark(p.inBacklog[it.ID])},
 			// The haystack is the whole item, not the cut row, so a query finds
 			// words from past the edge of the pane — plus the ID, the value and
-			// the section, so "N-014", "high" and "roadmap" all narrow the page.
+			// the section, so "N-014", "high", "validate" and "roadmap" all
+			// narrow the page.
 			search:     strings.Join([]string{it.ID, it.Value, it.Section, flat}, " "),
 			selectable: true,
 			ref:        i,
@@ -473,6 +484,9 @@ func nextBacklogMark(held bool) annotMark {
 // empty section is left out rather than counted as "0 roadmap" — a freshly
 // seeded list has an empty Roadmap, and the zero would be the heading's most
 // prominent fact about it.
+//
+// Validate is counted as "to validate": the section's bare name is a verb, and
+// "2 validate" reads as an instruction rather than a tally.
 func (p nextPage) counts() string {
 	n := map[string]int{}
 	for _, it := range p.items {
@@ -480,9 +494,14 @@ func (p nextPage) counts() string {
 	}
 	var parts []string
 	for _, s := range nextListedSections {
-		if n[s] > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", n[s], strings.ToLower(s)))
+		if n[s] == 0 {
+			continue
 		}
+		word := strings.ToLower(s)
+		if s == "Validate" {
+			word = "to validate"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", n[s], word))
 	}
 	return strings.Join(parts, " · ")
 }

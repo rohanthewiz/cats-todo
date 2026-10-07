@@ -1,27 +1,39 @@
-// nextmove.go — the Next List page's three decisions about an item: close it
-// as done, park it on the Roadmap (or bring it back to Open), or decline it as
-// a non-goal. Each one moves the item in the file (nextedit.go does the
-// splice); this file is the page's side of it: the chords, the menu's rows'
-// actions, and the note pad that asks for the words a record keeps.
+// nextmove.go — the Next List page's four decisions about an item: close it
+// as done, hand it to Validate (only a check is left), park it on the Roadmap
+// (or bring it back to Open), or decline it as a non-goal. Each one moves the
+// item in the file (nextedit.go does the splice); this file is the page's side
+// of it: the chords, the menu's rows' actions, and the note pad that asks for
+// the words a record keeps.
 //
 //	ctrl+t   ✓ Close as done…       pad: "what showed it" (optional) → Closed
-//	ctrl+f   ⇣ Move to Roadmap      one press, no words — Open ⇄ Roadmap
+//	(menu)   ◎ Move to Validate     one press, no words — Open/Roadmap → Validate
+//	         ⇡ Move to Open         (the same row on a Validate item)
+//	ctrl+f   ⇣ Move to Roadmap      one press, no words — Open/Validate → Roadmap
 //	         ⇡ Move to Open         (the same row and chord on a Roadmap item)
 //	ctrl+x   ⊘ Mark as non-goal…    pad: "why not" (optional) → Non-goals
 //
 // The chords are the list's own for the nearest act: ctrl+t marks a prompt
 // done there, ctrl+f freezes one (parks it, "not now"), and ctrl+x removes
 // one. Here none of the three deletes anything — the file's rule is that
-// nothing leaves Open or Roadmap without a line in another section — but the
-// hand that knows the list already knows which key means which.
+// nothing leaves Open, Validate or Roadmap without a line in another section
+// — but the hand that knows the list already knows which key means which.
+// Validate has no list act to borrow a chord from, so it is a menu row only.
 //
-// Why a pad for two of them and not the third: a Closed or Non-goals entry is
-// a record, and the file's convention is that it says why ("what showed it",
-// "its reason"). Asking at the moment of the decision is when the why is
+// The two one-press moves are toggles against Open, each owning one section:
+// the Validate row puts an item in Validate (or takes a Validate item back to
+// Open), the park row puts it on the Roadmap (or takes a Roadmap item back to
+// Open). Between them every listed section reaches every other — Validate →
+// Roadmap is the park row, Roadmap → Validate the Validate row — without a
+// row ever greying out for "already there".
+//
+// Why a pad for two of them and not the others: a Closed or Non-goals entry
+// is a record, and the file's convention is that it says why ("what showed
+// it", "its reason"). Asking at the moment of the decision is when the why is
 // known. The words stay optional, since a record without them keeps the
 // item's own text, and the pad's enter is also the confirmation those two
-// moves need. A move between Open and Roadmap is neither a record nor final:
-// the same chord moves it back, so it takes one press.
+// moves need. A move among Open, Validate and Roadmap is neither a record nor
+// final: the item travels verbatim and the same row moves it back, so it
+// takes one press.
 //
 //	╭──────────────────────────────────────────────────────────────╮
 //	│ ✓ Close N-012 as done                                        │  title
@@ -115,8 +127,8 @@ func (m model) declineFromNext() (tea.Model, tea.Cmd) {
 	return m.askNextNote(it, nextToNonGoals, 0, 0, false)
 }
 
-// parkNextItem moves an item between Open and Roadmap — whichever it is not
-// in. No pad: see the file comment.
+// parkNextItem moves an item to the Roadmap, or a Roadmap item back to Open.
+// No pad: see the file comment.
 func (m model) parkNextItem(it nextItem) (tea.Model, tea.Cmd) {
 	to := nextToRoadmap
 	if it.Section == nextToRoadmap.section() {
@@ -132,6 +144,29 @@ func nextParkLabel(it nextItem) string {
 		return "⇡ Move to Open"
 	}
 	return "⇣ Move to Roadmap"
+}
+
+// validateNextItem moves an item to Validate — its build work is done and only
+// a check is left to run — or a Validate item back to Open, for one that turns
+// out to need code after all. No pad, for the park row's reason: the item
+// travels verbatim (value, raised and text), and the same row undoes it.
+func (m model) validateNextItem(it nextItem) (tea.Model, tea.Cmd) {
+	to := nextToValidate
+	if it.Section == nextToValidate.section() {
+		to = nextToOpen
+	}
+	return m.moveNext(it, to, "")
+}
+
+// nextValidateLabel is the Validate row's label for an item, naming where the
+// press sends it, as nextParkLabel does. ◎ is a target — the thing to be
+// checked — and is a glyph no other row or mark wears; ⇡ is the park row's own
+// arrow back to Open, since that is the same move.
+func nextValidateLabel(it nextItem) string {
+	if it.Section == nextToValidate.section() {
+		return "⇡ Move to Open"
+	}
+	return "◎ Move to Validate"
 }
 
 // askNextNote opens the pad for a move that records words (to Closed or
@@ -257,8 +292,9 @@ func (m model) clickNextPad(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // After the write the page is re-read from the file rather than patched in
 // memory: the splice was made against the file as it is now, which may hold
 // edits from another pane, and the page should show exactly that. The
-// highlight stays on the item when it is still listed (Open ⇄ Roadmap), and
-// otherwise goes to its neighbour, so a run of closes walks down the page.
+// highlight stays on the item when it is still listed (a move among Open,
+// Validate and Roadmap), and otherwise goes to its neighbour, so a run of
+// closes walks down the page.
 //
 // Closing an item also closes the open backlog prompt made from it, when there
 // is one (nextBacklogCopy): the work it was a prompt for is done, and an open
@@ -270,7 +306,7 @@ func (m model) moveNext(it nextItem, to nextDest, note string) (tea.Model, tea.C
 		return m, nil
 	}
 	keep := it.ID
-	if to == nextToClosed || to == nextToNonGoals {
+	if to.record() {
 		keep = m.next.neighbour(it.ID)
 	}
 	req := nextMoveReq{ID: it.ID, To: to, Note: note, Date: time.Now().Format("2006-01-02")}
@@ -296,6 +332,8 @@ func (m model) moveNext(it nextItem, to nextDest, note string) (tea.Model, tea.C
 		if _, td, ok := m.nextBacklogCopy(it); ok {
 			line += " · its backlog prompt “" + truncate(td.Title, 30) + "” is still open"
 		}
+	case nextToValidate:
+		line += " moved to Validate"
 	case nextToRoadmap:
 		line += " moved to the Roadmap"
 	case nextToOpen:

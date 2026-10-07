@@ -129,6 +129,82 @@ func TestNextParkTogglesRoadmap(t *testing.T) {
 	}
 }
 
+// nextMenuOnHighlight opens the page's menu on the highlighted item, as a
+// right-click on its row would — for a test whose item has moved to a line
+// it would otherwise have to work out.
+func nextMenuOnHighlight(t *testing.T, m model) model {
+	t.Helper()
+	it, ok := m.next.highlighted()
+	if !ok {
+		t.Fatal("nothing highlighted to open the menu on")
+	}
+	next, _ := m.openNextMenu(tea.MouseClickMsg{X: 8, Y: nextRowsRow + 2, Button: tea.MouseRight}, it)
+	return next.(model)
+}
+
+// TestNextValidateFromTheMenu: ◎ Move to Validate moves an Open item in one
+// press — verbatim, into a Validate section made below Open — and keeps the
+// highlight on it. The row is a toggle against Open, as the park row is, so
+// from Validate it reads ⇡ Move to Open, and with the park row every listed
+// section reaches every other: Validate → Roadmap → Validate → Open.
+func TestNextValidateFromTheMenu(t *testing.T) {
+	m, root := nextModel(t, sampleNextList)
+	m = openNext(t, m)
+	m = rightClickNextAt(t, m, nextN002Y)
+	row := m.nextMenu.items[nextMenuRow(t, m, nextMenuValidate)]
+	if row.label != "◎ Move to Validate" || !row.live() {
+		t.Errorf("Validate row on an Open item = %+v", row)
+	}
+	next, _ := m.pressNextMenu(nextMenuRow(t, m, nextMenuValidate))
+	m = next.(model)
+
+	file := readNextFile(t, root)
+	if want := "  - DEC 1004: blur a window.\n\n## Validate\n\n- **N-002** · raised `2026-0910-1855-boot` · value high\n  Seeds ship stale prompts.\n\n## Roadmap\n"; !strings.Contains(file, want) {
+		t.Errorf("N-002 not moved verbatim to a Validate section below Open:\n%s", file)
+	}
+	it, _ := m.next.highlighted()
+	if it.ID != "N-002" || it.Section != "Validate" || m.next.note != "N-002 moved to Validate" {
+		t.Errorf("after the press: highlight %+v, note %q", it, m.next.note)
+	}
+
+	// On a Validate item the row goes back to Open, and the park row on to
+	// the Roadmap.
+	m = nextMenuOnHighlight(t, m)
+	if l := m.nextMenu.items[nextMenuRow(t, m, nextMenuValidate)].label; l != "⇡ Move to Open" {
+		t.Errorf("Validate row on a Validate item = %q", l)
+	}
+	if l := m.nextMenu.items[nextMenuRow(t, m, nextMenuPark)].label; l != "⇣ Move to Roadmap" {
+		t.Errorf("park row on a Validate item = %q", l)
+	}
+	next, _ = m.pressNextMenu(nextMenuRow(t, m, nextMenuPark))
+	m = next.(model)
+	if it, _ := m.next.highlighted(); it.ID != "N-002" || it.Section != "Roadmap" {
+		t.Errorf("park from Validate: highlight %+v, note %q", it, m.next.note)
+	}
+
+	// From the Roadmap, the row offers Validate again.
+	m = nextMenuOnHighlight(t, m)
+	if l := m.nextMenu.items[nextMenuRow(t, m, nextMenuValidate)].label; l != "◎ Move to Validate" {
+		t.Errorf("Validate row on a Roadmap item = %q", l)
+	}
+	next, _ = m.pressNextMenu(nextMenuRow(t, m, nextMenuValidate))
+	m = next.(model)
+	if it, _ := m.next.highlighted(); it.ID != "N-002" || it.Section != "Validate" {
+		t.Errorf("Roadmap → Validate: highlight %+v, note %q", it, m.next.note)
+	}
+
+	// And home: the file is the original plus the now-empty Validate section.
+	m = nextMenuOnHighlight(t, m)
+	next, _ = m.pressNextMenu(nextMenuRow(t, m, nextMenuValidate))
+	m = next.(model)
+	if want := strings.Replace(sampleNextList, "## Roadmap\n", "## Validate\n\n## Roadmap\n", 1); readNextFile(t, root) != want {
+		t.Errorf("round trip:\n%s", readNextFile(t, root))
+	}
+	if m.next.note != "N-002 moved to Open" {
+		t.Errorf("note = %q", m.next.note)
+	}
+}
+
 // TestNextDeclineFromTheMenu: ⊘ Mark as non-goal… opens the pad where the menu
 // was; esc moves nothing; a second go with a reason writes the Non-goals entry.
 func TestNextDeclineFromTheMenu(t *testing.T) {

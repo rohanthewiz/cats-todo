@@ -76,6 +76,47 @@ func TestParseNextList(t *testing.T) {
 	}
 }
 
+// sampleWithValidate is the sample list with a Validate section between Open
+// and Roadmap, opening with prose as the skill seeds it.
+var sampleWithValidate = strings.Replace(sampleNextList, "## Roadmap\n",
+	"## Validate\n"+
+		"\n"+
+		"Checks whose remaining work is only to run, look, hear or measure.\n"+
+		"\n"+
+		"- **N-006** · raised `2026-0912-0000-y` · value low\n"+
+		"  Look at the chip in cats.\n"+
+		"\n"+
+		"## Roadmap\n", 1)
+
+// TestNextListShowsValidate: Validate items are listed, in the file's section
+// order (Open, Validate, Roadmap), under their own heading, and the heading's
+// tally counts them as "to validate" — the bare section name reads as an
+// order, not a count.
+func TestNextListShowsValidate(t *testing.T) {
+	items := parseNextList(sampleWithValidate)
+	var got []string
+	for _, it := range items {
+		got = append(got, it.ID+" "+it.Section)
+	}
+	if want := "N-001 Open|N-002 Open|N-006 Validate|N-003 Roadmap"; strings.Join(got, "|") != want {
+		t.Errorf("items = %q, want %q", strings.Join(got, "|"), want)
+	}
+	if items[2].Text != "Look at the chip in cats." {
+		t.Errorf("N-006 text = %q — the section's prose leaked in?", items[2].Text)
+	}
+
+	m, _ := nextModel(t, sampleWithValidate)
+	m = openNext(t, m)
+	if c := m.next.counts(); c != "2 open · 1 to validate · 1 roadmap" {
+		t.Errorf("counts = %q", c)
+	}
+	frame := ansi.Strip(m.renderStage())
+	iOpen, iVal, iRoad := strings.Index(frame, "\nOpen"), strings.Index(frame, "\nValidate"), strings.Index(frame, "\nRoadmap")
+	if iOpen < 0 || iVal < iOpen || iRoad < iVal {
+		t.Errorf("headings not drawn Open → Validate → Roadmap:\n%s", frame)
+	}
+}
+
 // nextModel is a model whose project backlog sits in a real project layout
 // (<root>/.cats-todo/todos.json), so nextListRoot resolves to root, with the
 // sample list written where the skill keeps it.

@@ -1,17 +1,19 @@
 // nextedit.go — moving one item between the sections of the Next List file
-// (ai_docs/todo/next-list.md): Open ⇄ Roadmap, or out to Closed or Non-goals.
+// (ai_docs/todo/next-list.md): among Open, Validate and Roadmap, or out to
+// Closed or Non-goals.
 //
 // The page used to only read the file, leaving every change to the skills that
-// keep it (/next-list, /sess-save). But three of those changes are decisions
+// keep it (/next-list, /sess-save). But four of those changes are decisions
 // only the user makes, and the page is where the user is looking when they make
-// them: "this is done", "not now", "never". So the page writes those three, and
-// nothing else — it never re-rates, rewords, renumbers or deletes.
+// them: "this is done", "only a check is left", "not now", "never". So the page
+// writes those four, and nothing else — it never re-rates, rewords, renumbers
+// or deletes.
 //
 // The file's own conventions (its "## Conventions" section) are the spec this
 // follows:
 //
-//	Open / Roadmap   in ID order, items separated by a blank line;
-//	                 an item moved between them keeps its lines verbatim
+//	Open, Validate,  in ID order, items separated by a blank line;
+//	Roadmap          an item moved among them keeps its lines verbatim
 //	Non-goals        in ID order, items packed (no blank line between them),
 //	                 `- **N-###** · declined <date> · raised `<stem>``
 //	                   — <the reason>
@@ -19,9 +21,10 @@
 //	                 `- **N-###** · closed <date> · raised `<stem>``
 //	                   — <what showed it>
 //
-// "Nothing leaves Open or Roadmap without a line in another section": a closed
-// or declined item always gets a body. When the user gave no words, the item's
-// own text stands in, so the record still says what was closed or declined.
+// "Nothing leaves Open, Validate or Roadmap without a line in another
+// section": a closed or declined item always gets a body. When the user gave
+// no words, the item's own text stands in, so the record still says what was
+// closed or declined.
 //
 // The edit is a splice on the file as it is *now*, re-read at the moment of
 // writing, and keyed by the item's ID — never a re-render of what the page
@@ -29,7 +32,7 @@
 // usually), and a splice by ID leaves every line it does not own exactly as it
 // found it, including whatever another writer changed since the page loaded.
 //
-//	read ─► find the item's block (header + indented lines) in Open/Roadmap
+//	read ─► find the item's block (header + indented lines) in a listed section
 //	     ─► cut it out (and the blank line it leaves doubled)
 //	     ─► build the block the destination wants
 //	     ─► find the destination section (creating it if the file lacks it)
@@ -49,11 +52,14 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// nextDest is a section an item can be moved to.
+// nextDest is a section an item can be moved to. The values index
+// nextSectionOrder, so the two lists are kept in the same order: a
+// destination's iota is its place in the file.
 type nextDest int
 
 const (
 	nextToOpen nextDest = iota
+	nextToValidate
 	nextToRoadmap
 	nextToNonGoals
 	nextToClosed
@@ -61,17 +67,24 @@ const (
 
 // nextSectionOrder is the file's section order, which is also how a missing
 // section is placed: before the first one that should come after it. An older
-// file may lack Roadmap (the skill says to treat that as empty), and a young
-// one may have no Non-goals yet.
-var nextSectionOrder = []string{"Open", "Roadmap", "Non-goals", "Closed"}
+// file may lack Validate or Roadmap (the skill says to treat either as empty),
+// and a young one may have no Non-goals yet. Validate sits directly below
+// Open, as the next-list skill places it: both are what is picked up next,
+// split only by the kind of work left (build vs. a check to run).
+var nextSectionOrder = []string{"Open", "Validate", "Roadmap", "Non-goals", "Closed"}
 
 // section is the heading a destination writes under.
 func (d nextDest) section() string { return nextSectionOrder[d] }
 
-// spaced says the section separates its items with a blank line — the two
+// spaced says the section separates its items with a blank line — the three
 // "still to do" sections, where an item is a paragraph to read. The record
 // sections are packed, one entry straight after another.
-func (d nextDest) spaced() bool { return d == nextToOpen || d == nextToRoadmap }
+func (d nextDest) spaced() bool { return !d.record() }
+
+// record says the destination is one of the record sections (Closed,
+// Non-goals), where an item arrives as a stamped entry rather than verbatim,
+// and leaves the page.
+func (d nextDest) record() bool { return d == nextToClosed || d == nextToNonGoals }
 
 // nextMoveReq is one move: which item, where to, and the user's words for the
 // record (a closing comment, or a non-goal's reason). Date is the stamp the
@@ -94,9 +107,9 @@ const nextRecordWrap = 76
 // moveNextItemText applies req to the file's text and returns the new text,
 // along with the item as it was parsed before the move.
 //
-// Refusals are errors worded for the page's heading: the item is not in Open
-// or Roadmap any more (someone else moved it since the page loaded), or the
-// move is to where it already is.
+// Refusals are errors worded for the page's heading: the item is not in a
+// listed section any more (someone else moved it since the page loaded), or
+// the move is to where it already is.
 func moveNextItemText(src string, req nextMoveReq) (string, nextItem, error) {
 	// Line endings: a CRLF file is edited as LF and given its CRLFs back, so a
 	// Windows-saved list is not rewritten end to end by a one-item move.
@@ -112,7 +125,7 @@ func moveNextItemText(src string, req nextMoveReq) (string, nextItem, error) {
 		}
 	}
 	if !found {
-		return "", nextItem{}, fmt.Errorf("%s is no longer Open or on the Roadmap in %s — ↻ refresh", req.ID, filepath.ToSlash(nextListRel))
+		return "", nextItem{}, fmt.Errorf("%s is no longer Open, in Validate or on the Roadmap in %s — ↻ refresh", req.ID, filepath.ToSlash(nextListRel))
 	}
 	if it.Section == req.To.section() {
 		return "", nextItem{}, fmt.Errorf("%s is already in %s", req.ID, it.Section)
@@ -149,9 +162,10 @@ func moveNextItemText(src string, req nextMoveReq) (string, nextItem, error) {
 	return out, it, nil
 }
 
-// findNextBlock locates an item's lines: the header bullet in Open or Roadmap,
-// then every blank or indented line after it — parseNextList's own rule — less
-// the trailing blanks, which belong to the gap before the next item. [s, e).
+// findNextBlock locates an item's lines: the header bullet in a listed section
+// (Open, Validate, Roadmap), then every blank or indented line after it —
+// parseNextList's own rule — less the trailing blanks, which belong to the gap
+// before the next item. [s, e).
 func findNextBlock(lines []string, id string) (int, int, bool) {
 	section := ""
 	for i, ln := range lines {
@@ -159,7 +173,7 @@ func findNextBlock(lines []string, id string) (int, int, bool) {
 			section = strings.TrimSpace(strings.TrimPrefix(ln, "## "))
 			continue
 		}
-		if !strings.EqualFold(section, "Open") && !strings.EqualFold(section, "Roadmap") {
+		if !nextListed(section) {
 			continue
 		}
 		mt := nextHeaderRe.FindStringSubmatch(ln)
@@ -219,8 +233,8 @@ func nextRecordBlock(it nextItem, stamp, note string) []string {
 //	everything else   above the first entry with a higher ID — ID order
 //	no such entry     after the section's last line of content
 //
-// The blank-line rule follows the section: Open and Roadmap keep one blank
-// between items, the record sections none — but the first entry of any
+// The blank-line rule follows the section: Open, Validate and Roadmap keep one
+// blank between items, the record sections none — but the first entry of any
 // section is set off from its heading or opening prose by a blank, and the
 // last from the next heading.
 func insertNextBlock(lines []string, dest nextDest, num int, block []string) []string {

@@ -1378,9 +1378,9 @@ straight from it. `ctrl+g`, or the list bar's **» Next List** chip, opens it as
 page of its own:
 
 ```
-Next list  ai_docs/todo/next-list.md · 24 open · 3 roadmap
+Next list  ai_docs/todo/next-list.md · 24 open · 2 to validate · 3 roadmap
 
-│ 🔍 type to filter                  │  27/27
+│ 🔍 type to filter                  │  29/29
 
   ✚ New prompt enter   ✉ Send shift+enter   ↻ Refresh ctrl+r   ← Back esc
 
@@ -1388,12 +1388,22 @@ Open
 ❯ N-001 ◆    Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions run inside Cats.app, wher…
   N-003    ⤓ A plugin started by hand from a shell (e.g. `cats-todo` typed at a prompt) has no `CAT…
   N-017 🔷   …
+Validate
+  N-033      Check the info chip by eye. Look at an info row in cats, both plain and highlighted…
 Roadmap
   N-019      …
 ```
 
-Only **Open** and **Roadmap** are listed. Non-goals and Closed hold items too,
-but nothing in them is waiting to be started.
+Only **Open**, **Validate** and **Roadmap** are listed, in the file's order.
+Non-goals and Closed hold items too, but nothing in them is waiting to be
+started. **Validate** holds checks: items whose remaining work is only
+testing (a hand check in a real terminal or app, a run on real data or
+hardware, a test to write or repair), with no product change planned unless
+the check finds a defect. They're kept apart from Open's build work because
+the two are picked up differently: checks are batched into one session with
+what they need at hand. They're listed because a check is still work to do,
+and when it passes you close the item from here. The heading counts them as
+`to validate`.
 
 A row here is laid out differently from a backlog row. It is **not** split
 into a title and a dimmer body, because a next-list item has no title: its
@@ -1450,7 +1460,7 @@ written before the drop, so backing out of the picker, or a failed send, leaves
 no row behind. If the backlog already holds an open copy of the item (from ⤓ Add
 to backlog), that copy is the one marked done rather than a second one added.
 Closing the item itself is a separate step: the agent that did the work, the
-next session wrap-up, or you, with [✓ Close as done](#closing-parking-and-declining-an-item),
+next session wrap-up, or you, with [✓ Close as done](#closing-validating-parking-and-declining-an-item),
 moves it to Closed. `esc` in the picker comes back
 to this page, with the highlight still on the item. The outcome (`N-014 dropped
 → … · recorded done in the project backlog`, or why it failed) is shown
@@ -1502,9 +1512,9 @@ for this, the same cost the list pays.
 prompt: it is a paragraph in a file. So everything the add form can set
 (session options, attachments, marks, a schedule) belongs to a backlog prompt,
 and none of it can be applied to the item itself. Most of the menu instead
-makes that prompt from the item, with the setting already applied. Three rows
+makes that prompt from the item, with the setting already applied. Four rows
 act on the item itself, moving it in the file
-([below](#closing-parking-and-declining-an-item)):
+([below](#closing-validating-parking-and-declining-an-item)):
 
 ```
 ╭────────────────────────────────╮
@@ -1521,6 +1531,7 @@ act on the item itself, moving it in the file
 │ ⤓ Add as ｉ info               │
 │ ⤓ Add as ⚑ flagged             │
 │ ✓ Close as done…        ctrl+t │
+│ ◎ Move to Validate             │
 │ ⇣ Move to Roadmap       ctrl+f │
 │ ⊘ Mark as non-goal…     ctrl+x │
 │ ⧉ Copy ID: N-014               │
@@ -1543,9 +1554,10 @@ The rows run from least to most committing:
 - **⤓ Add to backlog** saves the item in one press, with no form, and stays on
   the page. The rows under it save it with one mark already set. The heading
   confirms where it went (`added N-014 as a quick win to the project backlog`).
-- **✓ Close as done…**, **⇣ Move to Roadmap** (**⇡ Move to Open** on a
-  Roadmap item) and **⊘ Mark as non-goal…** move the item itself in the
-  file, as their chords do. See the next section.
+- **✓ Close as done…**, **◎ Move to Validate** (**⇡ Move to Open** on a
+  Validate item), **⇣ Move to Roadmap** (**⇡ Move to Open** on a Roadmap
+  item) and **⊘ Mark as non-goal…** move the item itself in the file, as
+  their chords do. See the next section.
 - **⧉ Copy ID** and **⧉ Copy as prompt** are the only rows that leave nothing
   behind. **Copy ID** puts the bare ID on the clipboard, ready to cite in a
   commit or a chat. **Copy as prompt** copies the exact text ✉ Send would
@@ -1577,22 +1589,35 @@ nothing (and closes a menu that is open), a click off the box closes it
 without doing anything else, and the hover card stays down while the menu is
 up.
 
-### Closing, parking and declining an item
+### Closing, validating, parking and declining an item
 
-Three decisions about an item are yours alone, and the page is where you are
-looking at it when you make them. So the page writes these three into the file
+Four decisions about an item are yours alone, and the page is where you are
+looking at it when you make them. So the page writes these four into the file
 and nothing else. It never re-rates, rewords, renumbers or deletes an item.
 
 | Chord | Menu row | Moves the item to |
 |---|---|---|
 | `ctrl+t` | ✓ Close as done… | the top of **Closed**, after asking what showed it's done |
+| (menu only) | ◎ Move to Validate / ⇡ Move to Open | **Validate**, or back to **Open**, in one press |
 | `ctrl+f` | ⇣ Move to Roadmap / ⇡ Move to Open | **Roadmap**, or back to **Open**, in one press |
 | `ctrl+x` | ⊘ Mark as non-goal… | **Non-goals**, after asking why not |
 
 The chords are the list's own for the nearest act: `ctrl+t` marks a prompt
 done, `ctrl+f` freezes one ("not now"), and `ctrl+x` removes one. Here none of
-them deletes anything. The file's rule is that nothing leaves Open or Roadmap
-without a line in another section.
+them deletes anything. The file's rule is that nothing leaves Open, Validate
+or Roadmap without a line in another section. Nothing on the list is the
+nearest act to Validate, so it has no chord to borrow, and it is a menu row
+only.
+
+**◎ Move to Validate** is for an item whose build work is done, leaving only a
+check to run: a look in cats, a live drop, a pass on another machine. The two
+one-press rows are toggles against Open, each owning one section. The Validate
+row puts an item in Validate, or takes a Validate item back to Open (for one
+that turns out to need code after all). The park row puts an item on the
+Roadmap, or takes a Roadmap item back to Open. Together they move an item
+between any two of the three listed sections: a check you won't run soon goes
+from Validate to the Roadmap with `ctrl+f`, and comes back with ◎. When the
+check passes, ✓ Close as done records what it showed.
 
 Close and non-goal open a small pad, where the menu was or centred for a
 chord:
@@ -1619,10 +1644,13 @@ The entries follow the file's grammar:
 ```
 
 A Closed entry goes on top, because Closed is newest first. A Non-goals entry
-goes in ID order with no blank line between entries. A move between Open and
-Roadmap carries the item's lines verbatim, value and all, into ID order. It
-takes one press, since the same chord moves it back. A section the file lacks
-(an older file may have no Roadmap) is created in its place.
+goes in ID order with no blank line between entries. A move among Open,
+Validate and Roadmap carries the item's lines verbatim, value and all, into ID
+order. It takes one press, since the same row moves it back. A section the
+file lacks (an older file may have no Validate or Roadmap) is created in its
+place, so a first move to Validate adds the section directly below Open, where
+the `/next-list` skill keeps it. Once there, a section stays, even when it
+empties.
 
 Closing an item also marks its open backlog copy done, if it has one: the
 work that prompt was for is finished. Declining one leaves its copy alone,
@@ -1633,9 +1661,10 @@ The write is a splice on the file as it is **now**. The page re-reads the file
 at the moment of writing and finds the item by its ID, so edits another pane
 made since the page loaded are kept. The new file goes through a temporary
 file and a rename, so a reader never sees half of one. If the item has left
-Open and Roadmap in the meantime, the move is refused in words and nothing is
-written. Afterwards the page re-reads the file. The highlight stays on a parked
-item, or moves to the next item after one that was closed or declined, so a
+Open, Validate and Roadmap in the meantime, the move is refused in words and
+nothing is written. Afterwards the page re-reads the file. The highlight stays
+on an item moved to Validate, the Roadmap or Open, or moves to the next item
+after one that was closed or declined, so a
 run of `ctrl+t`s walks down the page. The file is in git, so `git diff` shows
 every move.
 
