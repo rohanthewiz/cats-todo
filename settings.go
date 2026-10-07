@@ -70,6 +70,13 @@ type settings struct {
 	// the beacon cannot reach (another subnet, multicast filtered) and the ones
 	// worth a row even while they are asleep.
 	peers []settingsPeer
+	// batchSplit is the batch composer's Pick pane share of the width, as a
+	// fraction, where its splitter was last let go (see batchGeom). Zero means
+	// the default. A fraction rather than a column so that the same file reads
+	// right in a 100-column pane and a 220-column one: what someone sets by
+	// dragging is a proportion ("the batch needs more room than the picks"),
+	// not a cell count tied to the pane they happened to drag it in.
+	batchSplit float64
 }
 
 // settingsPeer is one remembered machine.
@@ -107,6 +114,9 @@ type settingsFile struct {
 	PeerInbox       string         `json:"peerInbox,omitempty"`
 	PeerAllowRemote *bool          `json:"peerAllowRemote,omitempty"`
 	Peers           []settingsPeer `json:"peers,omitempty"`
+	// BatchSplit is not a pointer: 0 is not a value anyone can drag to (the
+	// panes have minimum widths), so it already means "not set".
+	BatchSplit float64 `json:"batchSplit,omitempty"`
 }
 
 // settingsPath is where the file lives, or "" when the config directory
@@ -158,6 +168,12 @@ func loadSettings() settings {
 	if f.PeerAllowRemote != nil {
 		s.peerAllowRemote = *f.PeerAllowRemote
 	}
+	// A hand-edited value outside (0, 1) is not a split at all; it reads as
+	// the default rather than being guessed at. Values inside the range but
+	// past a pane's minimum are clamped where the width is known (batchGeom).
+	if f.BatchSplit > 0 && f.BatchSplit < 1 {
+		s.batchSplit = f.BatchSplit
+	}
 	return s
 }
 
@@ -183,6 +199,7 @@ func (s settings) save() error {
 		PeerPort:        s.peerPort,
 		PeerAllowRemote: &s.peerAllowRemote,
 		Peers:           s.peers,
+		BatchSplit:      s.batchSplit,
 	}
 	// Written only when it is not the default, so a settings file belonging to
 	// someone who has never run `serve` says nothing about peers at all.

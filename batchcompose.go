@@ -8,13 +8,13 @@
 //
 //	 Backlog │ Next List  ctrl+g        │ Batch · 3 prompts
 //	╎🔍 filter                  ╎ 3/12   │ ⠿  1. Fix flaky drop test        ▲ ⚙
-//	 ☒ all · 3 of 12 picked            │ ⠿  2. Rename fuzzyList headings
+//	 [-] all · 3 of 12 picked            │ ⠿  2. Rename fuzzyList headings
 //	                                    │ ⠿  3. N-014 Tidy promptsel…      ✚
 //	 Project                            │
-//	❯☑ Fix flaky drop test              │ order: manual · s sorts A→Z
-//	 ☑ Rename fuzzyList headings        │
-//	 ☐ ▲ Add worktree cleanup command   │ Name     nightly cleanup
-//	 ☐ Draft blog notes · info          │ Deliver  ( ) all at once  ( ) one prompt  (•) loop, in order
+//	❯[x] Fix flaky drop test              │ order: manual · s sorts A→Z
+//	 [x] Rename fuzzyList headings        │
+//	 [ ] ▲ Add worktree cleanup command   │ Name     nightly cleanup
+//	 [ ] Draft blog notes · info          │ Deliver  ( ) all at once  ( ) one prompt  (•) loop, in order
 //	                                    │ …        (the loop's five rows while Deliver says loop)
 //	                                    │ Target   ＋ New Claude Code session on a new worktree
 //	                                    │ Session  ⚙ sonnet · high
@@ -29,6 +29,13 @@
 // switcher on the line under the title, and tab (or a click on it) moves
 // between them. The regions and their keys are the same in both layouts; only
 // how many are on screen at once changes.
+//
+// Side by side, the │ rule between the panes is a splitter: press anywhere on
+// it (its three cells, any body row) and drag, and the Pick pane takes the
+// columns left of the pointer. Neither pane can be squeezed past its minimum
+// (batchPickMinW, batchPaneMinW). Where it is let go is saved as a fraction of
+// the width (settings.json's batchSplit), so the next composer, at any width,
+// opens split the same way.
 //
 // A checkbox is membership. There is no "add →" step between the panes: the
 // right pane is simply the checked rows, in the order they were checked, so
@@ -292,6 +299,9 @@ type batchComposer struct {
 	dragging  bool
 	dragKey   string
 	dragMoved bool
+	// splitDrag is a drag of the splitter between the panes; the share it
+	// sets lives on the model (m.batchSplit), since it outlives the draft.
+	splitDrag bool
 
 	// edit is the record being edited, exactly as it was read, or the zero
 	// Batch for a new one. Saving swaps against it (see the file comment),
@@ -417,7 +427,9 @@ func (m *model) rebuildBatchPick() {
 		if w <= 0 {
 			return 60
 		}
-		return max(w-indentWidth-2-extra-2, 8)
+		// The checkbox column: the box and the space after it.
+		box := lipgloss.Width(checkOff) + 1
+		return max(w-indentWidth-box-extra-2, 8)
 	}
 
 	switch bc.source {
@@ -537,7 +549,7 @@ func (m *model) toggleBatchCand(i int) {
 	m.rebuildBatchPick()
 }
 
-// toggleBatchAll is ☐ all: every visible pickable row in, or — when they are
+// toggleBatchAll is [ ] all: every visible pickable row in, or — when they are
 // all in already — every visible row out. "Visible" is the filter's answer, so
 // filtering first and then pressing it picks exactly what matched.
 func (m *model) toggleBatchAll() {
@@ -1127,6 +1139,11 @@ func (m model) updateBatchCompose(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// A key ends a drag whose release went missing (the list's rule).
 		bc.dragging = false
 	}
+	if bc.splitDrag {
+		// The same rule for the splitter. Where it stands is kept for this
+		// run but not saved: a release that went missing is not a decision.
+		bc.splitDrag = false
+	}
 	// The drop dialog owns every key while it is up, as the form's context
 	// menu does on its stage.
 	if bc.confirm.open {
@@ -1404,7 +1421,44 @@ type batchGeom struct {
 }
 
 // batchPaneSep is the rule between the two panes when they share the width.
+// It is also the splitter's handle: a press on any of its three cells takes
+// hold of it, since one column is a narrow target for a pointer.
 const batchPaneSep = " │ "
+
+// The splitter's limits and its starting point.
+//
+// batchPickMinW keeps the Pick pane wide enough for its query box and a
+// checkbox row with a title worth reading. batchPaneMinW is larger because the
+// Batch pane's settings rows spend 14 cells on indent and label before any
+// value is drawn. At composerSplitMin (100 columns) these still leave the
+// splitter a 37-column range to travel.
+//
+// batchSplitDefault is the share the Pick pane gets when nothing is saved:
+// a little under half, because the Batch pane's rows carry marks and its
+// settings carry radios, while the Pick pane is a list of titles.
+const (
+	batchPickMinW     = 24
+	batchPaneMinW     = 36
+	batchSplitDefault = 0.45
+)
+
+// batchPickWidth is the Pick pane's width for a pane w columns wide when the
+// two share it, from the saved share (0 = the default), clamped so that
+// neither pane is narrower than its minimum.
+//
+// The clamp is applied here rather than when the share is set, so a share
+// dragged in a wide pane stays what was chosen there: a narrower pane only
+// borrows the clamped width for as long as it is narrow.
+func batchPickWidth(w int, share float64) int {
+	avail := w - lipgloss.Width(batchPaneSep)
+	if share <= 0 || share >= 1 {
+		share = batchSplitDefault
+	}
+	// Rounded rather than truncated, so the share batchSplitOver stores for a
+	// column comes back as that same column (see the comment there).
+	pw := int(float64(avail)*share + 0.5)
+	return max(min(pw, avail-batchPaneMinW), batchPickMinW)
+}
 
 // batchSettingsLines is what the Batch pane spends under its rows: a blank, the
 // order line, a blank, the settings rows drawn, and the note line.
@@ -1423,7 +1477,7 @@ func (m model) batchGeom() batchGeom {
 	g := batchGeom{split: w >= composerSplitMin, paneTabsY: -1}
 	bodyY := 2
 	if g.split {
-		g.pickW = (w - lipgloss.Width(batchPaneSep)) * 45 / 100
+		g.pickW = batchPickWidth(w, m.batchSplit)
 		g.batchX = g.pickW + lipgloss.Width(batchPaneSep)
 		g.batchW = w - g.batchX
 		g.showPick, g.showBatch = true, true
@@ -1490,6 +1544,13 @@ func (m model) viewBatchCompose() string {
 	if g.showBatch {
 		right = m.batchPaneLines(g)
 	}
+	// The rule is drawn in the accent while the splitter is held, the one
+	// sign it gives that the press took: cell-motion mouse reporting sends no
+	// motion without a button down, so there is no hover to light it before.
+	sep := descStyle.Render(batchPaneSep)
+	if m.batch.splitDrag {
+		sep = promptStyle.Render(batchPaneSep)
+	}
 	top := g.srcTabsY
 	for i := top; i < g.barY-1; i++ {
 		var l, r string
@@ -1501,7 +1562,7 @@ func (m model) viewBatchCompose() string {
 		}
 		switch {
 		case g.split:
-			lines[i] = fitCells(l, g.pickW) + descStyle.Render(batchPaneSep) + ansi.Truncate(r, g.batchW, "…")
+			lines[i] = fitCells(l, g.pickW) + sep + ansi.Truncate(r, g.batchW, "…")
 		case g.showPick:
 			lines[i] = ansi.Truncate(l, g.pickW, "…")
 		default:
@@ -1585,12 +1646,12 @@ func (m model) batchPickLines(g batchGeom) []string {
 		countStyle.Render(fmt.Sprintf("%d/%d", matched, total)))
 
 	picked, pickable := bc.pickCounts()
-	box := "☐"
+	box := checkOff
 	switch {
 	case pickable > 0 && picked == pickable:
-		box = "☑"
+		box = checkOn
 	case picked > 0:
-		box = "☒"
+		box = checkSome
 	}
 	out = append(out, "  "+markStyle.Render(box)+descStyle.Render(fmt.Sprintf(" all · %d of %d picked · ctrl+a", picked, pickable)))
 
@@ -1731,11 +1792,7 @@ func (m model) batchSettingLine(row int) string {
 		b.WriteString(line)
 	case batchSetBetween:
 		b.WriteString(loopBox(bc.between, on, val, loopBetweenBoxW))
-		box := "☐"
-		if bc.betweenLast {
-			box = "☑"
-		}
-		b.WriteString("  " + markStyle.Render(box) + descStyle.Render(" after the last too"))
+		b.WriteString("  " + markStyle.Render(checkBox(bc.betweenLast)) + descStyle.Render(" after the last too"))
 	case batchSetPause:
 		b.WriteString(loopBox(bc.pause, on, val, loopShortBoxW))
 		b.WriteString(loopDurationNote("pause", bc.pause.Value(), "before each next prompt"))
@@ -1937,6 +1994,13 @@ func (m model) clickBatchCompose(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// The splitter: the rule's three cells, on any line the rule is drawn
+	// on. It is checked before the panes since those cells belong to neither.
+	if g.split && x >= g.pickW && x < g.batchX && y >= g.srcTabsY && y < g.barY-1 {
+		bc.splitDrag = true
+		return m, nil
+	}
+
 	inPick := g.showPick && (!g.split || x < g.pickW)
 	inBatch := g.showBatch && (!g.split || x >= g.batchX)
 
@@ -2033,6 +2097,59 @@ func (m model) endBatchDrag() (tea.Model, tea.Cmd) {
 	m.batch.dragging, m.batch.dragMoved = false, false
 	if moved {
 		m.batchSay("moved", false)
+	}
+	return m, nil
+}
+
+// batchSplitOver moves the splitter to the pointer: the rule's │ follows the
+// pointer's column, and the Pick pane takes everything left of it.
+//
+// The share stored is the one that draws the │ exactly at the pointer:
+// batchPaneSep puts the │ one cell after the Pick pane ends, so the pane is
+// x-1 wide, and batchPickWidth rounds avail*share back to that same x-1. The
+// pointer's column is clamped first, so dragging past a pane's minimum parks
+// the rule at the limit rather than storing a share the clamp would then
+// silently disagree with.
+//
+// Both panes are re-fit on every move — the Pick pane's titles are cut to
+// its width when its rows are built (rebuildBatchPick), so a pane that only
+// changed its width would draw stale cuts until the next rebuild.
+func (m model) batchSplitOver(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	if m.stage != stageBatchCompose {
+		m.batch.splitDrag = false
+		return m, nil
+	}
+	g := m.batchGeom()
+	if !g.split {
+		// The pane was narrowed under the drag; there is no splitter now.
+		m.batch.splitDrag = false
+		return m, nil
+	}
+	w := m.width
+	if w <= 0 {
+		w = 120
+	}
+	avail := w - lipgloss.Width(batchPaneSep)
+	pw := max(min(msg.X-1, avail-batchPaneMinW), batchPickMinW)
+	if pw == g.pickW {
+		return m, nil
+	}
+	m.batchSplit = float64(pw) / float64(avail)
+	m.rebuildBatchPick()
+	m.sizeBatchCompose()
+	return m, nil
+}
+
+// endBatchSplit lets go of the splitter and saves where it stands. The save is
+// load-modify-write, like every other preference (see saveViewPrefs), so it
+// cannot blank a setting another pane wrote meanwhile. A failed save keeps the
+// split for this run and says so: the layout took, only its memory did not.
+func (m model) endBatchSplit() (tea.Model, tea.Cmd) {
+	m.batch.splitDrag = false
+	s := loadSettings()
+	s.batchSplit = m.batchSplit
+	if err := s.save(); err != nil {
+		m.batchSay("split not saved: "+err.Error(), true)
 	}
 	return m, nil
 }

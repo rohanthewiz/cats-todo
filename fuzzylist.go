@@ -159,8 +159,8 @@ type fuzzyList struct {
 	// which is why this is set by the caller from the selection itself rather
 	// than measured off the drawn items.
 	showMarks bool
-	// checkboxes turns the same column into a checkbox on every row — ☑ for a
-	// marked row, ☐ for the rest — for a list whose rows are *choices* rather
+	// checkboxes turns the same column into a checkbox on every row — [x] for a
+	// marked row, [ ] for the rest — for a list whose rows are *choices* rather
 	// than a backlog that is occasionally selected from: the batch composer's
 	// Pick pane (batchcompose.go). There an empty box is the point of the row,
 	// the thing to press, so the showMarks rule of drawing nothing on an
@@ -713,9 +713,9 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 			cell := " "
 			switch {
 			case l.checkboxes && it.marked:
-				cell = "☑"
+				cell = checkOn
 			case l.checkboxes:
-				cell = "☐"
+				cell = checkOff
 			case it.marked:
 				cell = markGlyph
 			}

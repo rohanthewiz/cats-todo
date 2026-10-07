@@ -182,7 +182,7 @@ func (b menuBox) render() string {
 	for i, it := range b.items {
 		gap := inner - 2 - lipgloss.Width(it.label) - lipgloss.Width(it.hint)
 		text := " " + it.label + strings.Repeat(" ", max(gap, 0)) + it.hint + " "
-		// Through withInfoChips so the list menu's "☐ ｉ Info" row draws the
+		// Through withInfoChips so the list menu's "[ ] ｉ Info" row draws the
 		// glyph as the same chip the list row does; every other row has no
 		// info glyph and renders as the one style it always was.
 		switch {

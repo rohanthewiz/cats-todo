@@ -344,7 +344,7 @@ func infoMark(t Todo) (string, lipgloss.Style, lipgloss.Style) {
 // keeps the width identical to lipgloss.Width(text), so whatever measured the
 // label — a hit-test span, a menu's box — still lines up with what is drawn.
 //
-//	st  "☑ "   chip "ｉ"   st " Info"
+//	st  "[x] "   chip "ｉ"   st " Info"
 //	   └─ st's field ─┘└ blue ┘└─ st's field ─┘
 //
 // An underline on st (the bar's keyboard cursor) is carried onto the chip, so

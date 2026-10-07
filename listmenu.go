@@ -15,14 +15,14 @@
 //	│ ◷ Schedule…              ctrl+s │
 //	│ ✓ Mark done              ctrl+t │
 //	│ ❄ Freeze                 ctrl+f │
-//	│ ☐ 🍏 Quick win                  │
+//	│ [ ] 🍏 Quick win                  │
 //	│ (•) Value: ◇ low                │
 //	│ ( ) Value: ◆ medium             │
 //	│ ( ) Value: 🔷 high              │
 //	│ (•) Priority: none              │
 //	│ ( ) Priority: △ high            │
 //	│ ( ) Priority: ▲ critical        │
-//	│ ☐ ⚑ Flag                        │
+//	│ [ ] ⚑ Flag                        │
 //	│ ✎ Flag note…                    │
 //	│ ➦ Export…                ctrl+o │
 //	│ ⧉ Add to batch…          ctrl+k │
@@ -48,7 +48,7 @@
 // Rows that name a state rather than an action say what the press will do, which
 // is the only thing a menu row ever promises: ✓ Mark done reads ↺ Reopen on a
 // finished prompt, ❄ Freeze reads ☀ Unfreeze on a shelved one. The annotations
-// go the other way and draw their state in the margin — a ☐/☑ box and one filled
+// go the other way and draw their state in the margin — a [ ]/[x] box and one filled
 // radio out of three — because unlike done and frozen they are not a flip: the
 // priority is exactly one of three levels, so the menu has to be able to show
 // which, and pressing the level a prompt already has has to be a no-op rather
@@ -240,20 +240,13 @@ func (m model) openListMenu(msg tea.MouseClickMsg, ref todoRef) (tea.Model, tea.
 	// the retired "low", and a value this program cannot read fills no hole —
 	// which leaves all three rows offering to replace it, the only honest
 	// reading of a level that is not one.
-	box := "☐"
-	if td.Fruit {
-		box = "☑"
-	}
-	infoBox := "☐"
-	if td.Info {
-		infoBox = "☑"
-	}
+	box := checkBox(td.Fruit)
+	infoBox := checkBox(td.Info)
 	// The flag's row wears its note, trimmed to something a menu can hold — the
 	// menu sizes itself to its widest row (menuBox.size), and a long note would
 	// stretch the whole box across the pane for one line of it.
-	flagLabel := "☐ " + flagGlyph + " Flag"
+	flagLabel := checkBox(td.Flag) + " " + flagGlyph + " Flag"
 	if td.Flag {
-		flagLabel = "☑ " + flagGlyph + " Flag"
 		if note := strings.TrimSpace(td.FlagNote); note != "" {
 			flagLabel += ": " + truncate(note, listMenuNoteWidth)
 		}

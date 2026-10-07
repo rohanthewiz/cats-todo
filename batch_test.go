@@ -786,6 +786,83 @@ func TestComposerDragReordersTheBatch(t *testing.T) {
 	}
 }
 
+// TestComposerSplitterDrags: press on the rule between the panes, move, let
+// go — the rule is drawn at the pointer's column, the panes stay inside their
+// minimums however far the pointer goes, and the share is saved so the next
+// composer (at another width, too) opens split the same way.
+func TestComposerSplitterDrags(t *testing.T) {
+	m, _, _ := batchModel(t, 120, 28)
+	m = openComposer(t, m)
+	g := m.batchGeom()
+	if want := batchPickWidth(120, 0); g.pickW != want {
+		t.Fatalf("default pickW = %d, want %d", g.pickW, want)
+	}
+	// The press lands on the rule's left blank, not the │ itself: the handle
+	// is all three cells.
+	y := g.pickRowsY
+	next, _ := m.Update(tea.MouseClickMsg{X: g.pickW, Y: y, Button: tea.MouseLeft})
+	m = next.(model)
+	if !m.batch.splitDrag {
+		t.Fatal("a press on the rule did not take hold of the splitter")
+	}
+	if len(m.batch.picked) != 0 {
+		t.Fatalf("a press on the rule picked %v", pickedTitles(m))
+	}
+	next, _ = m.Update(tea.MouseMotionMsg{X: 70, Y: y, Button: tea.MouseLeft})
+	m = next.(model)
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	if r := []rune(lines[y]); ansi.StringWidth(lines[y]) <= 70 || string(r[70]) != "│" {
+		t.Errorf("rule not at the pointer's column 70: %q", lines[y])
+	}
+	next, _ = m.Update(tea.MouseReleaseMsg{X: 70, Y: y, Button: tea.MouseLeft})
+	m = next.(model)
+	if m.batch.splitDrag {
+		t.Error("still holding the splitter after the release")
+	}
+	if got := loadSettings().batchSplit; got != m.batchSplit || got == 0 {
+		t.Errorf("saved share = %v, model's = %v", got, m.batchSplit)
+	}
+
+	// Past either edge the rule parks at the pane's minimum.
+	for _, c := range []struct {
+		x, wantPick int
+	}{{2, batchPickMinW}, {119, 120 - len([]rune(batchPaneSep)) - batchPaneMinW}} {
+		next, _ = m.Update(tea.MouseClickMsg{X: m.batchGeom().pickW + 1, Y: y, Button: tea.MouseLeft})
+		m = next.(model)
+		next, _ = m.Update(tea.MouseMotionMsg{X: c.x, Y: y, Button: tea.MouseLeft})
+		m = next.(model)
+		next, _ = m.Update(tea.MouseReleaseMsg{X: c.x, Y: y, Button: tea.MouseLeft})
+		m = next.(model)
+		if g := m.batchGeom(); g.pickW != c.wantPick || g.batchW < batchPaneMinW {
+			t.Errorf("drag to %d: pickW %d batchW %d, want pickW %d", c.x, g.pickW, g.batchW, c.wantPick)
+		}
+	}
+}
+
+// TestComposerSplitShareSurvivesARelaunch: the share is read at startup, so a
+// composer opened in a fresh model at another width is split by the same
+// proportion, clamped to that width's minimums.
+func TestComposerSplitShareSurvivesARelaunch(t *testing.T) {
+	m, _, _ := batchModel(t, 120, 28)
+	s := loadSettings()
+	s.batchSplit = 0.6
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	m = newModel(m.ctx, m.project, m.global, nil)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 28})
+	m = openComposer(t, next.(model))
+	// 157 columns to share at 160 (the rule takes 3), × 0.6, rounded.
+	if got, want := m.batchGeom().pickW, 94; got != want {
+		t.Errorf("pickW at 160 = %d, want %d", got, want)
+	}
+	for i, ln := range strings.Split(ansi.Strip(m.View().Content), "\n") {
+		if cw := ansi.StringWidth(ln); cw > 160 {
+			t.Errorf("line %d is %d cells", i, cw)
+		}
+	}
+}
+
 // TestBatchStagesSurviveResize: the new stages take a WindowSizeMsg without
 // panicking (TestWindowSizeMsgNeverPanics' rule, for the stages it predates).
 func TestBatchStagesSurviveResize(t *testing.T) {

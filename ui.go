@@ -340,7 +340,7 @@ type model struct {
 	// line under the annotation bar, drawn and reachable only while the flag is
 	// actually up (see formFieldFlagNote and viewForm). It is kept in step with
 	// m.formAnnots.FlagNote on every keystroke rather than committed on the way
-	// out, so the bar's ☑ and the words beneath it can never describe different
+	// out, so the bar's [x] and the words beneath it can never describe different
 	// states, and a save from any stop writes what is on screen.
 	flagInput textinput.Model
 	// autosave is the form's safety net (autosave.go): live while a form is
@@ -633,9 +633,15 @@ type model struct {
 	// batch (batchrun.go), and the Batches page (batches.go). The composer's
 	// zero value is "not open"; batchRun is non-nil exactly while a batch
 	// holds the dropping guard.
-	batch    batchComposer
-	batchRun *batchRunner
-	batches  batchesPage
+	batch batchComposer
+	// batchSplit is the composer's Pick pane share of the width (0 = the
+	// default), kept on the model rather than on the composer because the
+	// composer is a gesture rebuilt on every visit while the split is a
+	// preference: it outlives the draft, and the next composer opens where
+	// the last one's splitter was left. Loaded from and saved to settings.json.
+	batchSplit float64
+	batchRun   *batchRunner
+	batches    batchesPage
 	// batchWatch caches both batches.json files for the two readers that
 	// need them constantly — the schedule tick and the list's ⧉ marks — and
 	// re-parses a file only when it changes (see batchWatch). A pointer, so
@@ -684,6 +690,7 @@ func newModel(ctx RunContext, project, global *store, client *catsClient) model 
 	m.spellOn = pref.spellcheck
 	m.orderByPriority, m.showFrozen = pref.orderByPriority, pref.showFrozen
 	m.autosaveEvery = pref.autosave
+	m.batchSplit = pref.batchSplit
 	m.list = newFuzzyList("Type to filter prompts…", nil)
 	m.rebuildList()
 	return m
@@ -862,6 +869,9 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.batch.dragging {
 			return m.batchDragOver(msg)
 		}
+		if m.batch.splitDrag {
+			return m.batchSplitOver(msg)
+		}
 		// Otherwise it is the pointer moving with nothing held. Everywhere but
 		// the list that is a message the terminal was never asked for
 		// (MouseModeCellMotion reports motion only under a button — see View),
@@ -902,6 +912,9 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.batch.dragging {
 			return m.endBatchDrag()
+		}
+		if m.batch.splitDrag {
+			return m.endBatchSplit()
 		}
 		if m.promptSelDrag {
 			// The anchor stays behind: the sweep is over, but what it selected is

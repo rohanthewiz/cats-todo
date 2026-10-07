@@ -7,9 +7,9 @@
 // prompt is actually written showed neither. The bar puts them on the form
 // itself, where the title they qualify is, as one horizontal line of segments:
 //
-//	☐ 🍏 Quick win │ Value (•) none ( ) ◇ low ( ) ◆ medium ( ) 🔷 high │ Priority (•) none ( ) △ high ( ) ▲ critical │ ☐ ｉ Info ☐ ⚑ Flag
+//	[ ] 🍏 Quick win │ Value (•) none ( ) ◇ low ( ) ◆ medium ( ) 🔷 high │ Priority (•) none ( ) △ high ( ) ▲ critical │ [ ] ｉ Info [ ] ⚑ Flag
 //
-// ☐ ｉ Info marks the prompt as a note rather than work — something to collect
+// [ ] ｉ Info marks the prompt as a note rather than work — something to collect
 // into a notes program later, never to hand to an agent (Todo.Info). It sits
 // with the flag at the tail because both are about how to *read* the prompt
 // rather than how to rank it, and before the flag so the flag stays the last
@@ -24,7 +24,7 @@
 // legend at the moment the mark is made. A rule (│) divides the four groups;
 // see annotGroupStart for why the narrow tiers need it.
 //
-// The Value radios sit immediately beside ☐ 🍏 Quick win because the two are
+// The Value radios sit immediately beside [ ] 🍏 Quick win because the two are
 // one estimate read from both ends: the apple is what a prompt costs, the
 // value is what it pays. Ticking one invites the question the other answers, and a
 // hand that has just answered "cheap" is one ←/→ away from answering "and worth
@@ -81,7 +81,7 @@ var annotSegValueLevel = map[int]string{
 // bar reads as four groups — the fruit, the value radios, the priority radios,
 // and the two reading marks — rather than as one run of ten segments:
 //
-//	☐ 🍏 Quick win │ Value (•) ◇ low … ( ) 🔷 high │ Priority (•) none … │ ☐ ｉ Info  ☐ ⚑ Flag
+//	[ ] 🍏 Quick win │ Value (•) ◇ low … ( ) 🔷 high │ Priority (•) none … │ [ ] ｉ Info  [ ] ⚑ Flag
 //
 // The separator is what the narrow tiers lean on. Once the words are gone, two
 // radio groups side by side are a run of six holes whose only boundary is
@@ -173,19 +173,19 @@ type annotSpelling struct {
 // order every chip bar in this program concedes in — words, then gaps, then
 // bare glyphs — and never drops a segment. Widths with every box empty:
 //
-//	full      ☐ 🍏 Quick win   │   Value   (•) ◇ low   ( ) ◆ medium …     150
-//	snug      the same, a cell closer together                           137
-//	labelled  ☐ 🍏 Quick win  │  Value  (•) ◇  ( ) ◆  ( ) 🔷  │ …         104
-//	legend    ☐ 🍏  │  Value  (•) ◇  ( ) ◆  ( ) 🔷  │  Priority  (•) – …   84
-//	compact   ☐ 🍏  │  (•) ◇  ( ) ◆  ( ) 🔷  │  (•) –  ( ) △ …            67
-//	tight     ☐🍏  │  (•)◇  ( )◆  ( )🔷  │  (•)–  ( )△  ( )▲ …            58
-//	tightest  ☐🍏 │ (•)◇ ( )◆ ( )🔷 │ (•)– ( )△ ( )▲ │ ☐ｉ ☐⚑             47
-//	bare      ☐🍏│◇ ◆ 🔷│– △ ▲│☐ｉ ☐⚑                                     23
+//	full      [ ] 🍏 Quick win   │   Value   (•) ◇ low   ( ) ◆ medium …     156
+//	snug      the same, a cell closer together                           143
+//	labelled  [ ] 🍏 Quick win  │  Value  (•) ◇  ( ) ◆  ( ) 🔷  │ …         110
+//	legend    [ ] 🍏  │  Value  (•) ◇  ( ) ◆  ( ) 🔷  │  Priority  (•) – …   90
+//	compact   [ ] 🍏  │  (•) ◇  ( ) ◆  ( ) 🔷  │  (•) –  ( ) △ …            73
+//	tight     [ ]🍏  │  (•)◇  ( )◆  ( )🔷  │  (•)–  ( )△  ( )▲ …            64
+//	tightest  [ ]🍏 │ (•)◇ ( )◆ ( )🔷 │ (•)– ( )△ ( )▲ │ [ ]ｉ [ ]⚑             53
+//	bare      [ ]🍏│◇ ◆ 🔷│– △ ▲│[ ]ｉ [ ]⚑                                     29
 //
 // The radio words go before the checkbox words because the radios' glyphs
 // already say their level (◇ ◆ 🔷, △ ▲), where a checkbox's glyph alone does
 // not say what ticking it claims until the legend is learned. The group labels
-// outlast both, down to the 84-cell tier, so a form in the common 100-cell pane
+// outlast both, down to the 90-cell tier, so a form in the common 100-cell pane
 // still says which row of holes is Value and which is Priority.
 //
 // The bare tier exists for the narrowest pane the form is drawn in, 30 cells
@@ -194,7 +194,9 @@ type annotSpelling struct {
 // radio is its glyph, and the chosen one is drawn in reverse, a lit key in a
 // row of unlit ones. That is still a state glyph the eye can read without
 // colour, which is the one thing no tier gives up. The boxes stay, because a
-// checkbox has no other way to show that it is ticked.
+// checkbox has no other way to show that it is ticked — and they stay three
+// cells wide (checkOff), which is what puts this tier at 29: one cell inside
+// the 30-cell floor, so a wider box would need this tier rethought first.
 func (m model) annotBarTiers() [8]annotBarTier {
 	spell := func(sp annotSpelling) [annotSegCount]string {
 		return m.annotSegTexts(sp)
@@ -220,12 +222,7 @@ func (m model) annotBarTiers() [8]annotBarTier {
 // mark for "nothing said", which is exactly the level.
 func (m model) annotSegTexts(sp annotSpelling) [annotSegCount]string {
 	a := m.formAnnots
-	check := func(on bool) string {
-		if on {
-			return "☑"
-		}
-		return "☐"
-	}
+	check := checkBox
 	// The radio that is filled. An exact match on purpose: a hand-edited
 	// backlog can hold anything, including the retired priority "low", and a
 	// value this program cannot read is not a level it should claim was chosen

@@ -195,6 +195,40 @@ const grabGlyph = "⠿ "
 // which this list has drawn since the first ○.
 const markGlyph = "✓"
 
+// The checkbox every surface draws — the batch composer's Pick pane and its
+// "all" line, the loop's "after the last too", the form's annotation bar, the
+// list's context menu, the spelling panel's toggle.
+//
+// Bracketed ASCII rather than the ballot boxes (☐ ☑ ☒) it replaced, because
+// those are not in the monospace fonts terminals draw with: the glyph comes
+// from a symbol font's fallback, sized for running text. Measured in catway's
+// 14px ui-monospace/Menlo, ☐ stood 7px tall beside a 10px capital — a box
+// smaller than the letters of its own label, and the one control on the row
+// that has to be found and pressed. A single cell cannot hold much more (the
+// biggest one-cell squares, □ ▣, reach 8px; the cell is 8.4px wide), so the box
+// takes three cells and is drawn in brackets the font itself owns, at full
+// text height, the same in every terminal and font.
+//
+// Three cells, like the radios beside it ("( )" and "(•)"), so a menu that
+// lists checkboxes and radios together — the list's context menu, the bar —
+// starts every label in the same column.
+//
+// checkSome is the partial state, used only by the Pick pane's "all" line
+// while some but not all of the visible rows are picked.
+const (
+	checkOff  = "[ ]"
+	checkOn   = "[x]"
+	checkSome = "[-]"
+)
+
+// checkBox is the checkbox for a state.
+func checkBox(on bool) string {
+	if on {
+		return checkOn
+	}
+	return checkOff
+}
+
 // Palette — a small, cohesive set of styles for a clean dark-terminal look,
 // shared by the fuzzyList component and the manager views.
 var (

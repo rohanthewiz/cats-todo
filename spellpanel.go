@@ -165,9 +165,9 @@ func (m *model) refreshSpell() {
 	// The toggle's glyph and words describe what pressing it will leave behind,
 	// not what is true now — a row that reads "☑ Spell check is on" would be a
 	// statement, and a row in a list of actions has to be an instruction.
-	toggle := listItem{name: "☐ Turn spell check off", desc: "remembered across launches"}
+	toggle := listItem{name: checkOff + " Turn spell check off", desc: "remembered across launches"}
 	if !m.spellOn {
-		toggle = listItem{name: "☑ Turn spell check on", desc: "remembered across launches"}
+		toggle = listItem{name: checkOn + " Turn spell check on", desc: "remembered across launches"}
 	}
 	row(spellChoice{kind: spellToggle}, toggle)
 

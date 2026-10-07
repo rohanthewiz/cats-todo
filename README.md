@@ -607,14 +607,14 @@ same checkboxes and the same radios, laid out down instead of across.
 Title
 fix the drop path
 
-☐ 🍏 Quick win  │  Value  ( ) ◇ low  ( ) ◆ medium  (•) 🔷 high  │  Priority  (•) none  ( ) △ high  ( ) ▲ critical  │  ☐ ｉ Info  ☑ ⚑ Flag
+[ ] 🍏 Quick win  │  Value  ( ) ◇ low  ( ) ◆ medium  (•) 🔷 high  │  Priority  (•) none  ( ) △ high  ( ) ▲ critical  │  [ ] ｉ Info  [x] ⚑ Flag
 ⚑ note  blocked until the api rename lands
 
 Prompt
 …
 ```
 
-**☑ ⚑ Flag** trails the radios because it is the one segment that is not the whole
+**[x] ⚑ Flag** trails the radios because it is the one segment that is not the whole
 of its own answer: ticking it raises the note field on the line below and puts the
 caret straight in it, because "flag this, because…" is one thought and a field you
 had to go and find would break it in half. Unticking it takes the field and its
@@ -630,7 +630,7 @@ checkbox was ticked would slide the rows out from under the pointer. (The button
 are safe from that in any case now: they sit on the form's first line, above
 everything that can grow.)
 
-The **Value** radios sit immediately beside **☐ 🍏 Quick win** because the two
+The **Value** radios sit immediately beside **[ ] 🍏 Quick win** because the two
 are one estimate read from both ends, and a hand that has just answered "cheap"
 is one `→` away from answering "and worth it".
 
@@ -643,27 +643,34 @@ that fill as they rise, and only the rule says where one question stops and the
 next begins. The rule and
 the labels are inert, so a click on them presses nothing.
 
-**☐ ｉ Info** sits just before the flag: like the flag it is about how to *read*
+**[ ] ｉ Info** sits just before the flag: like the flag it is about how to *read*
 the prompt rather than how to rank it, and the flag stays last because it is the
 segment that opens something beneath it.
 
-The full bar is 150 cells. On a narrower pane it gives things up in order,
+Checkboxes, here and everywhere else in the manager, are drawn as `[ ]` and
+`[x]`. The ballot-box glyphs (☐ ☑) are missing from the monospace fonts
+terminals use, so they come from a fallback symbol font. There they draw
+smaller than the letters of their own label: 7px beside a 10px capital in cats.
+Brackets are the font's own, at full text height, and three cells like the
+radios beside them.
+
+The full bar is 156 cells. On a narrower pane it gives things up in order,
 widest tier first:
 
 | Cells | What it gives up | Looks like |
 |---|---|---|
-| 150 | nothing | `☐ 🍏 Quick win   │   Value   (•) ◇ low   ( ) ◆ medium …` |
-| 137 | a cell of each gap | the same words, closer together |
-| 104 | the radios' words | `☐ 🍏 Quick win  │  Value  (•) ◇  ( ) ◆  ( ) 🔷  │ …` |
-| 84 | the checkboxes' words | `☐ 🍏  │  Value  (•) ◇  ( ) ◆  ( ) 🔷  │  Priority  (•) – …` |
-| 67 | the group labels | `☐ 🍏  │  (•) ◇  ( ) ◆  ( ) 🔷  │  (•) –  ( ) △ …` |
-| 58 | the space inside each segment | `☐🍏  │  (•)◇  ( )◆  ( )🔷  │ …` |
-| 47 | the gaps down to one cell | `☐🍏 │ (•)◇ ( )◆ ( )🔷 │ (•)– ( )△ ( )▲ │ ☐ｉ ☐⚑` |
-| 23 | the radios' holes | `☐🍏│◇ ◆ 🔷│– △ ▲│☐ｉ ☐⚑` |
+| 156 | nothing | `[ ] 🍏 Quick win   │   Value   (•) ◇ low   ( ) ◆ medium …` |
+| 143 | a cell of each gap | the same words, closer together |
+| 110 | the radios' words | `[ ] 🍏 Quick win  │  Value  (•) ◇  ( ) ◆  ( ) 🔷  │ …` |
+| 90 | the checkboxes' words | `[ ] 🍏  │  Value  (•) ◇  ( ) ◆  ( ) 🔷  │  Priority  (•) – …` |
+| 73 | the group labels | `[ ] 🍏  │  (•) ◇  ( ) ◆  ( ) 🔷  │  (•) –  ( ) △ …` |
+| 64 | the space inside each segment | `[ ]🍏  │  (•)◇  ( )◆  ( )🔷  │ …` |
+| 53 | the gaps down to one cell | `[ ]🍏 │ (•)◇ ( )◆ ( )🔷 │ (•)– ( )△ ( )▲ │ [ ]ｉ [ ]⚑` |
+| 29 | the radios' holes | `[ ]🍏│◇ ◆ 🔷│– △ ▲│[ ]ｉ [ ]⚑` |
 
 The radios' words go first because their glyphs already say the level; a
 checkbox's glyph alone does not say what ticking it claims. The group labels
-last down to 84 cells, so a form in the common 100-cell pane still says which
+last down to 90 cells, so a form in the common 100-cell pane still says which
 row of holes is Value and which is Priority. The last tier is for the narrowest
 pane the form is drawn in, 30 cells: there a radio is just its glyph, and the
 chosen one is drawn in reverse, a lit key in a row of unlit ones, so the choice
@@ -827,15 +834,15 @@ CatsTodo vX.Y.Z - New batch
 
  Backlog │ Next List  ctrl+g            │ Batch  3 prompts
 │ 🔍 filter                  │  6/6     │ ❯  1. Fix flaky drop test △ ⚙ ✱
-  ☒ all · 3 of 5 picked · ctrl+a        │ ⠿  2. Rename fuzzyList headings
+  [-] all · 3 of 5 picked · ctrl+a      │ ⠿  2. Rename fuzzyList headings
                                         │ ⠿  3. N-014 Tidy promptsel… ✚
 Project                                 │
-  ☑ △ Fix flaky drop test               │   order: manual · s sorts A→Z
-  ☑ Rename fuzzyList headings           │
-  ☐ Add worktree cleanup command        │   Name     nightly cleanup
+  [x] △ Fix flaky drop test             │   order: manual · s sorts A→Z
+  [x] Rename fuzzyList headings         │
+  [ ] Add worktree cleanup command      │   Name     nightly cleanup
                                         │   Deliver  ( ) all at once  ( ) one prompt  (•) loop, in order
 Global                                  │   Loop     (•) same session  ( ) fresh each
-  ☐ ｉ Blog notes · info — a note, not… │   Between  none — e.g. /compact      ☐ after the last too
+  [ ] ｉ Blog notes · info — a note, … │   Between  none — e.g. /compact      [ ] after the last too
                                         │   Pause    none — e.g.…
                                         │   Max wait no limit — …
                                         │   On fail  (•) stop  ( ) skip and go on
@@ -853,7 +860,7 @@ between them — the list's chord for the Next List page, meaning the same thing
 here. A **checkbox is membership**: there is no separate "add" step, so the right
 pane is simply the ticked rows in the order you ticked them, and the two panes
 cannot disagree. `space` (or `enter`, or a click) ticks the highlighted row;
-`ctrl+a`, or the **☐ all** line, ticks every row the filter is showing, and a
+`ctrl+a`, or the **[ ] all** line, ticks every row the filter is showing, and a
 second press takes them all back out. So "type `docs`, press `ctrl+a`" is every
 docs prompt in one move. Because `space` is the checkbox key the filter holds no
 spaces, and fuzzy matching never needs one.
@@ -886,6 +893,16 @@ and typing. Below 100 columns the two panes take
 turns rather than sharing the width (a switcher line says which is up, and
 `tab` or a click moves between them); side by side at that size every title
 would be cut to a stub.
+
+Side by side, **the `│` between the panes is a splitter**: press on it (any
+row, and the blank either side of it counts) and drag, and the rule follows
+the pointer, lit in green while it is held. Give the Pick pane room when the
+titles are long, or the Batch pane room when its settings rows are being cut.
+Neither pane goes below a usable minimum (24 columns for Pick, 36 for Batch);
+dragging past one parks the rule there. Where you let go is saved to
+`~/.config/cats-todo/settings.json` as `batchSplit` — the Pick pane's share of
+the width, a fraction such as `0.6` — so every later composer opens split the
+same way, at whatever width the pane happens to be. The default is 0.45.
 
 **The settings** are five rows under the batch (and five more under Deliver
 while it says loop — see [Looping a batch](#looping-a-batch)):
@@ -1039,7 +1056,7 @@ two of them must not be editing the tree at the same time.
 ```
   Deliver  ( ) all at once  ( ) one prompt  (•) loop, in order
   Loop     (•) same session  ( ) fresh each
-❯ Between  /compact                  ☐ after the last too
+❯ Between  /compact                  [ ] after the last too
   Pause    30s           before each next prompt
   Max wait 2h            per prompt, then it counts as failed
   On fail  (•) stop  ( ) skip and go on
@@ -1076,7 +1093,7 @@ or one whose agent has exited.
   three seconds of the command counts it as an instant one. With **fresh each**
   it goes to the session that just finished, which is where a `/sess-save` or a
   `/code-review` has something to act on. One line only — a second line would be
-  a second message the loop doesn't know to wait for. **☐ after the last too**
+  a second message the loop doesn't know to wait for. **[ ] after the last too**
   (`ctrl+t` on the row, or a click) runs it once more at the end; off by
   default, since `/compact` after the final step is wasted work while
   `/sess-save` after it is often the point.
@@ -1744,15 +1761,15 @@ on the prompt you pointed at.
 │ ◷ Schedule…              ctrl+s │
 │ ✓ Mark done              ctrl+t │
 │ ❄ Freeze                 ctrl+f │
-│ ☐ 🍏 Quick win                  │
+│ [ ] 🍏 Quick win                │
 │ (•) Value: ◇ low                │
 │ ( ) Value: ◆ medium             │
 │ ( ) Value: 🔷 high              │
 │ (•) Priority: none              │
 │ ( ) Priority: △ high            │
 │ ( ) Priority: ▲ critical        │
-│ ☐ ｉ Info (a note)              │
-│ ☑ ⚑ Flag: blocked on the api    │
+│ [ ] ｉ Info (a note)            │
+│ [x] ⚑ Flag: blocked on the api  │
 │ ✎ Edit flag note…               │
 │ ✓ Select             ctrl+space │
 │ ➦ Export…                ctrl+o │
@@ -1807,7 +1824,7 @@ one was to open the editor and find the annotation bar: a full round trip
 through a form, to change a fact about a row you were already looking at.
 
 They are the editor's controls, in the editor's glyphs, laid out down instead of
-across. **☐ 🍏 Quick win**, **☐ ｉ Info** and **☐ ⚑ Flag** are checkboxes and
+across. **[ ] 🍏 Quick win**, **[ ] ｉ Info** and **[ ] ⚑ Flag** are checkboxes and
 toggle. The three **Value** rows and the three **Priority** rows are radios and
 set exactly their level, so pressing `▲ critical` on a prompt that is already
 critical leaves it there rather than switching it off — and the default (`Value:
@@ -1831,7 +1848,7 @@ as the editor does. Raising it opens the note pad below.
 ### The flag's note, where the flag was raised
 
 A flag is only half a thought: *there is something about this one* wants
-*…because* straight after it. So **☐ ⚑ Flag** does not just tick — the mark is
+*…because* straight after it. So **[ ] ⚑ Flag** does not just tick — the mark is
 written to the backlog on the press, and then a small pad opens on the same cell
 the menu was on, asking for the words while the prompt is still under the
 pointer:

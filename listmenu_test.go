@@ -450,14 +450,14 @@ func TestListMenuAnnotationRowsDrawTheirState(t *testing.T) {
 		wantBox  string
 		filled   int // the row whose radio is filled, or -1 for none
 	}{
-		{name: "unmarked", priority: priorityNone, wantBox: "☐", filled: listMenuPrioNone},
-		{name: "a quick win", priority: priorityNone, fruit: true, wantBox: "☑", filled: listMenuPrioNone},
-		{name: "high", priority: priorityHigh, wantBox: "☐", filled: listMenuPrioHigh},
-		{name: "critical", priority: priorityCritical, wantBox: "☐", filled: listMenuPrioCritical},
+		{name: "unmarked", priority: priorityNone, wantBox: checkOff, filled: listMenuPrioNone},
+		{name: "a quick win", priority: priorityNone, fruit: true, wantBox: checkOn, filled: listMenuPrioNone},
+		{name: "high", priority: priorityHigh, wantBox: checkOff, filled: listMenuPrioHigh},
+		{name: "critical", priority: priorityCritical, wantBox: checkOff, filled: listMenuPrioCritical},
 		// A hand-edited backlog can hold the retired "low". It fills no hole —
 		// the same exact match the annotation bar makes — which leaves all three
 		// levels offering to replace a value this program cannot read.
-		{name: "a level we do not know", priority: "low", wantBox: "☐", filled: -1},
+		{name: "a level we do not know", priority: "low", wantBox: checkOff, filled: -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := withTodos(t, "the prompt")
@@ -605,14 +605,14 @@ func TestListMenuFlagRow(t *testing.T) {
 
 	t.Run("the row draws the state and the note", func(t *testing.T) {
 		m := withTodos(t, "the prompt")
-		if got := rightClickRow(t, m, 0).listMenu.items[listMenuFlag].label; !strings.HasPrefix(got, "☐") {
+		if got := rightClickRow(t, m, 0).listMenu.items[listMenuFlag].label; !strings.HasPrefix(got, checkOff) {
 			t.Errorf("flag row = %q, want an empty box on an unflagged prompt", got)
 		}
 
 		markTodo(t, m.project, "a", false, false, annots{Flag: true, FlagNote: "blocked on the api"})
 		m.rebuildList()
 		got := rightClickRow(t, m, 0).listMenu.items[listMenuFlag].label
-		if !strings.HasPrefix(got, "☑") || !strings.Contains(got, "blocked on the api") {
+		if !strings.HasPrefix(got, checkOn) || !strings.Contains(got, "blocked on the api") {
 			t.Errorf("flag row = %q, want a ticked box carrying the note", got)
 		}
 	})

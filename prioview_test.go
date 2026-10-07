@@ -565,7 +565,7 @@ func TestFormShowsAnnotationsOnTheBar(t *testing.T) {
 		t.Fatalf("the form renders %d lines, none at formAnnotRow (%d)", len(lines), formAnnotRow)
 	}
 	bar := lines[formAnnotRow]
-	if !strings.Contains(bar, "☑") {
+	if !strings.Contains(bar, checkOn) {
 		t.Errorf("bar %q — want the Quick win checkbox ticked", bar)
 	}
 	if !strings.Contains(bar, "(•) "+prioCriticalGlyph) {
@@ -581,7 +581,7 @@ func TestFormShowsAnnotationsOnTheBar(t *testing.T) {
 	mm, _ = m2.beginEdit()
 	m2 = mm.(model)
 	bar = strings.Split(m2.viewForm(), "\n")[formAnnotRow]
-	if !strings.Contains(bar, "☐") || !strings.Contains(bar, "(•) none") {
+	if !strings.Contains(bar, checkOff) || !strings.Contains(bar, "(•) none") {
 		t.Errorf("bar %q — want an empty box and the none radio filled", bar)
 	}
 }

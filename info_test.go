@@ -146,7 +146,7 @@ func TestInfoMarkIsAChip(t *testing.T) {
 		t.Error("a closed row's info mark kept its field; it should recede")
 	}
 
-	label := "☑ " + infoGlyph + " Info"
+	label := checkOn + " " + infoGlyph + " Info"
 	out := withInfoChips(menuRowStyle, label)
 	if got := ansi.Strip(out); got != label {
 		t.Errorf("withInfoChips text = %q, want %q", got, label)
