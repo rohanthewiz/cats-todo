@@ -51,7 +51,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-085
+**Next ID:** N-086
 
 ## Open
 
@@ -282,6 +282,16 @@ and `raised`.
   then on its `[ ]`/`[x]` (no card, and a standing one comes down); the Next
   List tab's card; and that a splitter drag still works under all-motion
   mouse mode. Only unit tests and rendered frames have seen them.
+
+- **N-085** · raised `2026-1014-1446-drop-picker-this-project-first` · value low
+  Live-check the drop picker's new order in cats. In a workspace with a
+  running claude (and, for the fold, agents in other projects), open the
+  picker from the backlog, the Next List page and a schedule: the
+  `(this project)` rows lead and the highlight opens on the first, the
+  new-session rows follow, `… More drop targets` is still last, and a bare
+  enter drops into the agent beside you. Also open the batch composer's
+  Target row on a new batch (opens on this project's pane) and on one already
+  aimed at a new session (opens on that row). Only unit tests have seen it.
 
 ## Roadmap
 
