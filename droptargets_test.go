@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -269,5 +270,53 @@ func TestRunningClaudeRowSaysModelAndEffortWontApply(t *testing.T) {
 	}
 	if want := "the session's model/effort won't be applied to a running claude"; !strings.Contains(pane, want) {
 		t.Errorf("running claude row = %q, want it to contain %q", pane, want)
+	}
+}
+
+// TestBuildTargetsPutsThisProjectFirst pins the order the picker opens in:
+// the agents running in this project's workspace lead (Claude first among
+// them), ahead of the new-session rows, and the first of them is the default
+// highlight, so dropping into the agent beside you is a bare enter. Panes
+// elsewhere, and panes whose workspace cannot be told, stay after the
+// new-session rows, and the More row stays last.
+func TestBuildTargetsPutsThisProjectFirst(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // claude alone among the new-session rows
+	m, _, _ := newModelInTemp(t)
+	m.ctx.WorkspaceID = "w1"
+	m.client = fakeCatsSocket(t,
+		[]wire.PaneInfo{
+			{Pane: 1, Handle: "w2:p1", PaneMeta: wire.PaneMeta{Agent: "claude", Cwd: "/there"}},
+			{Pane: 2, Handle: "w1:p2", PaneMeta: wire.PaneMeta{Agent: "codex", Cwd: "/here"}},
+			{Pane: 3, Handle: "p3", PaneMeta: wire.PaneMeta{Agent: "claude", Cwd: "/unplaced"}},
+			{Pane: 4, Handle: "w1:p4", PaneMeta: wire.PaneMeta{Agent: "claude", Cwd: "/here"}},
+		},
+		[]wire.WorkspaceEntry{{ID: "w1", Name: "here"}, {ID: "w2", Name: "there"}},
+	)
+
+	targets, list := m.buildTargets()
+	// Shorthand per row: pN for a pane, the command for a new session, + for
+	// More. codex is running, so it earns a new-session row of its own.
+	var got []string
+	for _, tg := range targets {
+		switch tg.kind {
+		case targetExistingPane:
+			got = append(got, fmt.Sprintf("p%d", tg.pane))
+		case targetNewSession:
+			got = append(got, tg.command)
+		case targetMore:
+			got = append(got, "+")
+		}
+	}
+	// p1 is folded (another project): still in targets so the filter can
+	// reach it, but not listed at rest.
+	want := []string{"p4", "p2", "claude", "codex", "p1", "p3", "+"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("target order = %v, want %v", got, want)
+	}
+	if !strings.HasSuffix(targets[0].label, "(this project)") {
+		t.Errorf("first row label = %q, want this project's pane", targets[0].label)
+	}
+	if idx := list.selectedIndex(); idx != 0 {
+		t.Errorf("default selection = %d, want this project's claude pane (0)", idx)
 	}
 }

@@ -92,8 +92,10 @@ into the editor, or a brand-new entry when the list is empty — and `shift+ente
 drops the prompt into an agent. That opens the target picker, where `enter`
 hands the prompt over **and lets it run**, and `shift+enter` does the same drop
 but **pauses**, leaving the prompt sitting unsubmitted in the agent's input.
-Either way the todo is marked done. The picker lists new sessions and the
-agents running in this project; agents running in other projects are folded
+Either way the todo is marked done. The picker lists the agents running in
+this project first — the rows marked **(this project)**, so the highlight opens
+on one of them and dropping into the agent beside you is a bare `enter` — then
+new sessions (plain, then on a new worktree); agents running in other projects are folded
 into one **… More drop targets** row at the bottom, and choosing it lists them
 too. The fold hides them from the list, not from the filter: typing another
 project's name finds its agent straight away, and the More row steps aside

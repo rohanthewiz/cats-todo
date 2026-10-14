@@ -4658,18 +4658,33 @@ var newSessionAgents = []struct {
 }
 
 // buildTargets assembles the drop destinations, in the order the picker shows
-// them: a new session per known agent (see newSessionAgents), a new session for
-// every other agent currently running somewhere (if it's running, its command
-// is installed), the same set again on a fresh git worktree when the project is
-// a repo, plus every agent pane cats reports (Claude panes first), excluding our
-// own. Pane agent identity and cwd come straight from pane.list's runtime
-// metadata; the workspace a pane lives in is the "w1" prefix of its handle,
-// labeled via workspace.list.
+// them: the agents already running in this project's workspace (the rows
+// labeled "(this project)"), then a new session per known agent (see
+// newSessionAgents), a new session for every other agent currently running
+// somewhere (if it's running, its command is installed), the same set again on
+// a fresh git worktree when the project is a repo, and last every other agent
+// pane cats reports, excluding our own. Within each pane block Claude panes
+// come first. Pane agent identity and cwd come straight from pane.list's
+// runtime metadata; the workspace a pane lives in is the "w1" prefix of its
+// handle, labeled via workspace.list.
+//
+//	claude · proj (this project)          ← default highlight when there is one
+//	＋ New Claude Code session            ← default highlight otherwise
+//	＋ New Claude Code session on a new worktree
+//	claude · elsewhere / unplaced panes
+//	… More drop targets (N running agents in other projects)
+//
+// This project's running panes lead because they are the likeliest home for a
+// prompt written about this project: the session is already warm on its
+// code, and handing the prompt to it costs no startup. Putting them first also
+// makes one of them the default highlight, so the common "drop into the agent
+// beside me" is a bare enter. Without a socket (or with no agent here) the
+// list opens on "New Claude Code session" exactly as before.
 //
 // The two new-session flavours are emitted as two blocks rather than
 // interleaved per agent, so the second block reads as one answer to one
-// question ("somewhere isolated, instead") and the default highlight stays on
-// the plain first row.
+// question ("somewhere isolated, instead") and the plain new session is
+// always ahead of its worktree twin.
 //
 // Running agents in other workspaces are folded behind one "more drop targets"
 // row (targetMore) unless all is set: a prompt is written about this project,
@@ -4790,6 +4805,14 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 
 	// The running-pane block. agents is empty without a socket, so the
 	// workspace.list call below is only reached when there is something to label.
+	//
+	// The rows are split as they are built: hereRows (panes in this launch's
+	// workspace) are spliced in ahead of the new-session rows once the loop is
+	// done, and otherRows (elsewhere, folded or not, plus panes whose
+	// workspace cannot be told) stay after them. Splitting rather than
+	// re-sorting targets afterwards keeps the stable Claude-first order from
+	// the sort above inside each block.
+	var hereRows, otherRows []dropTarget
 	if len(agents) > 0 {
 		wsLabels := map[string]string{}
 		if labels, err := m.client.workspaceLabels(); err == nil {
@@ -4804,8 +4827,9 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 				hidden++
 			}
 			loc := firstNonEmpty(wsLabels[wsID], baseName(p.Cwd))
+			isHere := wsID != "" && wsID == m.ctx.WorkspaceID
 			here := ""
-			if wsID != "" && wsID == m.ctx.WorkspaceID {
+			if isHere {
 				here = " (this project)"
 			}
 			// Surface the agent's live state ("working", "idle", …) with its
@@ -4845,7 +4869,7 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 			if lost := td.Session.paneUnapplied(p.Agent); lost != "" {
 				desc += " · the session's " + lost + " won't be applied to a running " + p.Agent
 			}
-			targets = append(targets, dropTarget{
+			row := dropTarget{
 				kind:      targetExistingPane,
 				pane:      p.Pane,
 				agent:     p.Agent,
@@ -4853,7 +4877,12 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 				folded:    folded,
 				label:     fmt.Sprintf("%s · %s%s", p.Agent, firstNonEmpty(loc, "session"), here),
 				desc:      desc,
-			})
+			}
+			if isHere {
+				hereRows = append(hereRows, row)
+			} else {
+				otherRows = append(otherRows, row)
+			}
 		}
 		// Last, so the fold never sits between this project's rows and the
 		// highlight's default: it is the way out of the list, not a choice in it.
@@ -4862,13 +4891,17 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 			if hidden == 1 {
 				noun = "agent"
 			}
-			targets = append(targets, dropTarget{
+			otherRows = append(otherRows, dropTarget{
 				kind:  targetMore,
 				label: fmt.Sprintf("… More drop targets (%d running %s in other projects)", hidden, noun),
 				desc:  "show the agent sessions running in other workspaces",
 			})
 		}
 	}
+	// Final order: this project's panes, the new-session blocks, the rest.
+	// Each row's index here becomes its listItem ref below, so the splice
+	// must happen before the items are built.
+	targets = append(append(hereRows, targets...), otherRows...)
 
 	items := make([]listItem, len(targets))
 	for i, t := range targets {
