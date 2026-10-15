@@ -3,8 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestComposePrompt pins the delivered text: paths get appended as their own
@@ -77,5 +79,51 @@ func TestResolveAgentPath(t *testing.T) {
 	}
 	if got := resolveAgentPath(""); got != "" {
 		t.Fatalf("resolveAgentPath(\"\") = %q, want \"\"", got)
+	}
+}
+
+// sendRecorder is a paneDriver that logs every call, in order, so a test can
+// check the shape of a delivery: what was typed, when Enter went, and what was
+// waited for in between.
+type sendRecorder struct {
+	calls []string
+}
+
+func (r *sendRecorder) sendInput(_ uint32, text string, submit bool) error {
+	r.calls = append(r.calls, "send "+text+map[bool]string{true: " ⏎", false: ""}[submit])
+	return nil
+}
+
+func (r *sendRecorder) waitForOutputIn(_ uint32, pattern string, _ bool, _ uint32, _ time.Duration) (bool, error) {
+	r.calls = append(r.calls, "wait "+pattern)
+	return true, nil
+}
+
+// TestDeliverPromptImages pins the image-drop fix. Claude Code drops an Enter
+// that arrives while it is still attaching a pasted image path, so a run-mode
+// drop with attachments types first, waits for the "[Image #" token, and sends
+// the Enter on its own. Without attachments, and in paste mode, it stays one
+// send.
+func TestDeliverPromptImages(t *testing.T) {
+	cases := []struct {
+		name              string
+		submit, hasImages bool
+		want              []string
+	}{
+		{"run, no images", true, false, []string{"send P ⏎"}},
+		{"paste, no images", false, false, []string{"send P"}},
+		{"paste, images", false, true, []string{"send P"}},
+		{"run, images", true, true, []string{"send P", "wait " + imageTokenPattern, "send  ⏎"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := &sendRecorder{}
+			if err := deliverPrompt(r, 1, "P", c.submit, c.hasImages); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(r.calls, c.want) {
+				t.Errorf("calls = %q, want %q", r.calls, c.want)
+			}
+		})
 	}
 }

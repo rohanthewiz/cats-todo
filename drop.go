@@ -73,7 +73,7 @@ func performDropAt(client *catsClient, act pendingAction) (dropLanding, error) {
 		if err != nil {
 			return dropLanding{}, err
 		}
-		if err := client.sendInput(act.target.pane, withPasteAsk(prompt), act.mode == dropRun); err != nil {
+		if err := deliverPrompt(client, act.target.pane, withPasteAsk(prompt), act.mode == dropRun, len(act.images) > 0); err != nil {
 			return dropLanding{}, err
 		}
 		// Switch to the pane we just dropped into, mirroring how a new-session
@@ -159,6 +159,65 @@ const clearSettle = 400 * time.Millisecond
 // only on the new-session path — an existing pane's agent has been up for a
 // while and needs no such grace.
 const newSessionSettle = 2 * time.Second
+
+const (
+	// imageTokenPattern is what Claude Code draws in its input box once it has
+	// turned a pasted image path into an attachment: "[Image #1]", moved to the
+	// front of the input. A long paste collapses beside it, as
+	// "[Image #1][Pasted text #2 +62 lines]", so it is one row either way.
+	imageTokenPattern = "[Image #"
+	// imageTokenRows bounds the screen seed to the input box and the footer
+	// under it. The conversation above holds the same token for every image
+	// message already sent, and seeding it would let the wait match at once.
+	// A match on an old message that does fall inside these rows only costs
+	// the wait; imageAttachSettle still runs before the Enter.
+	imageTokenRows = 12
+	// imageAttachWait bounds the wait for the token. Measured live, the token is
+	// drawn within 20–70ms for a small screenshot. The bound is for a large one,
+	// and for agents other than Claude Code, which never draw the token. Those
+	// pay the full wait and then get the same separate Enter.
+	imageAttachWait = 3 * time.Second
+	// imageAttachSettle is the pause between the token and the Enter. A 200ms
+	// gap with no wait at all was already enough to submit, so this is margin
+	// for the frame in which the token is drawn before the input state settles.
+	imageAttachSettle = 200 * time.Millisecond
+)
+
+// deliverPrompt types a dropped prompt into pane and, when submit is set,
+// submits it.
+//
+// A prompt without attachments goes in one pane.send_input: the paste and its
+// Enter back to back. That does not work for a prompt with attachments. Claude
+// Code turns each pasted image path into an "[Image #N]" attachment, and it
+// reads the file to do so asynchronously, after the paste has been handled.
+// An Enter that arrives during that read is dropped. The prompt sits in the
+// input box, complete and unsent, and the agent never starts. Reproduced
+// against Claude Code 2.1.301 in a bare pty: paste+Enter in one write is lost
+// every time with an image and never without one; the same Enter 200ms later
+// submits.
+//
+// So with attachments the Enter goes separately:
+//
+//	send_input(text, submit=false)          paste only
+//	wait_for_output("[Image #", ≤3s)        the agent has attached the file
+//	sleep imageAttachSettle
+//	send_input("", submit=true)             Enter on its own
+//
+// The wait is best effort, like waitForAgentReady. A timeout or a failed wait
+// still ends in the Enter, because the user asked for the prompt to run, and a
+// late Enter is harmless where an early one is lost. Paste mode (submit unset)
+// needs none of this: the user presses Enter, long after the attach is done.
+func deliverPrompt(d paneDriver, pane uint32, text string, submit, hasImages bool) error {
+	if !submit || !hasImages {
+		return d.sendInput(pane, text, submit)
+	}
+	if err := d.sendInput(pane, text, false); err != nil {
+		return err
+	}
+	_, _ = d.waitForOutputIn(pane, imageTokenPattern, false, imageTokenRows, imageAttachWait)
+	time.Sleep(imageAttachSettle)
+	return d.sendInput(pane, "", true)
+}
 
 // composePrompt is the text actually delivered to an agent: the prompt body,
 // wrapped in whatever the todo's session options ask for and followed by one
@@ -356,7 +415,7 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) (p
 	// where we know least about the agent's state, so it is the last place to
 	// start typing early.
 	time.Sleep(newSessionSettle)
-	return pane, branch, client.sendInput(pane, withPasteAsk(prompt), act.mode == dropRun)
+	return pane, branch, deliverPrompt(client, pane, withPasteAsk(prompt), act.mode == dropRun, len(act.images) > 0)
 }
 
 // resolveAgentPath turns an agent's name into the absolute path of the binary,
