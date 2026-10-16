@@ -363,6 +363,24 @@ func paneWorkspaceID(p wire.PaneInfo) string {
 	return ""
 }
 
+// paneStateWord is the state tag on a running pane's drop-picker row. It is the
+// agent's state ("working", "idle", …) except for an idle agent whose
+// conversation was just /cleared and has had nothing asked since, which reads
+// "cleared": to the state machine that pane is plain idle, but dropping into a
+// blank page and dropping into a session with context are different choices,
+// and the row should say which it is. cats reports the blank word
+// (PaneMeta.AgentBlank) only while the conversation is untouched and drops it
+// the moment the agent works, so the tag never outlives the first prompt.
+// Gated on "idle" so a stale word can never mask a live working/blocked state.
+// Only the display changes: p.AgentState itself is what the batch loop waits
+// on, and stays "idle".
+func paneStateWord(p wire.PaneInfo) string {
+	if p.AgentState == "idle" && p.AgentBlank == "cleared" {
+		return "cleared"
+	}
+	return p.AgentState
+}
+
 // paneTopic is what a running pane is about, for the drop picker's row: the
 // name someone gave the pane, or else the terminal title the agent keeps.
 // Claude Code titles its terminal after the conversation ("✳ Fix the flaky

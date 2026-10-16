@@ -471,3 +471,24 @@ func TestPaneTopic(t *testing.T) {
 		}
 	}
 }
+
+// TestPaneStateWord: an idle agent whose conversation was just /cleared tags
+// its row [cleared]; every other state, and a blank word riding a state that
+// is not idle, shows the agent's own state.
+func TestPaneStateWord(t *testing.T) {
+	for _, c := range []struct {
+		state, blank, want string
+	}{
+		{"idle", "cleared", "cleared"},
+		{"idle", "", "idle"},
+		{"idle", "new", "idle"},
+		{"working", "cleared", "working"},
+		{"blocked", "", "blocked"},
+		{"", "", ""},
+	} {
+		p := wire.PaneInfo{PaneMeta: wire.PaneMeta{Agent: "claude", AgentState: c.state, AgentBlank: c.blank}}
+		if got := paneStateWord(p); got != c.want {
+			t.Errorf("paneStateWord(state %q, blank %q) = %q, want %q", c.state, c.blank, got, c.want)
+		}
+	}
+}

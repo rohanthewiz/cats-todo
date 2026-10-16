@@ -4856,8 +4856,8 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 			if topic := paneTopic(p); topic != "" {
 				desc = "“" + topic + "” · " + desc
 			}
-			if p.AgentState != "" {
-				desc = "[" + p.AgentState + "] " + desc
+			if st := paneStateWord(p); st != "" {
+				desc = "[" + st + "] " + desc
 			}
 			// Whatever of the prompt's session options a running pane won't
 			// get is said here, before the pick, for the same reason flagNote
