@@ -37,9 +37,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The card's shape. Wider than the backlog's card (hoverCardWidth): an item is
-// a paragraph of prose with no title to lean on, and each extra column is a
-// few more words per line out of a fixed row budget. Still a preference — a
+// The card's shape. The backlog's card (hoverCardWidth, hoverCardMaxRows) is
+// held to the same size: an item is a paragraph of prose with no title to lean
+// on, and each extra column is a few more words per line out of a fixed row
+// budget. Still a preference — a
 // narrow pane gets a narrower card, down to hoverCardMin.
 //
 // Fifteen rows in all is the most the card spends: one for the ID, thirteen

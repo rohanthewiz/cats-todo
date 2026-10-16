@@ -188,12 +188,12 @@ func TestHoverCardSaysNothingTwice(t *testing.T) {
 	}
 }
 
-// TestHoverBodyIsCappedAndSaysSo: four lines is the reading budget, and a prompt
-// with more of it ends in an ellipsis — the difference between "that's all of
-// it" and "press ctrl+v".
+// TestHoverBodyIsCappedAndSaysSo: the body's row budget is the reading
+// budget, and a prompt with more of it ends in an ellipsis — the difference
+// between "that's all of it" and "press ctrl+v".
 func TestHoverBodyIsCappedAndSaysSo(t *testing.T) {
-	long := "title\n" + strings.Repeat("the body runs on and on and keeps running. ", 20)
-	body := hoverBody(Todo{Title: "title", Prompt: long}, hoverCardWidth-4)
+	long := "title\n" + strings.Repeat("the body runs on and on and keeps running. ", 40)
+	body := hoverBody(Todo{Title: "title", Prompt: long}, hoverCardWidth-4, hoverBodyLines)
 	if len(body) != hoverBodyLines {
 		t.Fatalf("body lines = %d, want %d", len(body), hoverBodyLines)
 	}
@@ -204,6 +204,52 @@ func TestHoverBodyIsCappedAndSaysSo(t *testing.T) {
 		if w := lipgloss.Width(ln); w > hoverCardWidth-4 {
 			t.Errorf("body line %d is %d cells wide, past the %d it was wrapped to: %q", i, w, hoverCardWidth-4, ln)
 		}
+	}
+}
+
+// TestHoverCardSharesTheNextListBudget pins the card at the Next List's size:
+// fifteen rows at most, with the body giving up rows to the fields below it
+// rather than the card growing past the cap. A short pane takes rows off the
+// body too, so the box (rows + two borders) never runs past the pane's edge.
+// The fields are never what gives way: they are the facts a drop runs under.
+func TestHoverCardSharesTheNextListBudget(t *testing.T) {
+	if hoverCardWidth != nextCardWidth || hoverCardMaxRows != nextCardMaxRows {
+		t.Errorf("backlog card %dx%d, Next List card %dx%d — the two should match",
+			hoverCardWidth, hoverCardMaxRows, nextCardWidth, nextCardMaxRows)
+	}
+	long := "title\n" + strings.Repeat("the body runs on and on and keeps running. ", 60)
+	td := Todo{Title: "title", Prompt: long, Session: &SessionOpts{Model: "opus", Effort: "high"}}
+
+	strip := func(lines []string) []string {
+		out := make([]string, len(lines))
+		for i, ln := range lines {
+			out[i] = ansi.Strip(ln)
+		}
+		return out
+	}
+	got := strip(hoverLines(td, hoverCardWidth-4))
+	if len(got) != hoverCardMaxRows {
+		t.Fatalf("card rows = %d, want the full %d", len(got), hoverCardMaxRows)
+	}
+	// Title, eleven body lines, separator, Model, Effort.
+	if !strings.HasSuffix(strings.TrimSpace(got[11]), "…") {
+		t.Errorf("last body row = %q, want the ellipsis", got[11])
+	}
+	if !strings.Contains(got[13], "opus") || !strings.Contains(got[14], "high") {
+		t.Errorf("fields rows = %q / %q, want Model and Effort kept", got[13], got[14])
+	}
+
+	m := hoverModel(td)
+	m.width, m.height = 120, 12
+	card, ok := m.buildHoverCard(td, 0, 2, 2)
+	if !ok {
+		t.Fatal("no card in a 12-row pane")
+	}
+	if card.h > m.height-1 {
+		t.Errorf("card is %d rows tall in a %d-row pane, want room left off the pointer's line", card.h, m.height)
+	}
+	if !strings.Contains(strip(card.lines)[len(card.lines)-1], "high") {
+		t.Error("a short pane cut the fields instead of the body")
 	}
 }
 

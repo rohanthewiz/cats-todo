@@ -50,13 +50,24 @@ import (
 // pane gets a narrower card (down to hoverCardMin, under which there is no room
 // to wrap prose into and the card simply does not appear).
 //
-// Four body lines is the most that can be read at a glance without the card
-// becoming the prompt view with a border on it; a longer prompt says so with an
-// ellipsis, which is also the invitation to press ctrl+v.
+// The card is the Next List's size (nextCardWidth, nextCardMaxRows): 88
+// cells wide and fifteen rows at most. Four body lines at 52 cells cut nearly
+// every real prompt short, so the card answered "which one is this?" but not
+// "what does it ask for?", and that question sent the reader to ctrl+v anyway.
+// The two cards are the same box on two pages, too, and a box that changes
+// size between pages looks like a different thing.
+//
+// The fifteen rows are a budget shared by everything on the card. The title
+// takes one and the trailer (the flag's note, the done stamp, Model/Effort,
+// with their separators) takes what it needs. The body gets the rest:
+// fourteen lines on a prompt with nothing else to say, eleven on one with a
+// session. A longer prompt still says so with an ellipsis, which is the
+// invitation to press ctrl+v.
 const (
-	hoverCardWidth = 52
-	hoverCardMin   = 28
-	hoverBodyLines = 4
+	hoverCardWidth   = 88
+	hoverCardMin     = 28
+	hoverCardMaxRows = 15
+	hoverBodyLines   = hoverCardMaxRows - 1 // the most the body gets: all but the title row
 )
 
 // hoverDelay is how long the pointer has to stay on a row before its card is
@@ -347,7 +358,10 @@ func (m model) buildHoverCard(td Todo, row, x, y int) (hoverCard, bool) {
 	}
 	inner := w - chrome
 
-	lines := hoverLines(td, inner)
+	// The box is its rows plus two border rows, and one row is left so the
+	// card can sit off the pointer's line rather than over it, as on the Next
+	// List (nextItemCard). The body is what gives those rows up.
+	lines := hoverLinesMax(td, inner, min(hoverCardMaxRows, m.height-3))
 	if len(lines) == 0 {
 		return hoverCard{}, false
 	}
@@ -364,30 +378,34 @@ func (m model) buildHoverCard(td Todo, row, x, y int) (hoverCard, bool) {
 // because the card is placed *off* that row: with several rows within a cell or
 // two of the box, the card has to name which one it is about. The body follows
 // as prose, wrapped rather than truncated per line, since a prompt is written in
-// sentences and the first four lines of it are the point of the whole card.
+// sentences and as much of it as fits is the point of the whole card.
 func hoverLines(td Todo, inner int) []string {
-	var lines []string
-	row := func(s string, style lipgloss.Style) {
+	return hoverLinesMax(td, inner, hoverCardMaxRows)
+}
+
+// hoverLinesMax is hoverLines held to maxRows rows, for a pane too short to
+// take the full budget.
+//
+// The trailer (note and fields) is built before the body although it is drawn
+// after it, because the body's row budget is whatever the title and the
+// trailer leave. The trailer is never cut: those rows are short, fixed facts,
+// while the body is prose that already knows how to stop with an ellipsis.
+//
+//	┌ title ─────────┐  1 row
+//	│ body …         │  maxRows − 1 − len(trailer), at least 1
+//	│ trailer        │  0 to 6 rows (note + its separator, fields + theirs)
+//	└────────────────┘
+func hoverLinesMax(td Todo, inner, maxRows int) []string {
+	render := func(s string, style lipgloss.Style) string {
 		// Width pads every row out to the box's full interior — inner is the
 		// text budget, the +2 is the space of padding on each side — so the card
 		// composites as an opaque box. A short row left unpadded would let the
 		// list's own text show through it, exactly as an unfilled menu row would.
-		lines = append(lines, style.Width(inner+2).Render(s))
+		return style.Width(inner+2).Render(s)
 	}
-
-	title := strings.TrimSpace(td.Title)
-	if title == "" {
-		title = firstLine(td.Prompt, inner)
-	}
-	row(truncate(title, inner), hoverTitleStyle)
-
-	// The body is the prompt minus the line the row (and, above, the title) is
-	// already showing — repeating it would spend the card's first line saying
-	// what the pointer is already on.
-	if body := hoverBody(td, inner); len(body) > 0 {
-		for _, ln := range body {
-			row(ln, hoverBodyStyle)
-		}
+	var trailer []string
+	row := func(s string, style lipgloss.Style) {
+		trailer = append(trailer, render(s, style))
 	}
 
 	// The flag's note, when it has one. This is the card's reason for carrying
@@ -450,6 +468,21 @@ func hoverLines(td Todo, inner int) []string {
 		row(truncate(text, inner), hoverFieldStyle)
 	}
 
+	title := strings.TrimSpace(td.Title)
+	if title == "" {
+		title = firstLine(td.Prompt, inner)
+	}
+	lines := []string{render(truncate(title, inner), hoverTitleStyle)}
+
+	// The body is the prompt minus the line the row (and, above, the title) is
+	// already showing — repeating it would spend the card's first line saying
+	// what the pointer is already on.
+	bodyMax := max(maxRows-1-len(trailer), 1)
+	for _, ln := range hoverBody(td, inner, bodyMax) {
+		lines = append(lines, render(ln, hoverBodyStyle))
+	}
+	lines = append(lines, trailer...)
+
 	// A title-only todo with no body, note, stamp or session has nothing the
 	// row is not already saying, so it gets no card at all rather than a box
 	// repeating one line back at the pointer. A done title-only todo with a
@@ -468,13 +501,13 @@ func hoverLines(td Todo, inner int) []string {
 // a todo happened to set.
 const hoverLabelWidth = 8
 
-// hoverBody is the prompt as up to hoverBodyLines wrapped lines, with the title
+// hoverBody is the prompt as up to bodyMax wrapped lines, with the title
 // line dropped off the front and an ellipsis on the end when there was more.
 //
 // Blank lines are dropped rather than preserved: a prompt's paragraph breaks are
 // worth their vertical space in a full-height view, and worth nothing in a card
-// with four lines to spend.
-func hoverBody(td Todo, inner int) []string {
+// with a fixed row budget.
+func hoverBody(td Todo, inner, bodyMax int) []string {
 	body := strings.TrimSpace(td.Prompt)
 	if body == "" {
 		return nil
@@ -503,7 +536,7 @@ func hoverBody(td Todo, inner int) []string {
 		if strings.TrimSpace(ln) == "" {
 			continue
 		}
-		if len(out) == hoverBodyLines {
+		if len(out) == bodyMax {
 			// There is more prompt than the card is going to show: the last line
 			// says so rather than simply stopping, which is the difference
 			// between "that's all of it" and "press ctrl+v".

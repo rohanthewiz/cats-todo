@@ -1767,7 +1767,11 @@ shows the zone. The card is where the pointer already is, so it is the one place
 in the list that always has room for the whole stamp. A prompt finished before
 stamps existed has none, and its card gets no row for it.
 
-Four lines of body is the reading budget. A longer prompt ends in an ellipsis,
+The card is the [Next List's card](#the-next-list)'s size: 88 cells wide and
+capped at **fifteen rows**. The title takes one, the note and fields take what
+they need, and the body gets the rest — fourteen lines on a bare prompt, eleven
+on one with a model and effort set. A short pane takes rows off the body, never
+the fields, so the box stays inside it. A longer prompt ends in an ellipsis,
 which is the invitation to press `ctrl+v` — the card is a glance, not the prompt
 view with a border on it. It lands below and right of the pointer and flips or
 pulls back inside the pane at the edges, exactly as a context menu does, and for
