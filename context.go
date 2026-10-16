@@ -365,18 +365,19 @@ func paneWorkspaceID(p wire.PaneInfo) string {
 
 // paneStateWord is the state tag on a running pane's drop-picker row. It is the
 // agent's state ("working", "idle", …) except for an idle agent whose
-// conversation was just /cleared and has had nothing asked since, which reads
-// "cleared": to the state machine that pane is plain idle, but dropping into a
-// blank page and dropping into a session with context are different choices,
-// and the row should say which it is. cats reports the blank word
-// (PaneMeta.AgentBlank) only while the conversation is untouched and drops it
-// the moment the agent works, so the tag never outlives the first prompt.
-// Gated on "idle" so a stale word can never mask a live working/blocked state.
-// Only the display changes: p.AgentState itself is what the batch loop waits
-// on, and stays "idle".
+// conversation has had nothing asked of it yet, which reads by how that
+// conversation began: "new" for a fresh launch, "cleared" for a /clear. To the
+// state machine such a pane is plain idle, but dropping into a blank page and
+// dropping into a session with context are different choices, and the row
+// should say which it is. The word is cats' own (PaneMeta.AgentBlank, the
+// sidebar's blank dot), passed through as is: cats reports it only while the
+// conversation is untouched and drops it the moment the agent works, so the
+// tag never outlives the first prompt. Gated on "idle" so a stale word can
+// never mask a live working/blocked state. Only the display changes:
+// p.AgentState itself is what the batch loop waits on, and stays "idle".
 func paneStateWord(p wire.PaneInfo) string {
-	if p.AgentState == "idle" && p.AgentBlank == "cleared" {
-		return "cleared"
+	if p.AgentState == "idle" && p.AgentBlank != "" {
+		return p.AgentBlank
 	}
 	return p.AgentState
 }
