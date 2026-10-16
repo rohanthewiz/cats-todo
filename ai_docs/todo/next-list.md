@@ -51,7 +51,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-086
+**Next ID:** N-087
 
 ## Open
 
@@ -292,6 +292,15 @@ and `raised`.
   enter drops into the agent beside you. Also open the batch composer's
   Target row on a new batch (opens on this project's pane) and on one already
   aimed at a new session (opens on that row). Only unit tests have seen it.
+
+- **N-086** · raised `2026-1016-1651-drop-picker-new-cleared-tags` · value low
+  Live-check the drop picker's `[new]` / `[cleared]` tags in cats, once the
+  Mac app runs a build with cats `ab1d06a` (PaneMeta.AgentBlank). Open the
+  picker beside a claude freshly launched (`[new]`), one just `/clear`ed
+  (`[cleared]`), and one that has answered a prompt (`[idle]`); drop into the
+  cleared one and reopen the picker (back to `[working]`, then `[idle]`).
+  Against an older catway every row stays `[idle]`. Only unit tests have seen
+  it.
 
 ## Roadmap
 
