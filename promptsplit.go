@@ -7,7 +7,7 @@
 // todo of its own — a single item holding six bullets can be dropped once,
 // scheduled once and marked done once, which is exactly the wrong granularity
 // for six pieces of work. This file is the one gesture that fixes that: sweep
-// the list and press ctrl+x — or take ✂ Split into prompts off the editor's
+// the list and press alt+x — or take ✂ Split into prompts off the editor's
 // context menu (promptmenu.go) — and each bullet becomes its own prompt in the
 // backlog.
 //
@@ -254,7 +254,7 @@ func splitBulletList(text string) (head int, items []bulletBlock) {
 	return head, items
 }
 
-// splitPromptList is ctrl+x, and ✂ Split into prompts on the editor's context
+// splitPromptList is alt+x, and ✂ Split into prompts on the editor's context
 // menu: make one backlog prompt out of every bullet of the selected list.
 //
 // It writes to the backlog immediately rather than waiting for a save, and that
@@ -276,7 +276,7 @@ func (m model) splitPromptList() (tea.Model, tea.Cmd) {
 	}
 	lo, hi, ok := m.promptSelSpan()
 	if !ok {
-		m.formNote = "nothing selected — sweep a bulleted list, or hold shift with ←/→, then ctrl+x"
+		m.formNote = "nothing selected — sweep a bulleted list, or hold shift with ←/→, then alt+x"
 		return m, nil
 	}
 	runes := []rune(m.promptArea.Value())

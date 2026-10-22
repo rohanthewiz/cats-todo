@@ -7,8 +7,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// ctrlX is the split chord as a terminal reports it.
-var ctrlX = tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl}
+// altX is the split chord as a terminal reports it. It was ctrl+x until cut took
+// that chord (see promptcut_test.go).
+var altX = tea.KeyPressMsg{Code: 'x', Mod: tea.ModAlt}
 
 // splitFormInTemp opens the add form over real temp stores, sized wide enough
 // that nothing in the editor soft-wraps — the split works on logical lines, and
@@ -159,7 +160,7 @@ func TestSplitPromptListWholeBodyLeavesTheForm(t *testing.T) {
 	m, project, _ := splitFormInTemp(t, "- tag v2\n- write the notes\n- announce it")
 	m = selectWholePrompt(t, m)
 
-	got := typeInForm(t, m, ctrlX)
+	got := typeInForm(t, m, altX)
 	if got.stage != stageList {
 		t.Errorf("stage = %v, want stageList — the whole body became prompts", got.stage)
 	}
@@ -198,7 +199,7 @@ func TestSplitPromptListWholeBodyDeletesTheOriginal(t *testing.T) {
 	next, _ := m.beginEditRef(todoRef{scope: scopeProject, id: "t1"})
 	m = selectWholePrompt(t, next.(model))
 
-	got := typeInForm(t, m, ctrlX)
+	got := typeInForm(t, m, altX)
 	if got.stage != stageList {
 		t.Errorf("stage = %v, want stageList", got.stage)
 	}
@@ -220,7 +221,7 @@ func TestSplitPromptListPartialKeepsTheForm(t *testing.T) {
 	// and must survive anyway.
 	m = selectWholePrompt(t, m)
 
-	got := typeInForm(t, m, ctrlX)
+	got := typeInForm(t, m, altX)
 	if got.stage != stageForm {
 		t.Fatalf("stage = %v, want stageForm — text survived the split", got.stage)
 	}
@@ -257,7 +258,7 @@ func TestSplitPromptListLandsBehindTheOriginal(t *testing.T) {
 
 	next, _ := m.beginEditRef(todoRef{scope: scopeProject, id: "b"})
 	m = selectWholePrompt(t, next.(model))
-	typeInForm(t, m, ctrlX)
+	typeInForm(t, m, altX)
 
 	want := []string{"first", "one", "two", "last"}
 	got := promptsOf(project)
@@ -280,7 +281,7 @@ func TestSplitPromptListInheritsHowItRuns(t *testing.T) {
 	m.formSession = SessionOpts{Model: "opus", Effort: "high"}
 	m = selectWholePrompt(t, m)
 
-	typeInForm(t, m, ctrlX)
+	typeInForm(t, m, altX)
 	if len(project.todos) != 2 {
 		t.Fatalf("backlog holds %d todos, want 2", len(project.todos))
 	}
@@ -336,7 +337,7 @@ func TestSplitPromptListRefusesInWords(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := typeInForm(t, tc.setup(t), ctrlX)
+			got := typeInForm(t, tc.setup(t), altX)
 			if got.stage != stageForm {
 				t.Errorf("stage = %v, want the form still open", got.stage)
 			}
@@ -354,7 +355,7 @@ func TestSplitPromptListLeavesTheSelectionOnARefusal(t *testing.T) {
 	m, _, _ := splitFormInTemp(t, "just a paragraph")
 	m = selectWholePrompt(t, m)
 
-	got := typeInForm(t, m, ctrlX)
+	got := typeInForm(t, m, altX)
 	if _, _, ok := got.promptSelSpan(); !ok {
 		t.Error("the selection was dropped by a split that did not happen")
 	}
@@ -367,7 +368,7 @@ func TestSplitPromptListInTheGlobalBacklog(t *testing.T) {
 	m.formScope = scopeGlobal
 	m = selectWholePrompt(t, m)
 
-	typeInForm(t, m, ctrlX)
+	typeInForm(t, m, altX)
 	if len(global.todos) != 2 {
 		t.Errorf("global backlog holds %d todos, want 2", len(global.todos))
 	}
@@ -376,16 +377,16 @@ func TestSplitPromptListInTheGlobalBacklog(t *testing.T) {
 	}
 }
 
-// TestCtrlXStillHasNoMeaningInTheTextarea is the regression this chord was
-// picked to avoid: ctrl+x is not one of the textarea's own bindings, so binding
+// TestAltXStillHasNoMeaningInTheTextarea is the regression this chord was
+// picked to avoid: alt+x is not one of the textarea's own bindings, so binding
 // the split over it cannot have taken an editing key away. If the library ever
 // claims it, this fails here rather than in a user's prompt.
-func TestCtrlXStillHasNoMeaningInTheTextarea(t *testing.T) {
+func TestAltXStillHasNoMeaningInTheTextarea(t *testing.T) {
 	m, _, _ := splitFormInTemp(t, "alpha")
 	m.focusForm(formFieldPrompt)
 	setPromptCaretOffset(&m.promptArea, 5)
 
-	got := typeInForm(t, m, ctrlX)
+	got := typeInForm(t, m, altX)
 	if got.promptArea.Value() != "alpha" {
 		t.Errorf("value = %q, want it untouched by a split that had nothing to do",
 			got.promptArea.Value())
@@ -402,7 +403,7 @@ func TestSplitPromptListTakesOnlyTheSweptItems(t *testing.T) {
 	// leaves the newline after it outside the sweep.
 	m = selectPromptRange(t, m, 0, 11)
 
-	got := typeInForm(t, m, ctrlX)
+	got := typeInForm(t, m, altX)
 	if got.stage != stageForm {
 		t.Fatalf("stage = %v, want stageForm — two bullets survived", got.stage)
 	}
@@ -419,7 +420,7 @@ func TestSplitPromptListTakesOnlyTheSweptItems(t *testing.T) {
 // survive a 120-cell pane — so the menu's segment is contextual. It appears the
 // moment there is a run to act on, and stays out of the way when there is not.
 //
-// It names the menu rather than ctrl+x: the menu prints that chord on its own ✂
+// It names the menu rather than alt+x: the menu prints that chord on its own ✂
 // row, so one gesture on the footer teaches every key behind it.
 //
 // With nothing swept the menu is still named, but only as the bare
@@ -438,7 +439,7 @@ func TestSplitFooterTeachesTheMenuWhileSomethingIsSwept(t *testing.T) {
 	if foot := swept.formFooter(); !strings.Contains(foot, "right-click: split/sort/carets") {
 		t.Errorf("footer does not teach the menu over a sweep:\n%s", foot)
 	}
-	if foot := swept.formFooter(); strings.Contains(foot, "ctrl+x") {
+	if foot := swept.formFooter(); strings.Contains(foot, "alt+x") {
 		t.Errorf("footer spends a segment on the chord the menu already prints:\n%s", foot)
 	}
 	if foot := swept.formFooter(); strings.Count(foot, "right-click") != 1 {

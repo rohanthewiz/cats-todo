@@ -7,7 +7,7 @@
 // and the menu names what can be done with what is under the pointer.
 //
 //	╭──────────────────────────────╮
-//	│ ✂ Split into prompts  ctrl+x │
+//	│ ✂ Split into prompts   alt+x │
 //	│ ⇅ Sort lines                 │
 //	│ ⌶ Caret on every line        │
 //	│ ✓ Spelling…           ctrl+l │
@@ -112,7 +112,7 @@ func (m model) openPromptMenu(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	mu.items = []menuItem{
-		{act: menuSplit, label: "✂ Split into prompts", hint: "ctrl+x", why: selWhy},
+		{act: menuSplit, label: "✂ Split into prompts", hint: "alt+x", why: selWhy},
 		{act: menuSort, label: "⇅ Sort lines", why: rowsWhy},
 		{act: menuCarets, label: "⌶ Caret on every line", why: rowsWhy},
 		{act: menuSpell, label: "✓ Spelling…", hint: "ctrl+l"},

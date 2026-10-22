@@ -3082,13 +3082,22 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if promptCopyChord(msg.String()) && m.selectedPromptText() != "" {
 			return m.copyPromptSelection()
 		}
-		// ctrl+x turns a swept markdown list into one backlog prompt per bullet
-		// (promptsplit.go). It has to be answered up here, above the
-		// clearPromptSel below, for the same reason the copy does: the selection
-		// is its whole input, and by the time the switch is reached there is no
-		// longer one to read. The switch keeps a case of its own so the chord
-		// still explains itself when nothing is selected.
-		if msg.String() == "ctrl+x" {
+		// ctrl+x / cmd+x cut: the copy above, then the highlighted run taken out.
+		// Up here for the copy's reason — the selection is its whole input, and
+		// the clearPromptSel below would have taken it. The switch keeps a case
+		// so the chord still explains itself with nothing highlighted.
+		if promptCutChord(msg.String()) && m.selectedPromptText() != "" {
+			return m.cutPromptSelection()
+		}
+		// alt+x turns a swept markdown list into one backlog prompt per bullet
+		// (promptsplit.go). It was ctrl+x until cut claimed that chord: cut is the
+		// gesture every editor on the machine puts there, so the hand reaches for
+		// it first, and the split is the rarer, program-specific act that can
+		// learn a new key. The x stays, so it still reads as "take this out", and
+		// alt is a modifier every terminal reports (alt+↑/↓ already rely on it).
+		// Up here for the cut's reason; the switch keeps a case of its own so the
+		// chord still explains itself when nothing is selected.
+		if msg.String() == "alt+x" {
 			return m.splitPromptList()
 		}
 		// alt+↑/↓ walks the caret's line — or every line the selection touches —
@@ -3283,14 +3292,25 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// presses are answered at the top of this function, where the selection
 		// is still standing. movePromptLines says why rather than no-opping.
 		return m.movePromptLines(map[string]int{"alt+up": -1, "alt+down": 1}[msg.String()])
-	case "ctrl+x":
-		// Reached only with nothing selected — a live selection is answered at
-		// the top of this function. splitPromptList says so itself rather than
-		// no-opping. ctrl+x is free in both the textarea's keymap and the
-		// textinput's (the survey the ctrl+r comment makes below), and it is
-		// already this program's "take this out" everywhere it is bound: delete
-		// in the list, remove in the attachment editor, and here the list that
-		// leaves the prompt to become prompts of its own.
+	case "ctrl+x", "super+x", "meta+x":
+		// Reached only with nothing to cut — a live selection in the prompt is
+		// answered at the top of this function. So it says why instead of doing
+		// nothing. The title is a textinput with no selection of its own, so from
+		// there (or the annotation bar) the answer is where cutting works.
+		// ctrl+x is free in both the textarea's keymap and the textinput's (the
+		// survey the ctrl+r comment makes below), so binding it took no editing
+		// key away.
+		if m.formFocus != formFieldPrompt {
+			m.formNote = "cutting works in the prompt — select text there first"
+			return m, nil
+		}
+		m.formNote = "nothing selected — sweep the prompt, or hold shift with ←/→, then cut"
+		return m, nil
+	case "alt+x":
+		// ✂ Split with nothing selected, or from another field —
+		// splitPromptList says why rather than no-opping. alt+x is free in the
+		// textarea's keymap and the textinput's alike (their alt chords are
+		// the word motions and deletes, and the alt+c/l/u case changes).
 		return m.splitPromptList()
 	case "ctrl+p", "super+p", "meta+p":
 		// Reached only from the title field or the annotation bar — the prompt's
@@ -3484,6 +3504,46 @@ func (m model) copyPromptSelection() (tea.Model, tea.Cmd) {
 	}
 	m.formNote = fmt.Sprintf("copied %d %s", n, unit)
 	return m, copyTextToClipboard(text)
+}
+
+// cutPromptSelection is ctrl+x / cmd+x: the highlighted run goes on the system
+// clipboard and comes out of the prompt, leaving the caret where it began.
+//
+// Unlike ctrl+c, ctrl+x has no other meaning to overload. It never quits and is
+// bound to nothing in the editor, so the chord needs no guard beyond the
+// selection itself.
+//
+// The copy is issued as a command but the deletion happens now, so the text
+// leaves the editor before the clipboard write is confirmed. That matches the
+// copy, which also reports before its command runs. Undo is the safety net if
+// the clipboard refuses: the commit point in Update records the deletion as its
+// own step (a chord, not a delete key, so it never folds into a run of
+// backspaces — see promptEditKindOf), and one cmd+z brings the run back.
+func (m model) cutPromptSelection() (tea.Model, tea.Cmd) {
+	text := m.selectedPromptText()
+	if text == "" {
+		return m, nil
+	}
+	m.deletePromptSelection()
+	n := len([]rune(text))
+	unit := "characters"
+	if n == 1 {
+		unit = "character"
+	}
+	m.formNote = fmt.Sprintf("cut %d %s", n, unit)
+	return m, copyTextToClipboard(text)
+}
+
+// promptCutChord names the chords the editor treats as cut: ctrl+x, the one that
+// always arrives, and the two spellings a terminal may report Cmd+X with. Under
+// cats the Cmd spelling reaches the pane only once cats' client hands ⌘X down
+// (CMD_TO_PANE in catway's 20-keys.js). Until then ctrl+x is the road there.
+func promptCutChord(s string) bool {
+	switch s {
+	case "ctrl+x", "super+x", "meta+x":
+		return true
+	}
+	return false
 }
 
 // promptCopyChord and promptPasteChord name the chords the editor treats as

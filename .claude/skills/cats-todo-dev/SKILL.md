@@ -49,7 +49,7 @@ and the rest stay local.
 | `filepick.go` | `@` file picker in the editor (borrowed from cdx, file-level) |
 | `promptsel.go` | text selection inside the textarea; double-click → word, triple → line (`promptClickCount` counts presses on the caret offset, `promptWordSpan`), and a drag after either extends by that unit (`promptGrain`, `extendPromptSelByGrain`) |
 | `promptmenu.go` | the editor's right-click context menu — rows, hit-testing, the lipgloss-compositor overlay |
-| `promptsplit.go` | ✂ Split into prompts (`ctrl+x`): the markdown-list parser (`bulletBlock`) and one backlog prompt per bullet |
+| `promptsplit.go` | ✂ Split into prompts (`alt+x` — `ctrl+x` is cut): the markdown-list parser (`bulletBlock`) and one backlog prompt per bullet |
 | `promptsort.go` | ⇅ Sort lines: items when it is a list (markers stay, bodies move), plain lines otherwise |
 | `promptcarets.go` | ⌶ Caret on every line: the column mode, its goal column, and its caret paints |
 | `promptmove.go` | `alt+↑/↓` moving the caret's line or the swept block |
@@ -183,7 +183,7 @@ and the rest stay local.
   bottom of `updateForm` rather than by the textarea; `backspace` as the very
   next key takes it back (`promptCarry`, a one-key snapshot) ·
   `@` file picker ·
-  `ctrl+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
+  `ctrl+x` (also `cmd+x`) cut a selection · `alt+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
   the swept block) · `shift+alt+↑/↓` extend the selection by a line ·
   `cmd+z` (`super+z`/`meta+z`) or `ctrl+z` undo (the title's own history
   when the title has the keys) · `shift+cmd+z`
@@ -201,7 +201,7 @@ and the rest stay local.
   which ends it). Both are
   cleared by `backToList`, and the menu by a resize.
 - Anything that reads the selection must be handled **above** `updateForm`'s
-  `clearPromptSel()` — `ctrl+c`, `ctrl+x`, `alt+↑/↓`, `tab`/`shift+tab`. Each keeps a case in the
+  `clearPromptSel()` — `ctrl+c`, `ctrl+x`, `alt+x`, `alt+↑/↓`, `tab`/`shift+tab`. Each keeps a case in the
   switch below too, which is reached only when there is nothing to read and is
   where it explains itself.
 - `shift+enter` needs the kitty keyboard protocol; `alt+enter` is the universal alias

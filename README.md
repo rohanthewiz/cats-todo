@@ -2016,7 +2016,7 @@ a chord anybody would guess. So they live where every editor keeps that list:
 
 ```
 ╭──────────────────────────────╮
-│ ✂ Split into prompts  ctrl+x │
+│ ✂ Split into prompts   alt+x │
 │ ⇅ Sort lines                 │
 │ ⌶ Caret on every line        │
 │ ✓ Spelling…           ctrl+l │
@@ -2046,7 +2046,7 @@ asking about a selection you can no longer see.
 
 While a run is swept, the footer names the menu near its front as
 `right-click: split/sort/carets`. It does not spend a second segment on
-`ctrl+x`: the menu prints that chord on its own ✂ row, so one gesture on the
+`alt+x`: the menu prints that chord on its own ✂ row, so one gesture on the
 footer teaches every key behind it. With nothing swept the menu is still named,
 as a bare `right-click menu` at the footer's tail, because the menu is also
 where the prompt library (`ctrl+p`), undo and redo are taught. Their rows print
@@ -2065,7 +2065,7 @@ own: one todo holding six bullets can be dropped once, scheduled once and marked
 done once, which is exactly the wrong granularity for six pieces of work.
 
 Sweep the list — drag over it, or hold `shift` with `←`/`→` — and press
-**`ctrl+x`**, or take the item off the menu. Each bullet becomes its own prompt
+**`alt+x`**, or take the item off the menu. Each bullet becomes its own prompt
 in the backlog, landing directly behind the prompt it came out of rather than at
 the far end of the file.
 
@@ -2117,10 +2117,12 @@ that only existed once the form was saved would leave the editor holding a list
 it has already been told is gone. The whole run is one write, so either every
 prompt lands or none does.
 
-`ctrl+x` is free in the editor — it is none of the textarea's own bindings — and
-it is already this program's "take this out": delete on the list, remove in the
-attachment editor, and here the list that leaves the prompt to become prompts of
-its own.
+The split was on `ctrl+x` until the editor learned to cut. Cut is the gesture
+every editor puts on that chord, so a hand reaches for it there first, and the
+split is the rarer, program-specific act that can learn a new key. `alt+x` keeps
+the x, so it still reads as "take this out", and it is free in the editor: the
+textarea's own alt chords are the word motions, the word deletes and the case
+changes.
 
 ### ⇅ Sort lines
 
@@ -2428,6 +2430,17 @@ macOS there is no local pasteboard to read, so the chord asks the terminal over
 OSC 52 — a read many terminals refuse — and reports an empty answer rather than
 pretending.
 
+**`ctrl+x` cuts** the highlighted run: it goes on the clipboard by the same road
+a copy takes, and comes out of the prompt with the caret left where it began.
+`cmd+x` is the same cut wherever the host hands the Command key over. Neither
+chord quits or means anything else here, so with nothing highlighted each says
+there was nothing to cut. From the title it says cutting works in the prompt,
+since the title field has no selection of its own. A cut is one undo step of its
+own and never folds into the backspaces around it, so one `cmd+z` brings the
+whole run back, which also covers a clipboard that refused the text. Under
+cats, `cmd+x` reaches the pane only once cats' client hands ⌘X down to
+kitty-protocol panes. Until then `ctrl+x` is the cut there.
+
 **The editor holds at most 10,000 lines.** The limit is the text library's,
 and it enforces it by cutting whatever does not fit, silently. Here that would
 be a paste missing its tail, or a prompt missing its own last lines, and the
@@ -2440,7 +2453,7 @@ line says why, and `ctrl+v` still shows it whole.
 
 Copying is not all a swept run is worth. **Right-click inside the highlight** and
 a menu offers the rest — split a markdown list into one backlog prompt per bullet
-(also `ctrl+x`), sort the swept lines, or put a caret on each of them and type
+(also `alt+x`), sort the swept lines, or put a caret on each of them and type
 into all of them at once. See *The prompt editor's context menu* above.
 
 `alt+↑`/`alt+↓` **moves the line the caret is on**, one row at a time, with the
