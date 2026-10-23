@@ -120,7 +120,11 @@ Both screens open with the same title line, directly under the pane's header:
 in the editor (`Next List Prompt Editor` for a draft made from a
 [Next List](#the-next-list) item). It names the program, the running version (the binary's own, so
 it can't disagree with what is installed) and which of the two screens you are
-on, so switching between them reads as one tool changing section. It is
+on, so switching between them reads as one tool changing section. A new prompt
+also gets ` · Project backlog` (or ` · Global backlog`) on the end: which
+backlog it will land in is still a choice there, `ctrl+g` flips it, and this is
+where the answer shows. It used to end the toolbar's row, until the
+[☑ Soft wrap](#soft-wrap) chip took the right end of that row. It is
 truncated rather than wrapped in a narrow pane: everything below it is clicked
 by row, and a title that grew a line would move every button out from under the
 pointer.
@@ -136,7 +140,9 @@ since there's nothing to keep.
 
 The editor's row of buttons runs across the top of the form, right under that
 title, on the line a "Edit prompt" heading used to take: **Images**, **Session**,
-**Save**, **Send**, **Cancel**. A screen whose whole job is to end an editing
+**Save**, **Send**, **Cancel** — and, flush against the right edge, the
+[☑ Soft wrap](#soft-wrap) toggle, set apart because it changes how the editor
+draws rather than doing anything to the prompt. A screen whose whole job is to end an editing
 session is better opened by the buttons that end it than by a heading repeating
 what you can already see — and a row at a fixed line near the top cannot be
 pushed around by a taller editor or a wrapped note, so the buttons stay where
@@ -234,7 +240,7 @@ button that needs a highlighted prompt is greyed out until there is one.
 
 Both button rows shrink rather than wrap as the pane narrows: the chips give up
 their chords first, then their words, then the gaps between them, down to a row
-of bare glyphs — `❐ ⚙ ✔ ✉ ✖` in the editor — and the footer names every chord the
+of bare glyphs — `❐ ⚙ ✔ ✉ ✖ ☑` in the editor — and the footer names every chord the
 chips stopped teaching. At that width it stops being a list of chords and becomes
 the legend for the row, each glyph beside the key that presses it, `✉` first. No
 button is ever dropped, however narrow the pane; a control that vanishes is one
@@ -1384,7 +1390,7 @@ Next list  ai_docs/todo/next-list.md · 24 open · 2 to validate · 3 roadmap
 
 │ 🔍 type to filter                  │  29/29
 
-  ✚ New prompt enter   ✉ Send shift+enter   ↻ Refresh ctrl+r   ← Back esc
+  ✚ New prompt enter   ✉ Send shift+enter   ↻ Refresh ctrl+r   ← Back esc     ☐ Soft wrap alt+z
 
 Open
 ❯ N-001 ◆    Hands-on pass in a rebuilt, reinstalled Cats.app. Sessions run inside Cats.app, wher…
@@ -1411,7 +1417,8 @@ A row here is laid out differently from a backlog row. It is **not** split
 into a title and a dimmer body, because a next-list item has no title: its
 first sentence is just the start of a paragraph. Instead the row is the item's
 ID followed by its own text, flattened onto one line and cut only where the
-pane ends. Between the ID and the text is a mark for the item's value, the
+pane ends — or, with [☑ Soft wrap](#soft-wrap) on, wrapped under its first line
+so the whole item is on screen. Between the ID and the text is a mark for the item's value, the
 backlog's own [value marks](#value), since it is the same fact on the same four
 levels:
 
@@ -2573,7 +2580,7 @@ files you are still deciding about, so images wait for ✔ Save as before.
 On a **new** prompt, the first autosave adds it to the backlog and the form
 becomes an edit of that prompt. Later autosaves and your own ✔ Save update the
 same entry, so a long session never leaves a trail of duplicates. The backlog is
-fixed from that point on: the scope tag leaves the toolbar and `ctrl+g` stops
+fixed from that point on: the scope leaves the title and `ctrl+g` stops
 toggling it, because the prompt already lives in one backlog. ✔ Save still
 reports "added to … backlog", since from your side this is the first save.
 
@@ -2761,6 +2768,43 @@ background or weight change to make a line jump as a span opens and closes under
 the caret. The selection and the spell underline win the cells they share with
 code, so both look as they always have. The spell check already skips backticked
 text, so the two rarely meet.
+
+## Soft wrap
+
+Both the prompt editor and the Next List carry a **☑ Soft wrap** chip at the far
+right of their toolbar (`alt+z`, VS Code's chord for the same toggle). It is a
+checkbox rather than a button: ☑ is on, ☐ is off, and the box survives the
+narrowest pane, where the chip is the glyph alone. It is drawn in grey, like the
+☑ Spell chip it borrows its grammar from, because the bar's colours mean
+consequence and this one only changes how the screen draws. Each screen has its
+own toggle, and both are remembered in `settings.json` (`softWrap`,
+`nextListSoftWrap`).
+
+**In the editor it is on by default**, which is how the editor has always
+drawn: a long line breaks at the box's edge and carries on in the next row.
+Off, every line stays on one row and the box scrolls sideways to follow the
+caret, which suits prompts made of commands, paths and code, whose lines mean
+something as lines. The scroll moves as little as it can: walking along a line
+that already fits moves nothing, and typing at the right edge slides the text a
+cell at a time. `home` brings it back to the left edge, and a click lands on the
+character drawn under the pointer. The `┃` gutter stays put.
+
+How it works matters for one limit. Bubbles' textarea cannot stop wrapping:
+its caret motion, scrolling and every display-line table this program builds
+on them are phrased in wrapped lines. So instead of turning wrapping off, the
+editor makes the box 2048 cells wide and shows a window of it. Every logical
+line is then one display line, and the selection, the carets, the spell marks,
+the code colouring and the clicks keep working unchanged. A line longer than
+2048 cells still wraps at that point.
+
+**On the Next List it is off by default**, keeping each item to one row cut at
+the pane's edge. On, each item's whole text is shown: its first line is the
+row, the rest wraps under it, indented to where the text starts so the ID and
+the marks stand clear. The highlight covers every line of the item, and a click
+on any of them picks it. The scroll window then counts screen lines instead of
+items, so the highlighted item is always fully drawn. A section heading comes
+along with the first item under it when both fit. `pgup`/`pgdown` move by as
+many items as the window holds.
 
 ## Session options
 

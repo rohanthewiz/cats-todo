@@ -21,7 +21,14 @@ func TestAppTitleLeadsBothScreens(t *testing.T) {
 		t.Errorf("the list's first line is %q, want %q", ansi.Strip(first), want)
 	}
 
+	// An add form also names the backlog it will land in (ctrl+g's answer —
+	// see viewForm); an edit, whose scope is not a choice, does not.
 	form := withForm(t, "a title", "body", 100, 40)
+	first = strings.Split(form.viewForm(), "\n")[appTitleRow]
+	if want := "CatsTodo v" + version + " - Prompt Editor · Project backlog"; ansi.Strip(first) != want {
+		t.Errorf("the form's first line is %q, want %q", ansi.Strip(first), want)
+	}
+	form.formMode = formEdit
 	first = strings.Split(form.viewForm(), "\n")[appTitleRow]
 	if want := "CatsTodo v" + version + " - Prompt Editor"; ansi.Strip(first) != want {
 		t.Errorf("the form's first line is %q, want %q", ansi.Strip(first), want)

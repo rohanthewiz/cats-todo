@@ -386,7 +386,19 @@ func repeatPromptSpaces(n int) []rune { return []rune(strings.Repeat(" ", max(n,
 
 // --- Rendering ------------------------------------------------------------------
 
-// promptEditorView is the prompt editor as drawn, with the selection, the
+// promptEditorView is the prompt editor as the form draws it: the painted view
+// below, cropped to the box's window when soft wrap is off (softwrap.go). The
+// crop comes last so every paint is laid out in the library's own coordinates,
+// the ones the display-line tables speak, and is cut with the text it marks.
+func (m model) promptEditorView() string {
+	view := m.paintedPromptView()
+	if m.softWrap {
+		return view
+	}
+	return m.cropPromptView(view)
+}
+
+// paintedPromptView is the prompt editor as drawn, with the selection, the
 // spell-check marks (spell.go) and the code spans (promptcode.go) painted over
 // it. With nothing selected, flagged or coded it is the textarea's own view,
 // untouched.
@@ -399,7 +411,7 @@ func repeatPromptSpaces(n int) []rune { return []rune(strings.Repeat(" ", max(n,
 // a line with marks and no selection, or with both, goes through
 // paintPromptSpans, the many-run form of the same operation; a line with only
 // the selection on it takes the path below exactly as it always has.
-func (m model) promptEditorView() string {
+func (m model) paintedPromptView() string {
 	view := m.promptArea.View()
 	lo, hi, ok := m.promptSelSpan()
 	marks := m.promptSpellSpans()

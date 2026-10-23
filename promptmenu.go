@@ -132,7 +132,7 @@ func (m model) openPromptMenu(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// landed (spellAskAt, spellpanel.go) — that is what keeps the gesture naming
 	// its own word instead of guessing one from the caret, which is the whole
 	// reason it exists beside ctrl+l.
-	mu.word, mu.wordAvailable, mu.items[menuSpell].why = m.spellAskAt(msg.X, msg.Y-formPromptRow)
+	mu.word, mu.wordAvailable, mu.items[menuSpell].why = m.spellAskAt(m.promptTextX(msg.X), msg.Y-formPromptRow)
 
 	mu.cursor = mu.firstLive()
 	mu.size()

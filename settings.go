@@ -77,6 +77,19 @@ type settings struct {
 	// dragging is a proportion ("the batch needs more room than the picks"),
 	// not a cell count tied to the pane they happened to drag it in.
 	batchSplit float64
+	// softWrap is whether the prompt editor wraps a long line at the box's
+	// edge (the textarea's own behaviour, and so the default) or leaves it on
+	// one row and scrolls sideways to follow the caret (see softwrap.go).
+	// Persisted for the reason orderByPriority is: whether code-shaped
+	// prompts read better unwrapped is a way of working, not a glance.
+	softWrap bool
+	// nextSoftWrap is the Next List page's own wrap: off by default, which
+	// keeps every item to one row cut at the pane's edge, the page as it has
+	// always been drawn. On, each item's whole text is shown, wrapped under
+	// its first line. Separate from softWrap because the two answer different
+	// questions — how to edit a prompt, how much of a list to scan at once —
+	// and someone who wants one need not want the other.
+	nextSoftWrap bool
 }
 
 // settingsPeer is one remembered machine.
@@ -87,7 +100,7 @@ type settingsPeer struct {
 
 // defaultSettings is what a missing or empty file means.
 func defaultSettings() settings {
-	return settings{spellcheck: true, orderByPriority: false, showFrozen: true, autosave: defaultAutosave}
+	return settings{spellcheck: true, orderByPriority: false, showFrozen: true, autosave: defaultAutosave, softWrap: true}
 }
 
 // settingsFile is the on-disk shape. Pointers, so that "not mentioned" and
@@ -117,6 +130,10 @@ type settingsFile struct {
 	// BatchSplit is not a pointer: 0 is not a value anyone can drag to (the
 	// panes have minimum widths), so it already means "not set".
 	BatchSplit float64 `json:"batchSplit,omitempty"`
+	// The two wraps are pointers for the reason the other toggles are:
+	// softWrap defaults to true, so a missing key must not read as false.
+	SoftWrap         *bool `json:"softWrap,omitempty"`
+	NextListSoftWrap *bool `json:"nextListSoftWrap,omitempty"`
 }
 
 // settingsPath is where the file lives, or "" when the config directory
@@ -174,6 +191,12 @@ func loadSettings() settings {
 	if f.BatchSplit > 0 && f.BatchSplit < 1 {
 		s.batchSplit = f.BatchSplit
 	}
+	if f.SoftWrap != nil {
+		s.softWrap = *f.SoftWrap
+	}
+	if f.NextListSoftWrap != nil {
+		s.nextSoftWrap = *f.NextListSoftWrap
+	}
 	return s
 }
 
@@ -190,16 +213,18 @@ func (s settings) save() error {
 		return err
 	}
 	f := settingsFile{
-		Spellcheck:      &s.spellcheck,
-		OrderByPriority: &s.orderByPriority,
-		ShowFrozen:      &s.showFrozen,
-		AutosaveSeconds: autosaveSecondsPtr(s.autosave),
-		PeerToken:       s.peerToken,
-		PeerName:        s.peerName,
-		PeerPort:        s.peerPort,
-		PeerAllowRemote: &s.peerAllowRemote,
-		Peers:           s.peers,
-		BatchSplit:      s.batchSplit,
+		Spellcheck:       &s.spellcheck,
+		OrderByPriority:  &s.orderByPriority,
+		ShowFrozen:       &s.showFrozen,
+		AutosaveSeconds:  autosaveSecondsPtr(s.autosave),
+		PeerToken:        s.peerToken,
+		PeerName:         s.peerName,
+		PeerPort:         s.peerPort,
+		PeerAllowRemote:  &s.peerAllowRemote,
+		Peers:            s.peers,
+		BatchSplit:       s.batchSplit,
+		SoftWrap:         &s.softWrap,
+		NextListSoftWrap: &s.nextSoftWrap,
 	}
 	// Written only when it is not the default, so a settings file belonging to
 	// someone who has never run `serve` says nothing about peers at all.

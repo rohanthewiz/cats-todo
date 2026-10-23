@@ -51,7 +51,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-087
+**Next ID:** N-089
 
 ## Open
 
@@ -155,6 +155,15 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   of dragging there or deleting `batchSplit` from settings.json. If that is
   ever missed, a double-click on the rule (counted the way `promptClickCount`
   counts presses) could reset it.
+
+- **N-088** · raised `2026-1023-1156-soft-wrap-toggle` · value low
+  Tests read the real `~/.config/cats-todo/settings.json`: `newTestModel`
+  and `withForm` go through `newModel`, which loads preferences without a
+  temp config dir. With `softWrap` (or `spellcheck`) turned off in real use,
+  form tests would run against an unwrapped (or unchecked) editor and could
+  fail for reasons unrelated to the change under test. Point the shared
+  fixtures at a temp `CATS_TODO_CONFIG_DIR` (or build the model from
+  `defaultSettings()`).
 
 ## Validate
 
@@ -301,6 +310,20 @@ and `raised`.
   cleared one and reopen the picker (back to `[working]`, then `[idle]`).
   Against an older catway every row stays `[idle]`. Only unit tests have seen
   it.
+
+- **N-087** · raised `2026-1023-1156-soft-wrap-toggle` · value medium
+  Live-check ☑ Soft wrap in cats. Editor: `alt+z` reaches the form (cats
+  forwards alt), the chip flips ☑/☐ flush right at 120 and at a narrow
+  pane, a long line stays on one row and scrolls with the caret (typing at
+  the right edge, `end`/`home`), a click and a drag on a scrolled row land
+  under the pointer, the caret row's field and the selection survive the
+  crop, and the setting survives a relaunch. Next List: `alt+z` and the chip
+  wrap items under their first line, the highlight covers every line, a
+  click on a wrapped line picks the item, ↑/↓ and pgup/pgdown keep the item
+  fully drawn in a short pane, and the hover card and right-click menu still
+  anchor on wrapped rows. Also check the add form's title now reads
+  `… Prompt Editor · Project backlog` and `ctrl+g` flips it. Only unit tests
+  have seen it.
 
 ## Roadmap
 

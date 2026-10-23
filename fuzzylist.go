@@ -85,6 +85,19 @@ type listItem struct {
 	queryOnly  bool
 	browseOnly bool
 	ref        int
+	// more is the rest of a row whose name wraps: each entry is one further
+	// screen line, drawn under the name and indented to the name's column, so
+	// the text reads as one paragraph beside the row's badge and marks. The
+	// caller does the wrapping (it knows the width the name was cut to, and
+	// what the text is); the list only draws the lines and counts them — in
+	// rowAtLine, so a click on any of them picks the row, and in the line
+	// window (maxLines). Only the Next List with ☑ Soft wrap on sets it
+	// (nextlist.go); every other list is one line per row, as it always was.
+	//
+	// The query's highlight stays on the first line: the match indexes are
+	// offsets into name alone (see filter), and a query that matched further
+	// into the text still finds the row through its search haystack.
+	more []string
 }
 
 // annotMark is one annotation on one row: the glyph to draw and the two styles
@@ -140,6 +153,15 @@ type fuzzyList struct {
 	// list does.
 	maxRows int
 	top     int
+	// maxLines is the window counted in screen lines instead, for a list
+	// whose rows are not all one line tall (listItem.more). When set it
+	// replaces maxRows: the window runs from top for as many rows as fit in
+	// maxLines lines, separators' blanks and headings included, so a caller
+	// sizes it straight from the pane's height with nothing to hand back. It
+	// is a second field rather than a change of maxRows' unit because every
+	// other caller sizes maxRows in items and pages by it (pgup/pgdown), and
+	// one row per line is exactly the case where the two agree anyway.
+	maxLines int
 	// prefixFirst, when set, ranks the rows whose name begins with the query
 	// (case-insensitively) ahead of the rest, in the order the caller listed
 	// them, and only then the remaining fuzzy matches by score. It is cdx's
@@ -348,6 +370,10 @@ func (l *fuzzyList) setMaxRows(n int) {
 // Adapted from cdx's ensureVisible; the difference is that cdx counts screen
 // lines and this counts filtered items (see maxRows).
 func (l *fuzzyList) ensureVisible() {
+	if l.maxLines > 0 {
+		l.ensureVisibleLines()
+		return
+	}
 	if l.maxRows <= 0 {
 		l.top = 0
 		return
@@ -371,10 +397,86 @@ func (l *fuzzyList) ensureVisible() {
 // same range, which is what keeps a click on a scrolled list landing on the row
 // that is actually under it.
 func (l fuzzyList) window() (lo, hi int) {
+	if l.maxLines > 0 {
+		return l.top, l.windowEnd(l.top)
+	}
 	if l.maxRows <= 0 {
 		return 0, len(l.filtered)
 	}
 	return l.top, min(l.top+l.maxRows, len(l.filtered))
+}
+
+// setMaxLines sets the line-counted window (see maxLines); zero turns it off
+// and leaves maxRows in charge again. Like setMaxRows, the highlight is brought
+// back on screen at once.
+func (l *fuzzyList) setMaxLines(n int) {
+	l.maxLines = max(n, 0)
+	l.ensureVisible()
+}
+
+// itemLines is how many screen lines one filtered row draws: a row its name
+// and its continuation lines, a separator its blank and, when it has one, its
+// heading. rowsView, rowAtLine and the line window all count with it.
+func itemLines(it listItem) int {
+	if !it.selectable {
+		if it.name != "" {
+			return 2
+		}
+		return 1
+	}
+	return 1 + len(it.more)
+}
+
+// windowEnd is the line window's far end from top: rows are taken while they
+// fit in maxLines. The first row is always taken, even one taller than the
+// whole window — a window that drew nothing would hide the very row the
+// highlight is on; it runs past the pane instead, which is the lesser wrong.
+func (l fuzzyList) windowEnd(top int) int {
+	used, hi := 0, top
+	for hi < len(l.filtered) {
+		n := itemLines(l.filtered[hi].item)
+		if hi > top && used+n > l.maxLines {
+			break
+		}
+		used += n
+		hi++
+	}
+	return hi
+}
+
+// ensureVisibleLines is ensureVisible for the line window, with the same two
+// rules: the least scroll that brings the cursor's row inside the window, then
+// a clamp so the window does not end in blank lines while rows above it could
+// fill them. The scroll is found by stepping top a row at a time rather than by
+// arithmetic, since a row's height varies; a list is at most a few hundred rows,
+// and this runs once per keystroke.
+func (l *fuzzyList) ensureVisibleLines() {
+	if l.cursor < l.top {
+		l.top = l.cursor
+	}
+	for l.top < l.cursor && l.cursor >= l.windowEnd(l.top) {
+		l.top++
+	}
+	// A row scrolled to the top of the window brings its section's heading
+	// along when there is room for both: a wrapped row is tall enough that the
+	// heading above it is often the only clue to which section it is in.
+	if l.top == l.cursor && l.top > 0 && !l.filtered[l.top-1].item.selectable && l.cursor < l.windowEnd(l.top-1) {
+		l.top--
+	}
+	// Pull the window up while everything from the row above top to the end
+	// of the list still fits — the filter-shrank-the-list case, where the
+	// item window clamps to len(filtered) - maxRows.
+	for l.top > 0 {
+		used := 0
+		for i := l.top - 1; i < len(l.filtered); i++ {
+			used += itemLines(l.filtered[i].item)
+		}
+		if used > l.maxLines {
+			break
+		}
+		l.top--
+	}
+	l.top = min(max(l.top, 0), max(len(l.filtered)-1, 0))
 }
 
 // selectRef parks the cursor on the visible selectable row carrying ref, so a
@@ -437,10 +539,13 @@ func (l fuzzyList) rowAtLine(n int) (int, bool) {
 			}
 			continue
 		}
-		if line == n {
+		// A row with continuation lines answers for every one of them: the
+		// wrapped text is the row, and a click on its third line means it as
+		// much as a click on its first.
+		if n >= line && n < line+itemLines(s.item) {
 			return i, true
 		}
-		line++
+		line += itemLines(s.item)
 	}
 	return -1, false
 }
@@ -750,6 +855,10 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 			}
 			r.WriteString(onRow(st, selected).Render(an.text + " "))
 		}
+		// Where the name starts, for the continuation lines below: they are
+		// indented to this column so the wrapped text stands as one block
+		// beside the badge and marks rather than running back under them.
+		nameCol := lipgloss.Width(r.String())
 		r.WriteString(highlightName(it.name, s.matched, selected, it.strike, it.dim))
 		if it.tag != "" {
 			// The tag hugs the name (one space, with its own separator dot)
@@ -778,6 +887,18 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 			b.WriteString(onRow(lipgloss.NewStyle(), true).Render(strings.Repeat(" ", pad)))
 		}
 		b.WriteString("\n")
+		// The wrapped rest of the name, one line each, lit like the row's
+		// first line when the row is highlighted — the field covers the whole
+		// row, so the highlight says which lines belong together.
+		for _, more := range it.more {
+			line := onRow(lipgloss.NewStyle(), selected).Render(strings.Repeat(" ", nameCol)) +
+				highlightName(more, nil, selected, it.strike, it.dim)
+			b.WriteString(line)
+			if pad := width - lipgloss.Width(line); selected && pad > 0 {
+				b.WriteString(onRow(lipgloss.NewStyle(), true).Render(strings.Repeat(" ", pad)))
+			}
+			b.WriteString("\n")
+		}
 	}
 	return b.String()
 }

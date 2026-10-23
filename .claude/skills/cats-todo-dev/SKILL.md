@@ -69,6 +69,7 @@ and the rest stay local.
 | `batches.go` | the Batches page (`stageBatches`: ＋ New, ⧉ Duplicate, ✕ Unschedule — ■ Stop on a running loop, ✖ Delete on a second press; running, then scheduled soonest first, then newest first) and one batch's record (`stageBatchView`, with the loop's options, where it stands, `Why`, and each run's pane/branch/`Stalled`); enter on a plan opens `composerFromBatch(b, true)` instead; `beginBatches` is the list's `ctrl+k` |
 | `batchmenu.go` | the Batches page's right-click menu (`batchesMenu`, on `menuBox`): ✎ Edit… / ☰ Open record, ⧉ Duplicate…, ✕ Unschedule / ■ Stop, ✖ Delete record… (two presses: arms, then ✖ Confirm delete); carries the batch **ID**, and `focusBatch` re-reads the rows and re-highlights it before running the chord's own function, since the rows re-sort under an open menu; refusals are the chords' (`unscheduleWhy`, `deleteWhy`) |
 | `promptcode.go` | code in a prompt: `promptCodeSpans` (inline backtick spans + ``` fences, one span per line), the editor's code paints on the selection/spell overlay, the view's pre-wrap styling |
+| `softwrap.go` | ☑ Soft wrap (`alt+z`, flush right on the editor's toolbar and the Next List's bar — `rightAlignLast`/`writeChipsAt`): the editor's unwrapped mode is the textarea widened to `noWrapWidth` (2048) and cropped to the box (`cropPromptLine`, escape-preserving — `ansi.Cut` drops the style), `promptXOff` kept on the caret by `followPromptCaret` (Update's last step), clicks shifted by `promptTextX`; the Next List's wrap is `listItem.more` continuation lines + `fuzzyList.maxLines` (a line-counted window); prefs `softWrap` (default on) / `nextListSoftWrap` |
 | `promptlines.go` | the sweep → whole-rows arithmetic those four share |
 | `spell.go` / `spellpanel.go` / `internal/spell` | spell check + panel; embedded SCOWL list + `extra.txt` |
 | `settings.go` | `~/.config/cats-todo/settings.json` (`spellcheck`, `orderByPriority`, `showFrozen`, `autosaveSeconds`) |
@@ -158,7 +159,7 @@ and the rest stay local.
   picker unsaved — `nextDrop`/`dropSubject`, esc back to the page; `ctrl+t` close as
   done, `ctrl+f` Open ⇄ Roadmap, `ctrl+x` non-goal (`nextmove.go`, the only writes to
   the file); right-click an item for its menu (◎ Move to Validate is menu-only);
-  `ctrl+k` a batch composer on the page's items) · `tab` button row · `esc`/`ctrl+c` quit.
+  `ctrl+k` a batch composer on the page's items; `alt+z` ☑ Soft wrap) · `tab` button row · `esc`/`ctrl+c` quit.
 - **Batch composer:** `tab` walks pick → batch → settings → buttons · `space`/`enter`
   tick (Pick pane; the filter holds no spaces) · `ctrl+a` all visible · `ctrl+g`
   backlog ⇄ Next List · `alt+↑/↓` move, `x`/`delete` remove, `s` A→Z (Batch pane) ·
@@ -183,7 +184,8 @@ and the rest stay local.
   bottom of `updateForm` rather than by the textarea; `backspace` as the very
   next key takes it back (`promptCarry`, a one-key snapshot) ·
   `@` file picker ·
-  `ctrl+x` (also `cmd+x`) cut a selection · `alt+x` split a swept list into prompts · `alt+↑/↓` move the caret's line (or
+  `ctrl+x` (also `cmd+x`) cut a selection · `alt+x` split a swept list into prompts ·
+  `alt+z` ☑ Soft wrap (also on the Next List page) · `alt+↑/↓` move the caret's line (or
   the swept block) · `shift+alt+↑/↓` extend the selection by a line ·
   `cmd+z` (`super+z`/`meta+z`) or `ctrl+z` undo (the title's own history
   when the title has the keys) · `shift+cmd+z`

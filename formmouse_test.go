@@ -277,10 +277,10 @@ func TestFormBarClick(t *testing.T) {
 // TestFormBarShape pins the toolbar's contents and order — the row a hand learns
 // the position of and then stops reading. It leads the form (row 0, where the
 // heading used to be), it is the five things a prompt's editing session ends
-// with, and it carries neither the ↵ Newline button (enter is a newline in every
-// editor; a button for it was a button teaching nothing) nor the ☑ Spell
-// checkbox (the editor's right-click ✓ Spelling row and ctrl+l are the way in
-// now).
+// with and then the ☑ Soft wrap toggle (softwrap.go), and it carries neither the
+// ↵ Newline button (enter is a newline in every editor; a button for it was a
+// button teaching nothing) nor the ☑ Spell checkbox (the editor's right-click
+// ✓ Spelling row and ctrl+l are the way in now).
 func TestFormBarShape(t *testing.T) {
 	m := withForm(t, "", "body", 120, 40)
 
@@ -290,6 +290,7 @@ func TestFormBarShape(t *testing.T) {
 		{"✔ Save", "shift+enter"},
 		{"✉ Send", "shift+opt+enter"},
 		{"✖ Cancel", "esc"},
+		{"☑ Soft wrap", "alt+z"},
 	}
 	acts := m.formActions()
 	if len(acts) != len(want) {
@@ -313,14 +314,16 @@ func TestFormBarShape(t *testing.T) {
 			t.Errorf("the form's first line is %q, want the toolbar with %q on it", first, a.label)
 		}
 	}
-	// And the scope the heading used to name rides at the end of that line while
-	// ctrl+g can still change it, so the toggle has an answer on screen.
-	if !strings.Contains(ansi.Strip(first), "backlog") {
-		t.Errorf("the toolbar row %q does not name the scope an add can toggle", first)
+	// And the scope the heading used to name rides on the program title while
+	// ctrl+g can still change it, so the toggle has an answer on screen. It
+	// left the toolbar's row when ☑ Soft wrap took the right end of it: at 120
+	// columns the two would have had four cells between them.
+	if title := strings.Split(m.viewForm(), "\n")[appTitleRow]; !strings.Contains(ansi.Strip(title), "Project backlog") {
+		t.Errorf("the title %q does not name the scope an add can toggle", title)
 	}
 	edit := withForm(t, "a title", "body", 120, 40)
 	edit.formMode = formEdit
-	if line := strings.Split(edit.viewForm(), "\n")[edit.formBarRow()]; strings.Contains(ansi.Strip(line), "backlog") {
+	if line := strings.Split(edit.viewForm(), "\n")[appTitleRow]; strings.Contains(ansi.Strip(line), "backlog") {
 		t.Errorf("an edit names a scope that is not a choice: %q", line)
 	}
 }

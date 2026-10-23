@@ -64,6 +64,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // nextListRel is where a project keeps its living list, relative to the
@@ -269,6 +270,11 @@ type nextPage struct {
 	// taken for every item at once. The page cannot see the stores, so the
 	// model fills it (syncNextBacklog) and rebuild draws the ⤓ mark from it.
 	inBacklog map[string]bool
+	// wrap is ☑ Soft wrap (softwrap.go): each item's whole text, wrapped
+	// under its first line, rather than one row cut at the pane's edge. The
+	// model holds the saved preference (nextSoftWrap) and sets this on every
+	// open, since the page itself is rebuilt each time.
+	wrap bool
 }
 
 // newNextPage reads the list under root and builds the page over it.
@@ -348,11 +354,22 @@ func (p *nextPage) resize(width, height int) {
 	}
 	p.width = width
 	p.rebuild()
-	rows := 0
+	// Wrapped, a row is as many lines as its text needs, so the window is
+	// counted in lines (fuzzyList.maxLines) — and in lines the headings are
+	// simply part of the count, with no separatorLines to hand back. Unwrapped
+	// it stays the item window it always was.
+	rows, lines := 0, 0
 	if height > 0 {
 		rows = max(height-nextRowsRow-1-footerRowCap-p.list.separatorLines(), 1)
+		lines = max(height-nextRowsRow-1-footerRowCap, 1)
 	}
-	p.list.setMaxRows(rows)
+	if p.wrap {
+		p.list.setMaxRows(0)
+		p.list.setMaxLines(lines)
+	} else {
+		p.list.setMaxLines(0)
+		p.list.setMaxRows(rows)
+	}
 	// The window is only known now, and whether it overflows decides how much
 	// of each row the scroll markers need (see rebuild) — so cut once more.
 	p.rebuild()
@@ -375,13 +392,59 @@ func (p *nextPage) resize(width, height int) {
 // and — only when the list is scrolled — the ▴/▾ counts that ride the first and
 // last rows, which withOverflowMark would otherwise have to drop for want of
 // space.
+//
+// With ☑ Soft wrap on, the text is wrapped at that same room instead of cut,
+// the first line becoming the row's name and the rest its continuation lines
+// (listItem.more), which the list indents under the name. Whether the window
+// overflows — and so whether the room has to leave the counts their 8 cells —
+// is then a question about lines, which depends on the wrap, which depends on
+// the room. It is settled by building once without the reserve and again with
+// it if the lines did not fit: wrapping narrower only adds lines, so the second
+// build overflows too and the answer is stable.
 func (p *nextPage) rebuild() {
-	var items []listItem
-	section := ""
+	if p.wrap {
+		items := p.rowItems(false)
+		if p.list.maxLines > 0 && listLines(items) > p.list.maxLines {
+			items = p.rowItems(true)
+		}
+		p.list.setItems(items)
+		return
+	}
 	overflows := false
 	if p.list.maxRows > 0 {
 		overflows = len(p.items)+len(nextListedSections) > p.list.maxRows
 	}
+	p.list.setItems(p.rowItems(overflows))
+}
+
+// listLines is how many screen lines a list of rows draws unfiltered — the
+// total the line window is compared against.
+func listLines(items []listItem) int {
+	n := 0
+	for _, it := range items {
+		n += itemLines(it)
+	}
+	return n
+}
+
+// wrapText breaks one run of text into lines of at most width cells: at
+// spaces where it can, mid-word where a word is longer than the line (a path,
+// a URL). The same two passes bubbles' textarea makes, so a wrapped item
+// breaks where the editor would break the same text.
+func wrapText(s string, width int) []string {
+	wrapped := ansi.Hardwrap(ansi.Wordwrap(s, width, ""), width, true)
+	lines := strings.Split(wrapped, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimSpace(l)
+	}
+	return lines
+}
+
+// rowItems is rebuild's body: the rows, with the room cut for the overflow
+// counts when overflows says the window will need them.
+func (p *nextPage) rowItems(overflows bool) []listItem {
+	var items []listItem
+	section := ""
 	for i, it := range p.items {
 		if it.Section != section {
 			section = it.Section
@@ -389,6 +452,7 @@ func (p *nextPage) rebuild() {
 		}
 		flat := collapseLines(it.Text)
 		name := flat
+		var more []string
 		if p.width > 0 {
 			// ID + its space, the value mark + its space, then the backlog
 			// mark + its space.
@@ -396,7 +460,12 @@ func (p *nextPage) rebuild() {
 			if overflows {
 				room -= 8 // "▾ 123" and the pad before it
 			}
-			name = truncate(flat, max(room, 8))
+			if p.wrap {
+				lines := wrapText(flat, max(room, 8))
+				name, more = lines[0], lines[1:]
+			} else {
+				name = truncate(flat, max(room, 8))
+			}
 		}
 		items = append(items, listItem{
 			name:       name,
@@ -410,9 +479,10 @@ func (p *nextPage) rebuild() {
 			search:     strings.Join([]string{it.ID, it.Value, it.Section, flat}, " "),
 			selectable: true,
 			ref:        i,
+			more:       more,
 		})
 	}
-	p.list.setItems(items)
+	return items
 }
 
 // nextValueStyle is the ID's hue for an item's value: cats' todo yellow for
@@ -514,6 +584,7 @@ const (
 	nextActionSend
 	nextActionRefresh
 	nextActionBack
+	nextActionWrap
 )
 
 // nextActions is the page's bar. The same listAction chips the list's bar
@@ -534,6 +605,9 @@ func (m model) nextActions() []listAction {
 		{label: "✉ Send", hint: m.modEnter(), tint: colAccent, needsSel: true},
 		{label: "↻ Refresh", hint: "ctrl+r", tint: colCyan},
 		{label: "← Back", hint: "esc", tint: colStraw},
+		// ☑ Soft wrap, flush right (softwrap.go): a setting for the page, not
+		// an act on the highlighted item.
+		softWrapAction(m.next.wrap),
 	}
 }
 
@@ -557,6 +631,7 @@ func (m model) nextChips() []actionChip {
 		chips = append(chips, actionChip{text: text, start: x, end: x + w})
 		x += w
 	}
+	rightAlignLast(chips, m.width)
 	return chips
 }
 
@@ -567,19 +642,17 @@ func (m model) nextBar() string {
 	acts := m.nextActions()
 	_, hasSel := m.next.highlighted()
 	tier := m.nextBarTier()
-	gap := strings.Repeat(" ", chipGap(tier))
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", indentWidth))
-	for i, c := range m.nextChips() {
-		if i > 0 {
-			b.WriteString(gap)
-		}
+	// Drawn at the chips' own columns (writeChipsAt), since the last one is
+	// pushed to the right edge and a fixed gap would no longer put it there.
+	writeChipsAt(&b, m.nextChips(), indentWidth, func(i int, c actionChip) string {
 		st, hintFg := btnStyle.Foreground(lipgloss.Color(acts[i].tint)), colDim
 		if acts[i].needsSel && !hasSel {
 			st, hintFg = btnOffStyle, colFaint
 		}
-		b.WriteString(renderChipDimHint(st, hintFg, acts[i], tier, c.text))
-	}
+		return renderChipDimHint(st, hintFg, acts[i], tier, c.text)
+	})
 	return b.String()
 }
 
@@ -600,6 +673,7 @@ func (m model) beginNextList() (tea.Model, tea.Cmd) {
 	m.clearHover()
 	m.nextMenu = nextMenu{}
 	m.next = newNextPage(m.nextListRoot())
+	m.next.wrap = m.nextSoftWrap
 	m.next.inBacklog = m.nextBacklogIDs()
 	m.next.resize(m.width, m.height)
 	m.stage = stageNextList
@@ -916,8 +990,13 @@ func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "pgup", "pgdown":
 		// A page is the window's height; with no window yet, one row is as far
-		// as a page can be trusted to go (the pickers' rule).
+		// as a page can be trusted to go (the pickers' rule). Wrapped, the
+		// window is counted in lines, so a page is the rows it holds now.
 		step := max(m.next.list.maxRows, 1)
+		if m.next.wrap {
+			lo, hi := m.next.list.window()
+			step = max(hi-lo, 1)
+		}
 		for range step {
 			if msg.String() == "pgup" {
 				m.next.list.moveUp()
@@ -928,6 +1007,8 @@ func (m model) updateNextList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.promptFromNext()
+	case softWrapKey:
+		return m.toggleNextWrap()
 	case "shift+enter", "alt+enter":
 		// The list's drop chord and its legacy alias (see modEnter), meaning
 		// the same thing here: this item, to an agent.
@@ -980,6 +1061,8 @@ func (m model) clickNext(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				return m.refreshNextList()
 			case nextActionBack:
 				return m.closeNextList()
+			case nextActionWrap:
+				return m.toggleNextWrap()
 			}
 		}
 		return m, nil
@@ -1035,7 +1118,7 @@ func (m model) viewNextList() string {
 	segs := []string{"dbl-click new prompt", "↑/↓ choose", "type to filter", "ctrl+k batch", "ctrl+t done", "ctrl+f roadmap", "ctrl+x non-goal", "right-click menu"}
 	if m.nextBarTier() != tierHints {
 		// The chips stopped teaching their chords, so the footer takes over.
-		segs = append([]string{"enter new prompt", m.modEnter() + " send", "ctrl+r refresh", "esc back"}, segs...)
+		segs = append([]string{"enter new prompt", m.modEnter() + " send", "ctrl+r refresh", "esc back", softWrapKey + " soft wrap"}, segs...)
 	}
 	b.WriteString(m.footerBlock(segs))
 	return b.String()

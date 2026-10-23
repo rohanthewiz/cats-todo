@@ -416,6 +416,15 @@ type model struct {
 	// different config directories, and a dictionary is per-launch state.
 	spellOn   bool
 	spellDict *spell.Dictionary
+	// Soft wrap (softwrap.go). softWrap is the editor's: on, the textarea
+	// wraps at the box's edge as it always has; off, a line stays on one row
+	// and promptXOff is how many cells of it are scrolled off the left, kept
+	// following the caret after every message (followPromptCaret).
+	// nextSoftWrap is the Next List page's, copied onto the page each time it
+	// opens. Both are persisted preferences, read at start-up.
+	softWrap     bool
+	promptXOff   int
+	nextSoftWrap bool
 	// The Spelling panel — the form's fourth sub-stage, opened by ctrl+l (see
 	// spellpanel.go). spellSpan and spellWord are the flagged word it opened on,
 	// resolved once so the row that names a word and the text a correction
@@ -688,6 +697,7 @@ func newModel(ctx RunContext, project, global *store, client *catsClient) model 
 	// keystroke that happened to rebuild.
 	pref := loadSettings()
 	m.spellOn = pref.spellcheck
+	m.softWrap, m.nextSoftWrap = pref.softWrap, pref.nextSoftWrap
 	m.orderByPriority, m.showFrozen = pref.orderByPriority, pref.showFrozen
 	m.autosaveEvery = pref.autosave
 	m.batchSplit = pref.batchSplit
@@ -726,7 +736,7 @@ func (m model) Init() tea.Cmd {
 // needs the other stages too, because the form's ⚙ and image panels are stages
 // of their own and the session options edited there are part of what it saves.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	return watchAutosave(m.recordUndo(msg))
+	return followPromptCaret(watchAutosave(m.recordUndo(msg)))
 }
 
 // recordUndo is Update's undo half: route the message, then commit what it did
@@ -1620,7 +1630,7 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	// down. Only inside the editor's box — a caret is the one thing alt+click
 	// asks for, and only the editor has them.
 	if msg.Mod&tea.ModAlt != 0 && msg.Y >= formPromptRow && msg.Y < formPromptRow+m.promptArea.Height() {
-		return m.altClickPrompt(msg.X, msg.Y-formPromptRow)
+		return m.altClickPrompt(m.promptTextX(msg.X), msg.Y-formPromptRow)
 	}
 	// A press anywhere on the form ends the last selection: the pointer is
 	// about to say where the caret goes next, and a highlight that outlived the
@@ -1670,7 +1680,7 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, m.focusForm(formFieldPrompt)
 	case msg.Y >= formPromptRow && msg.Y < formPromptRow+m.promptArea.Height():
 		cmd := m.focusForm(formFieldPrompt)
-		m.placePromptCursor(msg.X, msg.Y-formPromptRow)
+		m.placePromptCursor(m.promptTextX(msg.X), msg.Y-formPromptRow)
 		// The second press of a double-click selects the word under it, the
 		// third press of a triple-click the line. The earlier presses have
 		// already done their ordinary work (placed the caret, armed a sweep,
@@ -1712,7 +1722,7 @@ func (m model) clickForm(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // what makes a sweep off the top select back to the first visible line.
 func (m model) promptSelOver(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	row := min(max(msg.Y-formPromptRow, 0), m.promptArea.Height()-1)
-	m.placePromptCursor(msg.X, row)
+	m.placePromptCursor(m.promptTextX(msg.X), row)
 	// A sweep begun by a double- or triple-click snaps to whole words or
 	// lines; a plain one leaves the caret on the pointer's rune.
 	if m.promptSelGrain.unit != selByRune {
@@ -2827,6 +2837,7 @@ func (m model) beginAddWith(title, prompt string) (tea.Model, tea.Cmd) {
 	}
 	m.editID = ""
 	m.titleInput, m.promptArea = m.newFormInputs(title, prompt)
+	m.promptXOff = 0 // a new prompt opens scrolled to its left edge
 	m.loadSpellDict()
 	m.formImages, m.formImagesOrig = nil, nil
 	// A new prompt starts on the defaults — the zero SessionOpts is exactly the
@@ -2880,6 +2891,7 @@ func (m model) beginEditRef(ref todoRef) (tea.Model, tea.Cmd) {
 	m.editID = ref.id
 	m.listFocus = ref
 	m.titleInput, m.promptArea = m.newFormInputs(td.Title, td.Prompt)
+	m.promptXOff = 0 // a new prompt opens scrolled to its left edge
 	m.loadSpellDict()
 	m.formImages = m.newFormImages(ref.scope, td)
 	m.formImagesOrig = td.Images
@@ -2955,7 +2967,7 @@ func (m model) newFormInputs(title, prompt string) (textinput.Model, textarea.Mo
 		w = 60
 	}
 	ti.SetWidth(w)
-	ta.SetWidth(w)
+	sizePromptBox(&ta, w, m.softWrap)
 	h := m.height - formChromeHeight
 	if h < 4 {
 		h = 8
@@ -3338,6 +3350,12 @@ func (m model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// delete, ctrl+f/b/n/p move, and ctrl+o is images. ctrl+s and ctrl+r are
 		// both free in the textarea's keymap and the textinput's.
 		return m.beginSession()
+	case softWrapKey:
+		// ☑ Soft wrap (softwrap.go). Below the selection's reset like any other
+		// chord that is not part of a sweep: the wrap re-flows every line, and a
+		// highlight carried across that would be one drawn on rows the eye had
+		// not yet found again.
+		return m.toggleSoftWrap()
 	case "ctrl+l":
 		// The Spelling panel (spellpanel.go): the flagged word nearest the
 		// caret, what the dictionary thinks was meant by it, the two files it
@@ -6351,29 +6369,28 @@ func (m model) viewForm() string {
 	if m.formNextID != "" {
 		section = "Next List Prompt Editor"
 	}
+	// The scope rides on the title in add mode, in the title's own dimmed
+	// section text, because it is the one thing the old heading said that
+	// nothing else on this screen says — and ctrl+g changes it, so a toggle
+	// with no visible answer would be a toggle nobody trusts. Edit mode leaves
+	// it off: the scope of a prompt already in a backlog is not a choice, and
+	// the heading never named it there either.
+	//
+	// It used to end the toolbar's row, past ✖ Cancel. The ☑ Soft wrap chip
+	// now stands flush right on that row (softwrap.go), and at 120 columns the
+	// gap the two would share is four cells — so the tag moved to the one line
+	// on the form that always has the room, and that already says which
+	// screen this is. titleLine trims it before the program's name, so a
+	// narrow pane loses the scope first.
+	if m.formMode == formAdd {
+		section += " · " + m.formScope.String() + " backlog"
+	}
 	b.WriteString(m.titleLine(section))
 	b.WriteString("\n")
 	// The toolbar leads the form's own content, on the line the heading used to
 	// have. See formActions for why the buttons are worth more there than a
 	// heading was.
-	bar := m.formBar()
-	b.WriteString(bar)
-	// The scope rides at the end of that row in add mode, dimmed and past the
-	// last chip, because it is the one thing the old heading said that nothing
-	// else on this screen says — and ctrl+g changes it, so a toggle with no
-	// visible answer would be a toggle nobody trusts. Edit mode leaves it off:
-	// the scope of a prompt already in a backlog is not a choice, and the heading
-	// never named it there either.
-	//
-	// It is drawn only when it fits. This is row 0 of a layout every click below
-	// is counted from (see formPromptRow), so a line that wrapped here would move
-	// every hit-test on the form one row down from what the eye sees.
-	if m.formMode == formAdd {
-		tag := "  " + m.formScope.String() + " backlog"
-		if m.width <= 0 || lipgloss.Width(bar)+lipgloss.Width(tag) <= m.width {
-			b.WriteString(descStyle.Render(tag))
-		}
-	}
+	b.WriteString(m.formBar())
 	b.WriteString("\n\n")
 
 	b.WriteString(promptStyle.Render("Title"))
@@ -6493,16 +6510,20 @@ func (m model) formActions() []listAction {
 		{label: "✔ Save", hint: "shift+enter", tint: colFgHi},
 		{label: "✉ Send", hint: "shift+opt+enter", tint: colAccent},
 		{label: "✖ Cancel", hint: "esc", tint: colErr},
+		softWrapAction(m.softWrap),
 	}
 }
 
 // Indexes into formActions — used by clickFormBar to name what it is dispatching.
+// formActionWrap is the ☑ Soft wrap toggle (softwrap.go), last and flush right:
+// it changes how the editor draws rather than doing anything to the prompt.
 const (
 	formActionImages = iota
 	formActionSession
 	formActionSave
 	formActionSend
 	formActionCancel
+	formActionWrap
 )
 
 // formChips lays the toolbar out the way actionChips lays out the list's bar:
@@ -6525,6 +6546,7 @@ func (m model) formChips() []actionChip {
 		chips = append(chips, actionChip{text: text, start: x, end: x + w})
 		x += w
 	}
+	rightAlignLast(chips, m.width)
 	return chips
 }
 
@@ -6532,11 +6554,13 @@ func (m model) formChips() []actionChip {
 // toolbar sits at column 0 — the form has no cursor gutter to clear — so it is
 // measured with no indent.
 //
-// It reaches tierIcons a little sooner than the list's bar does, having five
+// It reaches tierIcons a little sooner than the list's bar does, having six
 // buttons to the list's four and longer chords on two of them: the row needs
-// about 98 columns to print its chords, 52 for its labels alone and 20 for its
-// glyphs, so between the last two widths the toolbar is ❐ ⚙ ✔ ✉ ✖ and the footer
-// is what names them.
+// about 118 columns to print its chords, 66 for its labels alone and 24 for its
+// glyphs, so between the last two widths the toolbar is ❐ ⚙ ✔ ✉ ✖ ☑ and the
+// footer is what names them. 118 is two cells inside the 120-cell pane the
+// form's footer is budgeted against (formFooter) — the room ☑ Soft wrap had to
+// fit in, and why its state is a box rather than a word (softWrapAction).
 func (m model) formBarTier() chipTier {
 	return barTier(m.formActions(), m.width, 0)
 }
@@ -6556,16 +6580,15 @@ func (m model) formBarShowsHints() bool {
 // No chip carries a focus field: the form's tab ring is its two text fields, and
 // lighting a button the keyboard cannot reach would promise a stop that isn't
 // there. These are pointer targets that name their keys.
+//
+// The chips are drawn at their own columns (writeChipsAt) rather than joined by
+// the gap, since ☑ Soft wrap is pushed to the right edge (rightAlignLast).
 func (m model) formBar() string {
 	acts := m.formActions()
-	gap := strings.Repeat(" ", chipGap(m.formBarTier()))
 	var b strings.Builder
-	for i, c := range m.formChips() {
-		if i > 0 {
-			b.WriteString(gap)
-		}
-		b.WriteString(btnStyle.Foreground(lipgloss.Color(acts[i].tint)).Render(c.text))
-	}
+	writeChipsAt(&b, m.formChips(), 0, func(i int, c actionChip) string {
+		return btnStyle.Foreground(lipgloss.Color(acts[i].tint)).Render(c.text)
+	})
 	return b.String()
 }
 
@@ -6587,6 +6610,8 @@ func (m model) clickFormBar(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			return m.sendForm()
 		case formActionCancel:
 			return m.cancelForm()
+		case formActionWrap:
+			return m.toggleSoftWrap()
 		}
 	}
 	return m, nil
@@ -6652,7 +6677,7 @@ func (m model) formFooter() string {
 		// surprising fact on the line.
 		chords := []string{
 			"ctrl+o images", "ctrl+s session", "shift+enter save", "shift+opt+enter send",
-			"ctrl+l spelling", "esc cancel", "enter newline",
+			"ctrl+l spelling", "esc cancel", softWrapKey + " soft wrap", "enter newline",
 		}
 		if tier == tierIcons {
 			// Down to bare glyphs the chips have stopped naming anything at all,
@@ -6668,7 +6693,7 @@ func (m model) formFooter() string {
 			// fitFooter never trims.
 			chords = []string{
 				"✉ shift+opt+enter", "✔ shift+enter", "❐ ctrl+o", "⚙ ctrl+s", "✖ esc",
-				"ctrl+l spelling",
+				"ctrl+l spelling", "☑ " + softWrapKey,
 			}
 		}
 		lines = append(lines, m.fitFooter(chords))
@@ -7345,7 +7370,7 @@ func (m *model) applySizes() {
 	switch m.stage {
 	case stageForm:
 		m.titleInput.SetWidth(w)
-		m.promptArea.SetWidth(w)
+		sizePromptBox(&m.promptArea, w, m.softWrap)
 		m.flagInput.SetWidth(flagInputWidth(m.width))
 		if h := m.height - formChromeHeight; h >= 4 {
 			m.promptArea.SetHeight(h)
