@@ -1794,7 +1794,10 @@ leaves the box exactly where it was. It is taken down by the next thing the hand
 does — a keystroke, a click, a resize, or the pointer moving onto a heading, a
 button or the empty space below the list. Nothing on it can be pressed; while
 [the context menu](#the-lists-context-menu) is up or a row is being dragged, no
-card is built at all, because those gestures already own the pointer.
+card is built at all, because those gestures already own the pointer. Nor is
+one built while the list's [☑ Soft wrap](#soft-wrap) is on: each prompt's whole
+text is already drawn under its row, and the card would only repeat it over the
+rows being read.
 
 The one cost is that the list asks the terminal to report *all* pointer motion
 rather than only motion under a held button. That is a message per cell the
@@ -2776,14 +2779,15 @@ text, so the two rarely meet.
 
 ## Soft wrap
 
-Both the prompt editor and the Next List carry a **☑ Soft wrap** chip at the far
-right of their toolbar (`alt+z`, VS Code's chord for the same toggle). It is a
+The prompt editor, the prompt list and the Next List each carry a **☑ Soft wrap**
+chip at the far right of their toolbar (`alt+z`, VS Code's chord for the same
+toggle). It is a
 checkbox rather than a button: ☑ is on, ☐ is off, and the box survives the
 narrowest pane, where the chip is the glyph alone. It is drawn in grey, like the
 ☑ Spell chip it borrows its grammar from, because the bar's colours mean
 consequence and this one only changes how the screen draws. Each screen has its
-own toggle, and both are remembered in `settings.json` (`softWrap`,
-`nextListSoftWrap`).
+own toggle, and all three are remembered in `settings.json` (`softWrap`,
+`listSoftWrap`, `nextListSoftWrap`).
 
 **In the editor it is on by default**, which is how the editor has always
 drawn: a long line breaks at the box's edge and carries on in the next row.
@@ -2801,6 +2805,21 @@ editor makes the box 2048 cells wide and shows a window of it. Every logical
 line is then one display line, and the selection, the carets, the spell marks,
 the code colouring and the clicks keep working unchanged. A line longer than
 2048 cells still wraps at that point.
+
+**On the prompt list it is off by default**, keeping each prompt to one row:
+its title, then the prompt's first line as a grey description. On, the
+description gives way to the whole prompt, wrapped under the title and indented
+to where the title starts. It keeps the prompt's line breaks, and an indented
+line (a sub-bullet) keeps its indent and wraps under it. Blank lines are
+dropped, since a paragraph break is not worth a row of a list being scanned. An
+untitled prompt is called by its first line, as it always is, and the rest goes
+under it. A prompt longer than the pane is cut to fit with an ellipsis, and
+`ctrl+v` reads the rest. Scrolling, the highlight and clicks work as on the
+Next List below. The [hover card](#the-hover-card) stays down while wrap is on.
+
+The chip costs the bar room: with it, the chips keep their chords from 128
+columns rather than about 108. Below that they show their words, and the footer
+names every chord again, `alt+z` included.
 
 **On the Next List it is off by default**, keeping each item to one row cut at
 the pane's edge. On, each item's whole text is shown: its first line is the

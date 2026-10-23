@@ -70,6 +70,7 @@ and the rest stay local.
 | `batchmenu.go` | the Batches page's right-click menu (`batchesMenu`, on `menuBox`): ✎ Edit… / ☰ Open record, ⧉ Duplicate…, ✕ Unschedule / ■ Stop, ✖ Delete record… (two presses: arms, then ✖ Confirm delete); carries the batch **ID**, and `focusBatch` re-reads the rows and re-highlights it before running the chord's own function, since the rows re-sort under an open menu; refusals are the chords' (`unscheduleWhy`, `deleteWhy`) |
 | `promptcode.go` | code in a prompt: `promptCodeSpans` (inline backtick spans + ``` fences, one span per line), the editor's code paints on the selection/spell overlay, the view's pre-wrap styling |
 | `softwrap.go` | ☑ Soft wrap (`alt+z`, flush right on the editor's toolbar and the Next List's bar — `rightAlignLast`/`writeChipsAt`): the editor's unwrapped mode is the textarea widened to `noWrapWidth` (2048) and cropped to the box (`cropPromptLine`, escape-preserving — `ansi.Cut` drops the style), `promptXOff` kept on the caret by `followPromptCaret` (Update's last step), clicks shifted by `promptTextX`; the Next List's wrap is `listItem.more` continuation lines + `fuzzyList.maxLines` (a line-counted window); prefs `softWrap` (default on) / `nextListSoftWrap` |
+| `listwrap.go` | the prompt list's ☑ Soft wrap (`alt+z`, chip flush right on the list bar — `actionWrap`): `wrapListItem` turns a built row into title + the whole prompt as `more` lines (`moreDesc`: drawn in the desc grey), `listWrapPrompt` keeps line breaks and indent, `listNameCol` measures the room, cut to `listWrapLines()` so a row never outgrows the line window (`sizeListWindow` switches to `maxLines`); a resize re-wraps (`applySizes`); no hover card while on; pref `listSoftWrap` (default off) |
 | `promptlines.go` | the sweep → whole-rows arithmetic those four share |
 | `spell.go` / `spellpanel.go` / `internal/spell` | spell check + panel; embedded SCOWL list + `extra.txt` |
 | `settings.go` | `~/.config/cats-todo/settings.json` (`spellcheck`, `orderByPriority`, `showFrozen`, `autosaveSeconds`) |
@@ -154,7 +155,7 @@ and the rest stay local.
   `ctrl+x` delete · `ctrl+↑/↓` move · `ctrl+d` fold closed · `ctrl+l` View panel ·
   `ctrl+space` (alias `ctrl+b`) select · `ctrl+k` batches (a composer holding the
   selection when there is one) ·
-  `ctrl+w` clear done · `ctrl+r` import · `ctrl+g` Next List page (there `ctrl+r` is
+  `ctrl+w` clear done · `ctrl+r` import · `alt+z` ☑ Soft wrap · `ctrl+g` Next List page (there `ctrl+r` is
   refresh, `enter` drafts a prompt, `shift/alt+enter` sends the item to the drop
   picker unsaved — `nextDrop`/`dropSubject`, esc back to the page; `ctrl+t` close as
   done, `ctrl+f` Open ⇄ Roadmap, `ctrl+x` non-goal (`nextmove.go`, the only writes to

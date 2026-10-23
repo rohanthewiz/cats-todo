@@ -91,13 +91,20 @@ type listItem struct {
 	// caller does the wrapping (it knows the width the name was cut to, and
 	// what the text is); the list only draws the lines and counts them — in
 	// rowAtLine, so a click on any of them picks the row, and in the line
-	// window (maxLines). Only the Next List with ☑ Soft wrap on sets it
-	// (nextlist.go); every other list is one line per row, as it always was.
+	// window (maxLines). Only the Next List and the backlog list set it, each
+	// with its own ☑ Soft wrap on (nextlist.go, listwrap.go); every other list
+	// is one line per row, as it always was.
 	//
 	// The query's highlight stays on the first line: the match indexes are
 	// offsets into name alone (see filter), and a query that matched further
 	// into the text still finds the row through its search haystack.
 	more []string
+	// moreDesc draws the more lines in the description's grey rather than as
+	// the name. A Next List item's text *is* its name, so its lines continue
+	// the name; a backlog row's are the prompt under a title, the text the
+	// unwrapped row shows as its desc, and they keep that tier so the title
+	// still stands out as the thing the row is called.
+	moreDesc bool
 }
 
 // annotMark is one annotation on one row: the glyph to draw and the two styles
@@ -891,8 +898,11 @@ func (l fuzzyList) rowsView(emptyMsg string, width int) string {
 		// first line when the row is highlighted — the field covers the whole
 		// row, so the highlight says which lines belong together.
 		for _, more := range it.more {
-			line := onRow(lipgloss.NewStyle(), selected).Render(strings.Repeat(" ", nameCol)) +
-				highlightName(more, nil, selected, it.strike, it.dim)
+			text := highlightName(more, nil, selected, it.strike, it.dim)
+			if it.moreDesc {
+				text = onRow(descStyle, selected).Render(more)
+			}
+			line := onRow(lipgloss.NewStyle(), selected).Render(strings.Repeat(" ", nameCol)) + text
 			b.WriteString(line)
 			if pad := width - lipgloss.Width(line); selected && pad > 0 {
 				b.WriteString(onRow(lipgloss.NewStyle(), true).Render(strings.Repeat(" ", pad)))

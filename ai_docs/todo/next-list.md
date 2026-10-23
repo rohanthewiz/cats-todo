@@ -51,7 +51,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-089
+**Next ID:** N-091
 
 ## Open
 
@@ -161,9 +161,21 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   and `withForm` go through `newModel`, which loads preferences without a
   temp config dir. With `softWrap` (or `spellcheck`) turned off in real use,
   form tests would run against an unwrapped (or unchecked) editor and could
-  fail for reasons unrelated to the change under test. Point the shared
+  fail for reasons unrelated to the change under test. Since
+  `2026-1023-1405-prompt-list-soft-wrap` the same goes for `listSoftWrap`
+  turned on: `withTodo` and the other list fixtures would draw wrapped rows
+  and no hover cards. Point the shared
   fixtures at a temp `CATS_TODO_CONFIG_DIR` (or build the model from
   `defaultSettings()`).
+
+- **N-090** · raised `2026-1023-1405-prompt-list-soft-wrap` · value low
+  The prompt list's ☑ Soft wrap chip costs the bar its chords at common
+  widths: the chips keep their hints from 128 columns rather than about 108,
+  so a 120-column pane now shows words only and the two-line footer. Taking
+  the hint off that one chip only gets to 122. If that is missed, move the
+  list's toggle to the `ctrl+l` View panel (beside the priority order and
+  frozen toggles) and keep `alt+z`, or let the wrap chip alone shrink to its
+  glyph before the others lose their chords.
 
 ## Validate
 
@@ -320,10 +332,20 @@ and `raised`.
   crop, and the setting survives a relaunch. Next List: `alt+z` and the chip
   wrap items under their first line, the highlight covers every line, a
   click on a wrapped line picks the item, ↑/↓ and pgup/pgdown keep the item
-  fully drawn in a short pane, and the hover card and right-click menu still
-  anchor on wrapped rows. Also check the add form's title now reads
+  fully drawn in a short pane, no hover card comes up while the page is
+  wrapped (it does again once wrap is off), and the right-click menu still
+  anchors on wrapped rows. Also check the add form's title now reads
   `… Prompt Editor · Project backlog` and `ctrl+g` flips it. Only unit tests
   have seen it.
+
+- **N-089** · raised `2026-1023-1405-prompt-list-soft-wrap` · value low
+  Live-check the prompt list's ☑ Soft wrap in cats: `alt+z` and the chip
+  (flush right, ☐/☑) wrap each prompt under its title in the desc grey,
+  sub-bullets keep their indent, an untitled prompt is not drawn twice, a
+  click on a wrapped line picks the prompt, a drag still reorders, ↑/↓ keep
+  the highlighted prompt fully drawn, a very long prompt ends in "…" inside
+  the pane, a resize re-wraps, no hover card comes up while wrapped, and the
+  setting survives a relaunch. Only unit tests have seen it.
 
 ## Roadmap
 

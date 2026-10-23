@@ -198,7 +198,8 @@ func (m model) cropPromptView(view string) string {
 
 // --- The toggle -----------------------------------------------------------------
 
-// softWrapAction is the ☑ Soft wrap chip, the same on both bars: a toggle, not
+// softWrapAction is the ☑ Soft wrap chip, the same on all three bars (the
+// editor's, the prompt list's, the Next List's): a toggle, not
 // an action, so it takes the retired ☑ Spell chip's grammar rather than the
 // action chips' — a checkbox for the state and two greys, the brighter for on.
 // The bar's hues mean consequence (cyan and blue for what a prompt carries,
@@ -223,13 +224,13 @@ func softWrapAction(on bool) listAction {
 
 // softWrapKey is the toggle's chord: alt+z, the key VS Code gives "Toggle Word
 // Wrap" (Option+Z on a Mac), so a hand that has wrapped text elsewhere already
-// knows it. Free on both screens: the editor's alt chords are line moves
-// (↑/↓), the word motions (←/→) and the split (x), and on the Next List alt is
-// not a letter of the query.
+// knows it. Free on all three screens: the editor's alt chords are line moves
+// (↑/↓), the word motions (←/→) and the split (x), and on the two lists alt
+// is not a letter of the query.
 const softWrapKey = "alt+z"
 
 // rightAlignLast moves a bar's last chip flush to the pane's right edge, which
-// is where the ☑ Soft wrap chip lives on both bars: it is a setting for the
+// is where the ☑ Soft wrap chip lives on every bar that has one: it is a setting for the
 // whole screen rather than something done to the prompt or the item, and
 // standing apart from the row of actions is what says so. When the pane is too
 // narrow to leave a gap between it and the chip before it, it stays where the

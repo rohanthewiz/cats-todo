@@ -421,10 +421,13 @@ type model struct {
 	// and promptXOff is how many cells of it are scrolled off the left, kept
 	// following the caret after every message (followPromptCaret).
 	// nextSoftWrap is the Next List page's, copied onto the page each time it
-	// opens. Both are persisted preferences, read at start-up.
+	// opens. listSoftWrap is the backlog list's, read by rebuildList (which
+	// wraps each prompt under its row — see listWrapLines). All three are
+	// persisted preferences, read at start-up.
 	softWrap     bool
 	promptXOff   int
 	nextSoftWrap bool
+	listSoftWrap bool
 	// The Spelling panel — the form's fourth sub-stage, opened by ctrl+l (see
 	// spellpanel.go). spellSpan and spellWord are the flagged word it opened on,
 	// resolved once so the row that names a word and the text a correction
@@ -697,7 +700,7 @@ func newModel(ctx RunContext, project, global *store, client *catsClient) model 
 	// keystroke that happened to rebuild.
 	pref := loadSettings()
 	m.spellOn = pref.spellcheck
-	m.softWrap, m.nextSoftWrap = pref.softWrap, pref.nextSoftWrap
+	m.softWrap, m.nextSoftWrap, m.listSoftWrap = pref.softWrap, pref.nextSoftWrap, pref.listSoftWrap
 	m.orderByPriority, m.showFrozen = pref.orderByPriority, pref.showFrozen
 	m.autosaveEvery = pref.autosave
 	m.batchSplit = pref.batchSplit
@@ -1171,6 +1174,10 @@ func (m model) updateList(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.actionIdx = (m.actionIdx + delta + n) % n
 			return m, nil
 		}
+	case softWrapKey:
+		// ☑ Soft wrap (listwrap.go). alt+z is no letter of the query, so it
+		// is free here as it is on the Next List.
+		return m.toggleListWrap()
 	case "up", "ctrl+p":
 		// The row highlight keeps moving while a button is focused: pick the
 		// prompt, then press the button that acts on it.
@@ -2118,6 +2125,7 @@ const (
 	actionExport
 	actionDelete
 	actionNext
+	actionWrap
 )
 
 // listActions is the action bar's contents, in order. Send's hint follows
@@ -2155,6 +2163,10 @@ func (m model) listActions() []listAction {
 		// "Next List" rather than a bare "Next": beside Send and Export, "Next"
 		// read as a step forward through the backlog, not as the name of a page.
 		{label: "» Next List", hint: "ctrl+g", tint: colSky},
+		// ☑ Soft wrap, flush right (softwrap.go, listwrap.go): like the Next
+		// List's, a setting for the whole list rather than an act on a prompt,
+		// so it stands apart from the row of actions.
+		softWrapAction(m.listSoftWrap),
 	}
 }
 
@@ -2312,6 +2324,8 @@ func (m model) runAction(i int) (tea.Model, tea.Cmd) {
 		return m.beginDelete()
 	case actionNext:
 		return m.beginNextList()
+	case actionWrap:
+		return m.toggleListWrap()
 	}
 	return m, nil
 }
@@ -2476,6 +2490,17 @@ func (m *model) rebuildList() {
 	// The prompts spoken for by a scheduled batch, for the ⧉ mark below.
 	pending := pendingRefs(m.batchFiles())
 
+	// The selection is pruned against what the backlogs actually still hold. A
+	// prompt deleted here, or in another pane between rebuilds, must not stay in
+	// a set that an export would then fail to resolve — and a set that has
+	// emptied itself this way has to put the ✓ column away with it.
+	//
+	// Pruned before the rows are built, not after: whether the ✓ column is
+	// drawn moves where every name starts, and ☑ Soft wrap measures the room
+	// its lines get from there (wrapListItem).
+	m.pruneMarks()
+	marksCol := len(m.marked) > 0
+
 	add := func(s *store) {
 		appendTodo := func(t Todo) {
 			ref := todoRef{scope: s.scope, id: t.ID}
@@ -2577,7 +2602,7 @@ func (m *model) rebuildList() {
 			if tagGlobal && s.scope == scopeGlobal {
 				tag = "global"
 			}
-			items = append(items, listItem{
+			items = append(items, m.wrapListItem(listItem{
 				name:      name,
 				desc:      desc,
 				descMarks: marks,
@@ -2600,7 +2625,7 @@ func (m *model) rebuildList() {
 				selectable: true,
 				marked:     m.marked[ref],
 				ref:        len(rows),
-			})
+			}, t.Title, t.Prompt, marksCol))
 			rows = append(rows, ref)
 		}
 		// One pass per render group, in render order. Passing over the slice
@@ -2660,12 +2685,7 @@ func (m *model) rebuildList() {
 	add(m.global)
 
 	m.rows = rows
-	// The selection is pruned against what the backlogs actually still hold. A
-	// prompt deleted here, or in another pane between rebuilds, must not stay in
-	// a set that an export would then fail to resolve — and a set that has
-	// emptied itself this way has to put the ✓ column away with it.
-	m.pruneMarks()
-	m.list.showMarks = len(m.marked) > 0
+	m.list.showMarks = marksCol
 	// Swap in the new rows while keeping the existing query box and cursor
 	// (setItems re-filters and clamps), so an add/edit/toggle doesn't disturb
 	// what the user has typed or where they were.
@@ -6080,7 +6100,7 @@ func (m model) listFooter() string {
 		// double-click is a guess worth confirming, not one worth making blind.
 		return footerStyle.Render("enter / dbl-click edit · "+m.modEnter()+" drop · ctrl+v view · ctrl+a add · ctrl+t done · ctrl+f freeze · ctrl+space select · ctrl+o export · ctrl+x delete") +
 			"\n" +
-			footerStyle.Render("ctrl+r import · ctrl+g next list · ctrl+k batches · ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · esc quit")
+			footerStyle.Render("ctrl+r import · ctrl+g next list · ctrl+k batches · ctrl+s schedule · tab buttons · ctrl+↑/↓ or drag move · right-click menu · ctrl+d hide/show closed · ctrl+l view options · ctrl+w clear done · alt+z soft wrap · esc quit")
 	}
 	// Freeze rides directly after done: the two are the ways a prompt leaves the
 	// open list, and reading them side by side is what teaches that they are
@@ -6130,11 +6150,9 @@ func (m model) actionBar() string {
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", indentWidth))
 	tier := m.barTier()
-	gap := strings.Repeat(" ", chipGap(tier))
-	for i, c := range m.actionChips() {
-		if i > 0 {
-			b.WriteString(gap)
-		}
+	// Drawn at the chips' own columns (writeChipsAt), since the last one is
+	// pushed to the right edge and a fixed gap would no longer put it there.
+	writeChipsAt(&b, m.actionChips(), indentWidth, func(i int, c actionChip) string {
 		// Derived, never nested: each chip is still one style, the hue dropped
 		// into it rather than wrapped around it.
 		st := btnStyle.Foreground(lipgloss.Color(acts[i].tint))
@@ -6152,8 +6170,8 @@ func (m model) actionBar() string {
 			st = btnOffStyle
 			hintFg = colFaint
 		}
-		b.WriteString(renderChipDimHint(st, hintFg, acts[i], tier, c.text))
-	}
+		return renderChipDimHint(st, hintFg, acts[i], tier, c.text)
+	})
 	return b.String()
 }
 
@@ -6212,6 +6230,9 @@ func (m model) actionChips() []actionChip {
 		chips = append(chips, actionChip{text: text, start: x, end: x + w})
 		x += w
 	}
+	// ☑ Soft wrap to the right edge; the spans move with it, so the click
+	// test and the drawing (actionBar's writeChipsAt) still agree.
+	rightAlignLast(chips, m.width)
 	return chips
 }
 
@@ -6299,8 +6320,18 @@ const listChromeBelow = 5
 func (m *model) sizeListWindow() {
 	if m.height <= 0 {
 		m.list.setMaxRows(0)
+		m.list.setMaxLines(0)
 		return
 	}
+	// With ☑ Soft wrap on a row is as many lines as its prompt needs, so the
+	// window is counted in lines (listwrap.go), the headings simply part of
+	// the count — the Next List's arrangement (nextPage.resize).
+	if m.listSoftWrap {
+		m.list.setMaxRows(0)
+		m.list.setMaxLines(m.listWrapLines())
+		return
+	}
+	m.list.setMaxLines(0)
 	m.list.setMaxRows(max(m.height-listRowsRow-listChromeBelow-m.list.separatorLines(), 1))
 }
 
@@ -7363,6 +7394,12 @@ func (m *model) applySizes() {
 	// one that runs off the bottom.
 	m.sizeSearchInput()
 	m.sizeListWindow()
+	// A wrapped list's lines were cut to the old width, so the rows are
+	// rebuilt to the new one (which re-sizes the window again, harmlessly).
+	// Unwrapped rows are not cut to the pane and need nothing.
+	if m.listSoftWrap {
+		m.rebuildList()
+	}
 	w := m.width - 4
 	if w < 20 {
 		return

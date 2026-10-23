@@ -90,6 +90,13 @@ type settings struct {
 	// questions — how to edit a prompt, how much of a list to scan at once —
 	// and someone who wants one need not want the other.
 	nextSoftWrap bool
+	// listSoftWrap is the backlog list's: off by default, keeping each prompt
+	// to its one row (title, then the prompt's first line), the list as it
+	// has always been drawn. On, every row carries its whole prompt wrapped
+	// under it. A third toggle rather than a share of nextSoftWrap: a backlog
+	// of long prompts is a different read from a list of one-paragraph items,
+	// and the two pages are scanned for different things.
+	listSoftWrap bool
 }
 
 // settingsPeer is one remembered machine.
@@ -134,6 +141,7 @@ type settingsFile struct {
 	// softWrap defaults to true, so a missing key must not read as false.
 	SoftWrap         *bool `json:"softWrap,omitempty"`
 	NextListSoftWrap *bool `json:"nextListSoftWrap,omitempty"`
+	ListSoftWrap     *bool `json:"listSoftWrap,omitempty"`
 }
 
 // settingsPath is where the file lives, or "" when the config directory
@@ -197,6 +205,9 @@ func loadSettings() settings {
 	if f.NextListSoftWrap != nil {
 		s.nextSoftWrap = *f.NextListSoftWrap
 	}
+	if f.ListSoftWrap != nil {
+		s.listSoftWrap = *f.ListSoftWrap
+	}
 	return s
 }
 
@@ -225,6 +236,7 @@ func (s settings) save() error {
 		BatchSplit:       s.batchSplit,
 		SoftWrap:         &s.softWrap,
 		NextListSoftWrap: &s.nextSoftWrap,
+		ListSoftWrap:     &s.listSoftWrap,
 	}
 	// Written only when it is not the default, so a settings file belonging to
 	// someone who has never run `serve` says nothing about peers at all.

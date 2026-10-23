@@ -218,6 +218,14 @@ func (m model) hoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		m.clearHover()
 		return m, nil
 	}
+	if m.listSoftWrap {
+		// ☑ Soft wrap draws each prompt's whole text under its row, which is
+		// the card's main business; a card would repeat it and cover the rows
+		// being read (listwrap.go). What only the card shows — Model/Effort,
+		// the flag's note — is a ctrl+v or a right-click away.
+		m.clearHover()
+		return m, nil
+	}
 	i, ok := m.list.rowAtLine(msg.Y - listRowsRow)
 	if !ok {
 		// A heading, a spacer, or the chrome above and below. Still the pointer
@@ -295,7 +303,7 @@ func (m model) hoverDwell(msg hoverTickMsg) (tea.Model, tea.Cmd) {
 	if m.stage == stageBatchCompose {
 		return m.batchHoverDwell(p)
 	}
-	if m.stage != stageList || m.listMenu.open || m.flagPad.open || m.dragging {
+	if m.stage != stageList || m.listMenu.open || m.flagPad.open || m.dragging || m.listSoftWrap {
 		return m, nil
 	}
 	card, ok := m.hoverCardFor(p.row, p.x, p.y)
