@@ -281,7 +281,10 @@ func (m model) hoverDwell(msg hoverTickMsg) (tea.Model, tea.Cmd) {
 		// The Next List page's one surface to refuse over is its menu: a
 		// dwell armed just before the right-click must not land a card
 		// beside a box that has taken over the page.
-		if m.nextMenu.open || m.nextPad.open {
+		// Nor with ☑ Soft wrap on (nextHoverMotion says why). alt+z and the
+		// chip both clear a pending dwell today, so this is the re-check every
+		// premise gets here, not a path known to be reached.
+		if m.nextMenu.open || m.nextPad.open || m.next.wrap {
 			return m, nil
 		}
 		if card, ok := m.nextCardFor(p.row, p.x, p.y); ok {

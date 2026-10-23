@@ -69,6 +69,15 @@ func (m model) nextHoverMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		m.clearHover()
 		return m, nil
 	}
+	if m.next.wrap {
+		// ☑ Soft wrap already draws each item's whole text under its row, so
+		// a card would repeat what is on screen — and, at up to fifteen rows,
+		// sit over the very lines being read. The header fields the card
+		// adds (section, value in words, raised) are the price of turning
+		// wrap on; the heading names the section and the mark the value.
+		m.clearHover()
+		return m, nil
+	}
 	i, ok := m.next.list.rowAtLine(msg.Y - nextRowsRow)
 	if !ok {
 		// A section heading, a spacer, or the chrome — the pointer crossing

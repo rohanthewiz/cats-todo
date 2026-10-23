@@ -153,3 +153,43 @@ func TestNextListAsksForAllMotion(t *testing.T) {
 		t.Errorf("Next List mouse mode = %v, want all motion", got)
 	}
 }
+
+// TestNextHoverCardOffWhenSoftWrapped: with ☑ Soft wrap on, each item's whole
+// text is already under its row, so resting on it brings up no card — a card
+// would repeat the screen and cover the lines being read. alt+z back off
+// brings the card back, so it is the wrap, not the page, that refuses it.
+func TestNextHoverCardOffWhenSoftWrapped(t *testing.T) {
+	m, _ := nextModel(t, sampleNextList)
+	m = openNext(t, m)
+	y := nextRowsRow + 2
+
+	next, _ := m.toggleNextWrap() // alt+z / the ☑ chip
+	m = next.(model)
+	if !m.next.wrap {
+		t.Fatal("the toggle did not turn the page's soft wrap on")
+	}
+	if i, ok := m.next.list.rowAtLine(y - nextRowsRow); !ok || m.next.list.filtered[i].item.badge != "N-001" {
+		t.Fatalf("screen line %d is not N-001's first line", y)
+	}
+	if m = hoverNext(t, m, y); m.hover.open || m.hoverPend.armed {
+		t.Error("a card (or its dwell) came up over a soft-wrapped item")
+	}
+
+	// A dwell armed before the wrap went on is answered with nothing, too.
+	m.next.wrap = false
+	next, _ = m.Update(tea.MouseMotionMsg{X: 6, Y: y})
+	m = next.(model)
+	if !m.hoverPend.armed {
+		t.Fatal("no dwell armed with soft wrap off")
+	}
+	m.next.wrap = true
+	next, _ = m.Update(hoverTickMsg{gen: m.hoverPend.gen})
+	if next.(model).hover.open {
+		t.Error("a dwell landing after soft wrap went on built a card")
+	}
+
+	next, _ = next.(model).toggleNextWrap() // back off
+	if m = hoverNext(t, next.(model), y); !m.hover.open {
+		t.Error("no card after soft wrap went back off")
+	}
+}

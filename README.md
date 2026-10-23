@@ -1516,6 +1516,11 @@ text fits on the row, because when it was raised and its value in words are
 things the row never shows. The page asks the terminal for all pointer motion
 for this, the same cost the list pays.
 
+With [☑ Soft wrap](#soft-wrap) on there is no card. Each item's whole text is
+already drawn under its row, so the card would only repeat it and cover the
+lines being read. The heading names the section and the mark shows the value;
+only when the item was raised is left to the form.
+
 **Right-click an item** for its context menu. It uses the same box and keys as
 [the list's](#the-lists-context-menu). A Next List item is not a backlog
 prompt: it is a paragraph in a file. So everything the add form can set
@@ -2804,7 +2809,9 @@ the marks stand clear. The highlight covers every line of the item, and a click
 on any of them picks it. The scroll window then counts screen lines instead of
 items, so the highlighted item is always fully drawn. A section heading comes
 along with the first item under it when both fit. `pgup`/`pgdown` move by as
-many items as the window holds.
+many items as the window holds. The [hover card](#the-hover-card) stays down while wrap
+is on: the text it would show is already on the page, and the card would cover
+it.
 
 ## Session options
 
