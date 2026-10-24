@@ -486,6 +486,71 @@ func (l *fuzzyList) ensureVisibleLines() {
 	l.top = min(max(l.top, 0), max(len(l.filtered)-1, 0))
 }
 
+// scrollBy moves the window n rows (negative is up) without asking the cursor
+// first — the mouse wheel's motion, where every other mutator moves the cursor
+// and lets the window follow. The cursor is then dragged along only as far as
+// it has to be to stay drawn: onto the window's first selectable row when it
+// fell off the top, its last when it fell off the bottom. That is the reading
+// gesture — the page moves under a still highlight, the way a pager scrolls —
+// and it keeps the one promise the renderers rely on (see ensureVisible): the
+// highlighted row is always a drawn one.
+//
+// ensureVisible is deliberately not called after. Its heading rule pulls a
+// window whose top row is the cursor up onto that row's heading, so a wheel
+// step down that landed the cursor on the top row would be taken straight
+// back, and the wheel would stick at every heading. The window this leaves is
+// already one ensureVisible accepts in every other respect: the cursor is
+// inside it, and top never passes maxTop, so the window never ends in blank
+// lines that rows above it could fill.
+//
+// false means nothing moved: no window, or already at that end.
+func (l *fuzzyList) scrollBy(n int) bool {
+	if l.maxLines <= 0 && l.maxRows <= 0 {
+		return false
+	}
+	top := min(max(l.top+n, 0), l.maxTop())
+	if top == l.top {
+		return false
+	}
+	l.top = top
+	lo, hi := l.window()
+	switch {
+	case l.cursor < lo:
+		for i := lo; i < hi; i++ {
+			if l.filtered[i].item.selectable {
+				l.cursor = i
+				break
+			}
+		}
+	case l.cursor >= hi:
+		for i := hi - 1; i >= lo; i-- {
+			if l.filtered[i].item.selectable {
+				l.cursor = i
+				break
+			}
+		}
+	}
+	return true
+}
+
+// maxTop is the furthest the window's top can go: the item window's
+// len-maxRows, and for the line window the first row from which everything to
+// the end of the list fits in maxLines — the last page, as ensureVisibleLines'
+// pull-up clamp leaves it. A last row taller than the whole window is a page of
+// its own (windowEnd always takes the first row).
+func (l fuzzyList) maxTop() int {
+	n := len(l.filtered)
+	if l.maxLines <= 0 {
+		return max(n-l.maxRows, 0)
+	}
+	t, used := n, 0
+	for t > 0 && used+itemLines(l.filtered[t-1].item) <= l.maxLines {
+		t--
+		used += itemLines(l.filtered[t].item)
+	}
+	return max(min(t, n-1), 0)
+}
+
 // selectRef parks the cursor on the visible selectable row carrying ref, so a
 // caller can keep the highlight on an item across a rebuild (e.g. after
 // reordering). A ref that isn't visible leaves the cursor where it was.

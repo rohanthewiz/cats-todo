@@ -289,6 +289,23 @@ room is the one place a row of backlog cannot be given up for a row of chrome.
 It points both ways for the same reason it carries a number: "there is more" is
 the half of the answer you can already see for yourself.
 
+The **mouse wheel** scrolls the window too, here and on every other list that
+keeps one: the Next List page, the Batches page, the batch composer (each pane
+on its own, whichever the pointer is over), and the editor's `@` file picker
+and snippets picker. A notch moves the page one row under a still highlight, the way a pager scrolls,
+and the highlight is dragged along only when it would otherwise leave the
+screen, so the next `↑`/`↓` walks on from a row you can see. It is one row
+rather than one line because a row is never drawn half scrolled off, so a tall
+soft-wrapped prompt is one notch. Both screens report the mouse (for clicks,
+drags and the hover card), and a terminal that reports the mouse hands the wheel
+to the program instead of scrolling for it, so until the list answered it the
+wheel did nothing. That went unnoticed while a row was one line and the list
+mostly fitted, and showed up as soon as ☑ Soft wrap made the list outgrow the
+pane. The wheel is ignored while a context menu, a note pad or the composer's
+drop dialog is open, since each is anchored to its row or owns the screen, and
+during a drag. The lists with no window (the drop picker, the spelling panel,
+export and import) draw every row, so there is nothing for the wheel to move.
+
 The list's order is the backlog's own running order, and it is yours to set:
 **drag a prompt** with the mouse to put it where it belongs — the row takes a
 `⠿` grip while you hold it, and the rest of the list parts around it — or nudge
@@ -2828,7 +2845,7 @@ the marks stand clear. The highlight covers every line of the item, and a click
 on any of them picks it. The scroll window then counts screen lines instead of
 items, so the highlighted item is always fully drawn. A section heading comes
 along with the first item under it when both fit. `pgup`/`pgdown` move by as
-many items as the window holds. The [hover card](#the-hover-card) stays down while wrap
+many items as the window holds, and the mouse wheel scrolls it a row a notch. The [hover card](#the-hover-card) stays down while wrap
 is on: the text it would show is already on the page, and the card would cover
 it.
 

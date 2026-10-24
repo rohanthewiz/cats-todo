@@ -51,7 +51,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-091
+**Next ID:** N-096
 
 ## Open
 
@@ -176,6 +176,45 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   list's toggle to the `ctrl+l` View panel (beside the priority order and
   frozen toggles) and keep `alt+z`, or let the wrap chip alone shrink to its
   glyph before the others lose their chords.
+
+- **N-091** · raised `2026-1024-1340-list-wheel-scroll` · value low
+  Give the drop picker (`targetList`, `stageTarget`) a scroll window. It
+  has none: every row is drawn and the pane clips what runs past the
+  bottom, so a long target list (many panes, peers, the unfolded "more"
+  rows) has no ▴/▾ counts, a highlight that can walk off screen, and a
+  wheel with nothing to move. Size it from the pane (`setMaxRows`, minus
+  `separatorLines` for its headings) in `applySizes`, as the Batches page
+  does, keep `rowAtLine` clicks under the pointer, and only
+  then can it take the wheel the way the windowed lists do (`wheel.go`:
+  route its stage in `Update`'s `tea.MouseWheelMsg` case to
+  `fuzzyList.scrollBy`).
+
+- **N-092** · raised `2026-1024-1340-list-wheel-scroll` · value low
+  Give the spelling panel's list (`spellList`, `stageSpell`) a scroll
+  window. A prompt with many misspellings draws every row and the pane
+  clips the rest, with no counts and nothing for the wheel to move. Size
+  it from the pane under the panel's own chrome, and only
+  then can it take the wheel the way the windowed lists do (`wheel.go`:
+  route its stage in `Update`'s `tea.MouseWheelMsg` case to
+  `fuzzyList.scrollBy`).
+
+- **N-093** · raised `2026-1024-1340-list-wheel-scroll` · value low
+  Give the Export-to-project picker (`exportList`, `stageExport`) a scroll
+  window. Its rows (cats workspaces, the other backlog, cdx recents, the
+  folder browser) can outgrow the pane, and today they are all drawn and
+  clipped. Size it from the pane (the folder browser's long directories
+  are the likely overflow), and only
+  then can it take the wheel the way the windowed lists do (`wheel.go`:
+  route its stage in `Update`'s `tea.MouseWheelMsg` case to
+  `fuzzyList.scrollBy`).
+
+- **N-094** · raised `2026-1024-1340-list-wheel-scroll` · value low
+  Give the import picker (`importList`, `stageImport`) a scroll window,
+  for the same reason as N-093: every row drawn, the pane clipping what
+  does not fit. Size it from the pane, and only
+  then can it take the wheel the way the windowed lists do (`wheel.go`:
+  route its stage in `Update`'s `tea.MouseWheelMsg` case to
+  `fuzzyList.scrollBy`).
 
 ## Validate
 
@@ -346,6 +385,19 @@ and `raised`.
   the highlighted prompt fully drawn, a very long prompt ends in "…" inside
   the pane, a resize re-wraps, no hover card comes up while wrapped, and the
   setting survives a relaunch. Only unit tests have seen it.
+
+- **N-095** · raised `2026-1024-1340-list-wheel-scroll` · value low
+  Live-check the mouse wheel in cats (`wheel.go`): on the prompt list and
+  the Next List, wrapped and unwrapped, a notch scrolls the page a row
+  under a still highlight, which is dragged along only at the window's
+  edges, the wheel stops at both ends without blank lines, and it passes
+  the group and section headings without sticking. The same on the
+  Batches page, the `@` file picker and the snippets picker, and in the
+  batch composer each pane scrolls only while the pointer is over it.
+  Under an open right-click menu, note pad or drop dialog, and during a
+  drag, the wheel does nothing. Also confirm cats really delivers the
+  wheel as mouse events (`catctl probe`'s `wheel:` op). Only unit tests
+  have seen it.
 
 ## Roadmap
 

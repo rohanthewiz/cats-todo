@@ -904,6 +904,23 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.stage == stageBatchCompose {
 			return m.batchHoverMotion(msg)
 		}
+	case tea.MouseWheelMsg:
+		// The windowed lists scroll (wheel.go). Every other stage lets it
+		// fall through to the active input as it always has.
+		switch m.stage {
+		case stageList:
+			return m.wheelList(msg)
+		case stageNextList:
+			return m.wheelNext(msg)
+		case stageBatches:
+			return m.wheelBatches(msg)
+		case stageBatchCompose:
+			return m.wheelBatchCompose(msg)
+		case stageFiles:
+			return m.wheelFiles(msg)
+		case stageSnippets:
+			return m.wheelSnippets(msg)
+		}
 	case hoverTickMsg:
 		// The list's dwell timer, answered above the stage switch for the same
 		// reason it is armed at all: the tick is about a rest that has already
