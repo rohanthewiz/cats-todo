@@ -143,6 +143,15 @@ func (p *filePicker) setDir(dir string) {
 	}
 	p.entries = entries
 	p.list.input.SetValue("")
+	// A new directory starts at its first row, scrolled to the top. The list
+	// only clamps its cursor on a rebuild (with an empty query it keeps the
+	// row number), so without this the highlight in the folder just opened
+	// sat at whatever row number the parent's highlight had: open the third
+	// folder of a listing and the third row of the new one lit up, or the
+	// last when there were fewer. That made → → into a tree land on an
+	// arbitrary entry. up() re-highlights the folder it came out of after
+	// this, so going back still lands on the way down.
+	p.list.cursor, p.list.top = 0, 0
 	p.refresh()
 }
 
@@ -608,7 +617,7 @@ func (m model) chooseFile() (tea.Model, tea.Cmd) {
 // updateFiles is the picker's key loop, modeled on the drop-target picker's.
 //
 // The keys divide into the list's (arrows, enter, esc), the browser's (tab and
-// → open a folder, backspace on an empty box goes up, a typed / opens the
+// → open a folder, ← or backspace on an empty box goes up, a typed / opens the
 // highlighted folder), and everything else, which is the filter. The browser
 // keys are the ones cdx has, minus its stack and clipboard chords; the one
 // addition is → as a spelling of tab, because tab is also what the form uses to
@@ -660,6 +669,20 @@ func (m model) updateFiles(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.files.up()
 			return m, nil
 		}
+	case "left":
+		// ← is → mirrored: → opens the highlighted folder, ← goes back up
+		// out of this one, so the arrows alone walk a tree. Before this, ←
+		// only reached the query box, where an empty box has no caret to
+		// move — the press did nothing visible, and the way back up was a
+		// key (backspace) a hand on the arrows had no reason to look for.
+		//
+		// Only on an empty query, the same guard backspace has: with a
+		// filter typed, ← is the caret motion that lets the filter be
+		// edited, and stealing it would make a typo unfixable in place.
+		if m.files.query() == "" {
+			m.files.up()
+			return m, nil
+		}
 	case "/":
 		// A slash after a filter that is itself a folder's name — or after "~"
 		// or ".." — is a path being typed, and the query's own normalization
@@ -685,10 +708,27 @@ func (m model) updateFiles(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // clickFiles is the pointer on the picker: a click on a row chooses it, the
 // same as the drop-target picker's clickTarget. filesRowsRow is the offset from
 // the pane's top to the first row line (see its comment).
+//
+// In the '@' picker a click on a folder opens it instead, the way a click
+// does in any file browser: choosing on the first click made the mouse a
+// one-level tool — a file one folder down was out of its reach, and reaching
+// for it inserted the folder and closed the picker. A file is still chosen
+// on its click, so the pointer walks in and picks without the keyboard.
+// Mentioning a folder itself is enter on its row; the keyboard keeps both
+// readings because it has two keys (enter inserts, tab/→ open) where the
+// pointer has one. The other purposes keep their own click: the import
+// browser already opens folders (see chooseImportFile), and the export
+// browsers are choosing a folder, so a folder's click is that choice.
 func (m model) clickFiles(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	i, ok := m.files.list.rowAtLine(msg.Y - filesRowsRow)
 	if !ok || !m.files.list.focusRow(i) {
 		return m, nil
+	}
+	if m.files.purpose == filesForPrompt {
+		if e, _, ok := m.files.highlighted(); ok && e.dir {
+			m.files.descend()
+			return m, nil
+		}
 	}
 	return m.chooseFile()
 }
@@ -720,7 +760,7 @@ func (m model) viewFiles() string {
 	// In the order they must survive a narrowing pane: the two things the
 	// picker is for, then the ways around, then the two spellings nobody guesses.
 	b.WriteString(m.footerBlock([]string{
-		"enter insert", "tab/→ or / open folder", "backspace up", "esc back",
+		"enter insert", "tab/→ or / open folder", "←/backspace up", "esc back",
 		"~/ and ../ paths", ". shows hidden",
 	}))
 	return b.String()

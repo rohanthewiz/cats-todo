@@ -459,20 +459,75 @@ func TestFilesRowsMatchWhatIsDrawn(t *testing.T) {
 	}
 }
 
-func TestClickOnARowChoosesIt(t *testing.T) {
-	m, _ := withPicker(t, "")
+// TestClickOnAFolderOpensItAndOnAFileChoosesIt pins the pointer's two
+// readings in the '@' picker. A click on a folder used to insert it and close
+// the picker, which left the mouse unable to reach anything below the first
+// level — the backlog item was "path lookups with @ don't let me smoothly
+// navigate folders". A folder's click now opens it; a file's still inserts.
+func TestClickOnAFolderOpensItAndOnAFileChoosesIt(t *testing.T) {
+	m, root := withPicker(t, "")
 	m = clickForm(m, 3, filesRowsRow+1) // the second row: src/
-	if m.stage != stageForm {
-		t.Fatalf("stage = %v after a row click, want the form", m.stage)
+	if m.stage != stageFiles {
+		t.Fatalf("stage = %v after a folder click, want the picker to stay", m.stage)
 	}
-	if got, want := m.promptArea.Value(), "@src/ "; got != want {
+	if m.files.dir != filepath.Join(root, "src") {
+		t.Fatalf("dir = %q after clicking src/, want src", m.files.dir)
+	}
+	if got := m.promptArea.Value(); got != "@" {
+		t.Errorf("prompt = %q, want the bare '@' — a folder click inserts nothing", got)
+	}
+	// In src: sub/ then ui.go. The file's click inserts, relative to the root.
+	m = clickForm(m, 3, filesRowsRow+1)
+	if m.stage != stageForm {
+		t.Fatalf("stage = %v after a file click, want the form", m.stage)
+	}
+	if got, want := m.promptArea.Value(), "@src/ui.go "; got != want {
 		t.Errorf("prompt = %q, want %q", got, want)
+	}
+	// A folder is still mentioned by enter on its row.
+	m, _ = withPicker(t, "")
+	m = typeAll(t, m, "down", "enter")
+	if got, want := m.promptArea.Value(), "@src/ "; got != want {
+		t.Errorf("enter on src/: prompt = %q, want %q", got, want)
 	}
 	// A click off the rows does nothing.
 	m, _ = withPicker(t, "")
 	m = clickForm(m, 3, 0)
 	if m.stage != stageFiles {
 		t.Errorf("a click on the heading changed the stage to %v", m.stage)
+	}
+}
+
+// TestLeftOnAnEmptyQueryGoesUp: → opens a folder, so ← has to come back out,
+// or the arrows walk a tree one way only. Before this ← fell through to the
+// empty query box and did nothing visible.
+func TestLeftOnAnEmptyQueryGoesUp(t *testing.T) {
+	m, root := withPicker(t, "")
+	// src/ → src/sub/. The second → only reaches sub/ because a folder opens
+	// on its first row: the list used to keep the parent's row number, so
+	// coming from src/ (row 1) the highlight sat on ui.go and → completed it.
+	m = typeAll(t, m, "down", "right", "right")
+	if m.files.dir != filepath.Join(root, "src", "sub") {
+		t.Fatalf("dir = %q, want src/sub", m.files.dir)
+	}
+	m = typeAll(t, m, "left")
+	if m.files.dir != filepath.Join(root, "src") {
+		t.Fatalf("after ←: dir = %q, want src", m.files.dir)
+	}
+	if e, _, ok := m.files.highlighted(); !ok || e.name != "sub" {
+		t.Errorf("highlight after ← = %v (%v), want sub/ — the way back down", e, ok)
+	}
+	m = typeAll(t, m, "left")
+	if m.files.dir != root {
+		t.Fatalf("second ←: dir = %q, want the root", m.files.dir)
+	}
+	// With a filter typed, ← is the caret: the filter stays editable.
+	m = typeAll(t, m, "right", "u", "i", "left", "x")
+	if m.files.dir != filepath.Join(root, "src") {
+		t.Errorf("← with a query moved dir to %q", m.files.dir)
+	}
+	if q := m.files.query(); q != "uxi" {
+		t.Errorf("query = %q, want %q — ← should have moved the caret", q, "uxi")
 	}
 }
 

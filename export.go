@@ -1229,13 +1229,13 @@ func (m model) viewExportBrowse() string {
 	bundling := m.files.purpose == filesForBundle
 	title := "Export to folder"
 	footer := []string{
-		"enter copy here", m.modEnter() + " move here", "tab/→ or / open folder", "backspace up", "esc back",
+		"enter copy here", m.modEnter() + " move here", "tab/→ or / open folder", "←/backspace up", "esc back",
 		"~/ and ../ paths", ". shows hidden",
 	}
 	if bundling {
 		title = "Save a bundle in"
 		footer = []string{
-			"enter save here", "tab/→ or / open folder", "backspace up", "esc back",
+			"enter save here", "tab/→ or / open folder", "←/backspace up", "esc back",
 			"~/ and ../ paths", ". shows hidden",
 		}
 	}

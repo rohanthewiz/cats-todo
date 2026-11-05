@@ -384,7 +384,7 @@ func (m model) viewImportBrowse() string {
 	b.WriteString(m.files.list.view(m.importBrowseEmptyMessage(), "", m.width))
 	b.WriteString("\n")
 	b.WriteString(m.footerBlock([]string{
-		"enter read it", "tab/→ or / open folder", "backspace up", "esc back",
+		"enter read it", "tab/→ or / open folder", "←/backspace up", "esc back",
 		"~/ and ../ paths", ". shows hidden",
 	}))
 	return b.String()

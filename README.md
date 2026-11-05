@@ -801,7 +801,7 @@ The picker's rows are the places the prompt could go, most likely first:
 - **Browse for a folder…**, which opens the same directory browser as `@` in
   the editor, folders only, starting among this project's siblings. It leads
   with a `./` row so the folder you have drilled into is the choice, `tab`/`→`
-  open a folder, `backspace` goes up, and `enter` copies / `shift+enter` moves
+  open a folder, `←` or `backspace` goes up, and `enter` copies / `shift+enter` moves
   to the highlighted folder.
 
 A destination directory finds its backlog the way the manager's own launch
@@ -2269,6 +2269,41 @@ from inside it. Nothing is undone on the way out: everything typed is already in
 prompt, exactly as if it had been typed once per line by hand.
 
 The footer belongs to the mode for as long as it lasts, because the keys do.
+
+
+## File mentions (`@`)
+
+Typing `@` at the start of a word in the prompt opens a file browser over the
+editor; choosing an entry writes `@path ` at the caret, relative to the project
+when the file is inside it, so the prompt reads as a file mention once it lands
+in Claude Code. An `@` inside a word — an e-mail address — stays text.
+
+It browses one folder at a time, the way a shell completes a path, and every
+road through it is meant to be walkable without switching hands:
+
+| Do | Keys | Mouse |
+|---|---|---|
+| Move the highlight | `↑`/`↓`, `pgup`/`pgdown` | the wheel scrolls |
+| Open a folder | `→`, `tab`, or `/` on the highlighted folder | click the folder |
+| Go up | `←` or `backspace` on an empty filter | — |
+| Insert the highlighted entry | `enter` (a folder too) | click a file |
+| Filter | type; `src/ui` or a pasted path walks in | — |
+
+The arrows alone walk a tree: `→` goes in, `←` comes back out and leaves the
+highlight on the folder you left, so the way back down is under the cursor.
+`←` (like `backspace`) goes up only while the filter is empty — with text typed
+it moves the caret, so a filter stays editable in place. A folder you open
+always starts on its first row rather than on whatever row number was lit in
+the folder above it.
+
+A click on a **folder opens it** and a click on a **file inserts it**, so the
+pointer can reach a file at any depth. That leaves the keyboard as the way to
+mention a folder itself: `enter` on its row. The keyboard has two keys for the
+two readings (insert, open); the pointer has one click, and opening is the one a
+browser is for.
+
+Hidden entries appear once the filter starts with a dot. `~/` goes home and
+`../` goes up as typed paths; `esc` closes the browser and leaves the bare `@`.
 
 
 ## The prompt library
