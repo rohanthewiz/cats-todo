@@ -939,6 +939,10 @@ dragging past one parks the rule there. Where you let go is saved to
 `~/.config/cats-todo/settings.json` as `batchSplit` — the Pick pane's share of
 the width, a fraction such as `0.6` — so every later composer opens split the
 same way, at whatever width the pane happens to be. The default is 0.45.
+**Double-click the rule** to go back to it: the share is forgotten (the
+`batchSplit` key leaves settings.json, as if deleted by hand), so the next
+composer opens at the default too. The two presses can land anywhere along
+the rule, but a press that dragged it is not the first half of a double-click.
 
 **Rest the pointer on a Pick row** and it gets [the hover card](#the-hover-card)
 it would get on its own page — the backlog card for a prompt, the Next List

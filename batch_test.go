@@ -863,6 +863,92 @@ func TestComposerSplitShareSurvivesARelaunch(t *testing.T) {
 	}
 }
 
+// splitPress is one press-and-release on the splitter at column x, with no
+// motion between: a click, as far as the rule is concerned.
+func splitPress(t *testing.T, m model, x, y int) model {
+	t.Helper()
+	next, _ := m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+	next, _ = next.(model).Update(tea.MouseReleaseMsg{X: x, Y: y, Button: tea.MouseLeft})
+	return next.(model)
+}
+
+// TestComposerSplitterDoubleClickResets (N-084): a double-click on the rule
+// puts the split back to the default and drops batchSplit from settings.json;
+// the two presses may land on different cells and rows of the rule.
+func TestComposerSplitterDoubleClickResets(t *testing.T) {
+	m, _, _ := batchModel(t, 120, 28)
+	m = openComposer(t, m)
+	def := m.batchGeom().pickW
+	y := m.batchGeom().pickRowsY
+
+	// Drag it off the default first, and let a while pass so the drag's
+	// press cannot pair with the double-click's first.
+	next, _ := m.Update(tea.MouseClickMsg{X: def + 1, Y: y, Button: tea.MouseLeft})
+	next, _ = next.(model).Update(tea.MouseMotionMsg{X: 70, Y: y, Button: tea.MouseLeft})
+	next, _ = next.(model).Update(tea.MouseReleaseMsg{X: 70, Y: y, Button: tea.MouseLeft})
+	m = next.(model)
+	if loadSettings().batchSplit == 0 {
+		t.Fatal("the drag did not save a share")
+	}
+	g := m.batchGeom()
+	m = splitPress(t, m, g.pickW, y)
+	m = splitPress(t, m, g.pickW+2, y+1)
+	if m.batch.splitDrag {
+		t.Error("the second press took hold of the splitter")
+	}
+	if got := m.batchGeom().pickW; got != def {
+		t.Errorf("pickW after double-click = %d, want the default %d", got, def)
+	}
+	if m.batchSplit != 0 || loadSettings().batchSplit != 0 {
+		t.Errorf("share not forgotten: model %v, saved %v", m.batchSplit, loadSettings().batchSplit)
+	}
+	if !strings.Contains(m.batch.note, "reset") {
+		t.Errorf("note = %q, want it to say the split was reset", m.batch.note)
+	}
+
+	// Already at the default: a double-click says so rather than claiming a
+	// reset that changed nothing.
+	m = splitPress(t, m, def+1, y)
+	m = splitPress(t, m, def+1, y)
+	if !strings.Contains(m.batch.note, "already") {
+		t.Errorf("note = %q, want it to say the split is already at the default", m.batch.note)
+	}
+}
+
+// TestComposerSplitterDragIsNotAHalfClick: a press that dragged the rule
+// followed quickly by another press is two gestures — the second takes hold
+// rather than undoing the drag — and so is rule, elsewhere, rule.
+func TestComposerSplitterDragIsNotAHalfClick(t *testing.T) {
+	m, _, _ := batchModel(t, 120, 28)
+	m = openComposer(t, m)
+	y := m.batchGeom().pickRowsY
+
+	next, _ := m.Update(tea.MouseClickMsg{X: m.batchGeom().pickW + 1, Y: y, Button: tea.MouseLeft})
+	next, _ = next.(model).Update(tea.MouseMotionMsg{X: 70, Y: y, Button: tea.MouseLeft})
+	next, _ = next.(model).Update(tea.MouseReleaseMsg{X: 70, Y: y, Button: tea.MouseLeft})
+	m = next.(model)
+	dragged := m.batchGeom().pickW
+	next, _ = m.Update(tea.MouseClickMsg{X: dragged + 1, Y: y, Button: tea.MouseLeft})
+	m = next.(model)
+	if !m.batch.splitDrag || m.batchGeom().pickW != dragged {
+		t.Errorf("a quick press after a drag reset the split (pickW %d, want %d)", m.batchGeom().pickW, dragged)
+	}
+	next, _ = m.Update(tea.MouseReleaseMsg{X: dragged + 1, Y: y, Button: tea.MouseLeft})
+	m = next.(model)
+
+	// Rule, then a press in the Batch pane, then the rule again.
+	m.batch.splitClickAt = time.Time{}
+	m = splitPress(t, m, dragged+1, y)
+	next, _ = m.Update(tea.MouseClickMsg{X: 110, Y: 1, Button: tea.MouseLeft})
+	m = next.(model)
+	next, _ = m.Update(tea.MouseReleaseMsg{X: 110, Y: 1, Button: tea.MouseLeft})
+	m = next.(model)
+	m = splitPress(t, m, dragged+1, y)
+	if m.batchSplit == 0 {
+		t.Error("rule, elsewhere, rule counted as a double-click")
+	}
+}
+
 // TestBatchStagesSurviveResize: the new stages take a WindowSizeMsg without
 // panicking (TestWindowSizeMsgNeverPanics' rule, for the stages it predates).
 func TestBatchStagesSurviveResize(t *testing.T) {

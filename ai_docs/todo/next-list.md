@@ -96,12 +96,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   use the global backlog, consider remembering a decline per repo root,
   visibly (named in the header or the View panel).
 
-- **N-084** · raised `2026-1007-0200-batch-splitter-and-bracket-checkboxes` · value low
-  The composer's splitter has no way back to the default split (0.45) short
-  of dragging there or deleting `batchSplit` from settings.json. If that is
-  ever missed, a double-click on the rule (counted the way `promptClickCount`
-  counts presses) could reset it.
-
 - **N-088** · raised `2026-1023-1156-soft-wrap-toggle` · value low
   Tests read the real `~/.config/cats-todo/settings.json`: `newTestModel`
   and `withForm` go through `newModel`, which loads preferences without a
@@ -327,6 +321,16 @@ declined.
   waits on Claude Code.
 
 ## Closed
+
+- **N-084** · closed 2026-11-06 · raised `2026-1007-0200-batch-splitter-and-bracket-checkboxes`
+  — A double-click on the composer's rule resets the split. `splitPressCount`
+  (batchcompose.go) counts presses the way `promptClickCount` does: within
+  `doubleClickWindow`, cycling 1 → 2 → 1. Any cell or row of the rule counts.
+  A press that moved the rule, or a press elsewhere in between, starts a new
+  count. On the second press `resetBatchSplit` stores 0, not 0.45, so
+  `batchSplit` leaves settings.json as if deleted by hand. It does not take
+  hold of the rule, and it says "already at the default" when nothing would
+  change. Tests in batch_test.go; README covers it under the splitter.
 
 - **N-092** · closed 2026-11-06 · raised `2026-1024-1340-list-wheel-scroll`
   — The spelling panel is windowed: `sizeSpellWindow` (spellpanel.go) fits

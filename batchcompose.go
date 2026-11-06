@@ -302,6 +302,12 @@ type batchComposer struct {
 	// splitDrag is a drag of the splitter between the panes; the share it
 	// sets lives on the model (m.batchSplit), since it outlives the draft.
 	splitDrag bool
+	// splitClickAt is when the last press on the splitter landed, so the next
+	// one can tell whether it is the second of a double-click, which puts the
+	// split back to its default (splitPressCount). Zero when there is no press
+	// to pair with: none yet, the last one moved the rule, or it was itself
+	// the second of a pair.
+	splitClickAt time.Time
 
 	// edit is the record being edited, exactly as it was read, or the zero
 	// Batch for a new one. Saving swaps against it (see the file comment),
@@ -1977,6 +1983,13 @@ func (m model) clickBatchCompose(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	g := m.batchGeom()
 	x, y := msg.X, msg.Y
 	bc := &m.batch
+	// The splitter: the rule's three cells, on any line the rule is drawn
+	// on. Worked out up front because a press anywhere else breaks a
+	// double-click on it — rule, row, rule in quick succession is not a pair.
+	onRule := g.split && x >= g.pickW && x < g.batchX && y >= g.srcTabsY && y < g.barY-1
+	if !onRule {
+		bc.splitClickAt = time.Time{}
+	}
 
 	if y == g.barY {
 		for i, c := range m.batchChips() {
@@ -1999,9 +2012,15 @@ func (m model) clickBatchCompose(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// The splitter: the rule's three cells, on any line the rule is drawn
-	// on. It is checked before the panes since those cells belong to neither.
-	if g.split && x >= g.pickW && x < g.batchX && y >= g.srcTabsY && y < g.barY-1 {
+	// The splitter is checked before the panes since its cells belong to
+	// neither.
+	if onRule {
+		if bc.splitPressCount() == 2 {
+			// The second press of a double-click resets rather than taking
+			// hold: holding would let a hand that drifts before letting go
+			// drag the rule straight back off the default it just asked for.
+			return m.resetBatchSplit()
+		}
 		bc.splitDrag = true
 		return m, nil
 	}
@@ -2140,6 +2159,9 @@ func (m model) batchSplitOver(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.batchSplit = float64(pw) / float64(avail)
+	// A press that moved the rule was a drag, not the first half of a
+	// double-click, so a quick press after it starts a new count.
+	m.batch.splitClickAt = time.Time{}
 	m.rebuildBatchPick()
 	m.sizeBatchCompose()
 	return m, nil
@@ -2156,6 +2178,62 @@ func (m model) endBatchSplit() (tea.Model, tea.Cmd) {
 	if err := s.save(); err != nil {
 		m.batchSay("split not saved: "+err.Error(), true)
 	}
+	return m, nil
+}
+
+// splitPressCount answers which press of a double-click on the splitter the
+// press that has just landed is — 1 or 2 — and records it for the next one.
+//
+// It counts the way promptClickCount does (each press timed from the one
+// before it, within doubleClickWindow, and the count cycles rather than
+// climbing), but with a target as wide as the gesture: every cell of the rule,
+// on any row, is the same splitter, so where along it the two presses land
+// does not matter. What does matter is that the first press did not move the
+// rule — batchSplitOver clears the timestamp when it does — since press, drag,
+// release and a quick press after is two gestures, not one.
+//
+// The count is 1 → 2 → 1: a third quick press takes hold of the splitter
+// again rather than resetting a second time, so a run of presses never traps
+// the hand in "reset" with no way to grab the rule.
+func (bc *batchComposer) splitPressCount() int {
+	now := time.Now()
+	n := 1
+	if !bc.splitClickAt.IsZero() && now.Sub(bc.splitClickAt) < doubleClickWindow {
+		n = 2
+	}
+	if n == 1 {
+		bc.splitClickAt = now
+	} else {
+		bc.splitClickAt = time.Time{}
+	}
+	return n
+}
+
+// resetBatchSplit puts the splitter back where a composer with nothing saved
+// opens it (batchSplitDefault) and forgets the saved share. It stores 0 rather
+// than 0.45: 0 is the "not set" value BatchSplit's omitempty leaves out, so
+// the key drops out of settings.json — exactly as if it had been deleted by
+// hand — and a later change to the default reaches this user too.
+//
+// A split already at the default says so instead of saving: a reset that did
+// nothing visible should not look like one that did. The save is the same
+// load-modify-write endBatchSplit uses.
+func (m model) resetBatchSplit() (tea.Model, tea.Cmd) {
+	m.batch.splitDrag = false
+	if m.batchSplit == 0 {
+		m.batchSay("split already at the default", false)
+		return m, nil
+	}
+	m.batchSplit = 0
+	m.rebuildBatchPick()
+	m.sizeBatchCompose()
+	s := loadSettings()
+	s.batchSplit = 0
+	if err := s.save(); err != nil {
+		m.batchSay("split reset, not saved: "+err.Error(), true)
+		return m, nil
+	}
+	m.batchSay("split reset to the default", false)
 	return m, nil
 }
 
