@@ -3117,6 +3117,26 @@ Some messages are still pasted, the way every drop used to be:
 - **any agent other than Claude Code**, where `shift+Enter` may not be a newline.
 - **everything, when cats is older than `pane.send_keys`.**
 
+A prompt that is **one character long** (a `2` dropped to answer an agent's
+numbered question, a `y`) is typed with a space in front of it. After a turn
+Claude Code may ask a one-key question under its input: the session survey
+(`How is Claude doing this session? 1: Bad 2: Fine 3: Good 0: Dismiss`), the
+transcript ask (`y`/`n`/`d`), a drafted-feedback card. These have no keys of
+their own. They read the input, and they take its value as the answer when it
+is exactly one character they accept: on `Enter` at once, or after 400ms
+untouched. Either way the input is cleared, so a bare `2` would rate the
+session and never reach the agent. Paste mode is no safer, since the 400ms
+timer fires while the prompt sits there waiting for you. With a space in
+front, the input is never a single key, and the model still reads ` 2` as 2.
+Every one-character prompt gets the space, rather than only the keys today's
+questions accept, because that list would go stale with the next question. A
+longer prompt that only *starts* with a digit (`2 things to fix`) goes as
+written: the whole run arrives in one write, the survey sees text that is no
+answer, and it closes without a rating (read off Claude Code 2.1.319's input
+hook; seen live too). A pasted prompt needs no guard, because its lead makes
+it long. A loop's between command does need it on both roads, since it is
+pasted bare.
+
 A pasted prompt (not a slash command) leads with one sentence of yours, the
 interim fix that came before typing:
 

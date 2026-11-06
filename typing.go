@@ -17,6 +17,9 @@
 //	message                         road
 //	───────────────────────────────  ───────────────────────────────────────────
 //	prose into a claude pane         typed: paced send_keys, shift+Enter newlines
+//	a lone rune ("2", "y")           typed with a space ahead, so no one-key
+//	                                 question under the input reads it as an
+//	                                 answer (guardLoneKey, N-096)
 //	"/command …"                     pasted bare, as before: a slash command is
 //	                                 run, not read, and typing "/" opens the
 //	                                 command menu, whose Enter could pick a
@@ -78,6 +81,46 @@ var errNoSendKeys = errors.New("cats has no pane.send_keys")
 // bare Enter submits. cats encodes it as CSI 13;2u under the kitty protocol
 // and CSI 27;2;13~ without it, so it never collapses into a bare "\r".
 var shiftEnter = wire.KeyStroke{Code: "Enter", Mods: wire.ModShift}
+
+// guardLoneKey keeps a one-rune message from being read as the answer to
+// whatever one-key question Claude Code has up under its input. N-096.
+//
+// Claude Code asks several such questions after a turn: the session survey
+// ("How is Claude doing this session? 1: Bad 2: Fine 3: Good 0: Dismiss", and
+// 4: Unsure on some), the transcript ask (y / n / d), the drafted-feedback
+// card (1 / 2 / 0). None of them has keys of its own; each watches the main
+// input's value (its digit-capture hook, read off the 2.1.319 bundle) and
+// takes an answer only when that value is exactly one rune it accepts:
+//
+//	input value        what Claude Code does
+//	─────────────────  ─────────────────────────────────────────────────────
+//	"2", Enter         the rating, at once; the input is cleared and the
+//	                   message never submitted
+//	"2", 400ms idle    the rating (a debounce timer); cleared the same way
+//	"2 things to fix"  no rating: the survey sees text that is not an
+//	                   answer and closes as "typed over"
+//
+// So a prompt that merely *starts* with a digit is safe on both roads — a
+// typed chunk carries the whole run (up to typeChunk keys) in one write, the
+// value is never "2" alone for anything like 400ms, and the Enter comes a
+// typeGap after the text. Pasted, the text arrives in one piece anyway. What
+// is lost is a message that *is* one rune: a "2" dropped to answer an agent's
+// numbered question rates the session instead and vanishes, and in paste mode
+// (no Enter) it goes 400ms later while the user looks at it.
+//
+// The guard leads such a message with a space. A space is not an answer to
+// any of those questions, and the value is never one meaningful rune; the
+// model reads " 2" as 2. Every lone rune gets it rather than a list of the
+// runes today's questions accept (0–4, y/n/d, fullwidth digits after NFKC, an
+// AZERTY row's unshifted digit keys on the Enter path): a list would be stale
+// at the next question, and a space costs nothing. The caller only asks for
+// prose typesKeys already admitted, so "/" and "!" never get here.
+func guardLoneKey(text string) string {
+	if utf8.RuneCountInString(text) == 1 {
+		return " " + text
+	}
+	return text
+}
 
 // typesKeys reports whether a message to agent goes in as key presses (see
 // the table at the top of the file). It is the one place the rule lives:
@@ -176,8 +219,13 @@ func typeText(d paneDriver, pane uint32, text string, submit bool) error {
 // usually a slash command, so it goes bare when it is pasted — no pasteAsk,
 // which would turn "/compact" into prose. Typed when typesKeys says so, like
 // any message; always submitted.
+//
+// A lone rune is guarded (guardLoneKey) on both roads: the bare paste a cats
+// without send_keys falls back to is read by Claude Code's one-key questions
+// just as typing is, and nothing else would lengthen it.
 func deliverLine(d paneDriver, pane uint32, agent, text string) error {
 	if typesKeys(agent, text) {
+		text = guardLoneKey(text)
 		err := typeText(d, pane, text, true)
 		if !errors.Is(err, errNoSendKeys) {
 			return err

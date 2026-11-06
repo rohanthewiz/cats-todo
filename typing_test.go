@@ -203,3 +203,71 @@ func TestDeliverLine(t *testing.T) {
 		t.Errorf("old cats = %q, want %q", p.calls, want)
 	}
 }
+
+// N-096: Claude Code's session survey ("1: Bad 2: Fine 3: Good 0: Dismiss")
+// reads the main input and takes a value that is exactly one accepted rune as
+// a rating — clearing the input, so a dropped "2" meant for the agent rated the
+// session and was never sent. A one-rune prompt is therefore led with a space,
+// on both roads a typed message can take; a longer prompt that only starts with
+// a digit is never one rune in the input and goes as written.
+func TestLoneRuneIsNotASurveyAnswer(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"2", " 2"},
+		{"y", " y"},
+		{"２", " ２"}, // fullwidth: NFKC folds it to a digit the survey takes
+		{"é", " é"}, // AZERTY's unshifted 2
+		{"2 things to fix", "2 things to fix"},
+		{"23", "23"},
+		{"2\n", "2\n"},
+		{"", ""},
+	} {
+		if got := guardLoneKey(c.in); got != c.want {
+			t.Errorf("guardLoneKey(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+
+	p := &keysPane{}
+	if err := deliverPrompt(p, 7, "claude", "2", true, false); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"keys  2", "keys ⏎"}; !slices.Equal(p.calls, want) {
+		t.Errorf("typed drop = %q, want %q", p.calls, want)
+	}
+
+	p = &keysPane{}
+	if err := deliverPrompt(p, 7, "claude", "2 things to fix", true, false); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"keys 2 things to fix", "keys ⏎"}; !slices.Equal(p.calls, want) {
+		t.Errorf("digit-led drop = %q, want %q", p.calls, want)
+	}
+
+	// The paste fallback of a drop already leads with pasteAsk, so it is left
+	// alone: the original text goes under the lead, unguarded.
+	p = &keysPane{noKeys: true}
+	if err := deliverPrompt(p, 7, "claude", "2", true, false); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"paste " + withPasteAsk("2") + " ⏎"}; !slices.Equal(p.calls, want) {
+		t.Errorf("old cats drop = %q, want %q", p.calls, want)
+	}
+
+	// A between command pastes bare on an old cats, so it keeps the guard.
+	p = &keysPane{}
+	_ = deliverLine(p, 7, "claude", "1")
+	if want := []string{"keys  1", "keys ⏎"}; !slices.Equal(p.calls, want) {
+		t.Errorf("typed line = %q, want %q", p.calls, want)
+	}
+	p = &keysPane{noKeys: true}
+	_ = deliverLine(p, 7, "claude", "1")
+	if want := []string{"paste  1 ⏎"}; !slices.Equal(p.calls, want) {
+		t.Errorf("old cats line = %q, want %q", p.calls, want)
+	}
+
+	// Another agent asks no such question and is pasted as before.
+	p = &keysPane{}
+	_ = deliverLine(p, 7, "codex", "1")
+	if want := []string{"paste 1 ⏎"}; !slices.Equal(p.calls, want) {
+		t.Errorf("other agent line = %q, want %q", p.calls, want)
+	}
+}

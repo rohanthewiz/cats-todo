@@ -126,15 +126,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   route its stage in `Update`'s `tea.MouseWheelMsg` case to
   `fuzzyList.scrollBy`).
 
-- **N-096** · raised `2026-1105-1848-typed-drops-pane-send-keys` · value low
-  A typed drop whose prompt starts with a digit, into a claude pane showing
-  its feedback survey (`How is Claude doing this session? 1: Bad 2: Fine
-  3: Good 0: Dismiss`). Live, typing `2 things to fix` under the survey
-  left the text whole and the survey gone, but whether the `2` was also
-  sent as a rating could not be seen. A paste never answered it. If it
-  does, paste a prompt whose first rune is 0–3 (`typesKeys`), or lead it
-  with nothing a survey reads.
-
 ## Validate
 
 Items whose remaining work is purely testing: hand checks in a real terminal
@@ -312,6 +303,20 @@ declined.
   waits on Claude Code.
 
 ## Closed
+
+- **N-096** · closed 2026-11-06 · raised `2026-1105-1848-typed-drops-pane-send-keys`
+  — Answered from Claude Code 2.1.319's bundle. The survey has no keys of
+  its own: a digit-capture hook watches the main input and rates only when
+  the input's whole value is one accepted rune, on Enter at once or after a
+  400ms debounce, and then clears it. `2 things to fix` is never `2` alone
+  long enough for that (one typed write, or one paste), so the survey closed
+  "typed over" and there was no rating, whether typed or pasted. The real
+  hole was a prompt that *is* one rune: a dropped `2` rated the session and
+  was never sent. `guardLoneKey` (typing.go) leads any one-rune message with
+  a space. It covers deliverPrompt's typed road and both of deliverLine's
+  roads; the drop's paste road already carries pasteAsk. Test:
+  `TestLoneRuneIsNotASurveyAnswer`. README under *A drop into Claude Code is
+  typed, not pasted*.
 
 - **N-090** · closed 2026-11-06, `2026-1106-1046-list-wrap-chip-yields-first` · raised `2026-1023-1405-prompt-list-soft-wrap`
   — The wrap chip now shrinks to its glyph first. A new tier,

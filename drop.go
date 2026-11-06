@@ -222,7 +222,10 @@ const (
 // Claude Code's paste handling, so a typed path stays a path).
 func deliverPrompt(d paneDriver, pane uint32, agent, text string, submit, hasImages bool) error {
 	if typesKeys(agent, text) {
-		err := typeText(d, pane, text, submit)
+		// A one-rune prompt is led with a space so Claude Code's survey does
+		// not take it as a rating (guardLoneKey). Only the typed road needs
+		// it: the paste below carries pasteAsk, so it is never one rune.
+		err := typeText(d, pane, guardLoneKey(text), submit)
 		if !errors.Is(err, errNoSendKeys) {
 			return err
 		}
