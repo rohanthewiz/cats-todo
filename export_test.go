@@ -486,12 +486,55 @@ func TestExportBrowseFlow(t *testing.T) {
 	if !strings.HasPrefix(m.status, "copied → sibling") || m.statusErr {
 		t.Errorf("status = %q (err=%v)", m.status, m.statusErr)
 	}
+	// sibling had no .cats-todo, so this export started one — and says so
+	// (N-080), the way the launch offer and `add` do.
+	if !strings.Contains(m.status, "started a new backlog in "+shortenHome(sibling)) {
+		t.Errorf("status = %q, want it to announce the new backlog", m.status)
+	}
 	dst := &store{scope: scopeProject, path: projectTodosPath(sibling)}
 	if err := dst.load(); err != nil || len(dst.todos) != 1 || dst.todos[0].Prompt != "belongs elsewhere" {
 		t.Fatalf("sibling backlog = %+v (%v), want the copied prompt", dst.todos, err)
 	}
 	if len(m.project.todos) != 1 {
 		t.Errorf("a copy removed the source todo")
+	}
+}
+
+// TestExportAnnouncesOnlyANewBacklog: an export that creates a project's
+// .cats-todo says so in the status line (N-080 — before, the backlog appeared
+// without a word), and one into a project that already keeps a backlog does
+// not, so the note stays a signal rather than boilerplate.
+func TestExportAnnouncesOnlyANewBacklog(t *testing.T) {
+	m, root := exportModel(t)
+	sibling := filepath.Join(root, "sibling")
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exportTo := func(m model) model {
+		t.Helper()
+		next, _ := m.Update(pressKey("ctrl+o"))
+		m = next.(model)
+		if m.stage != stageExport {
+			t.Fatalf("ctrl+o → stage %v, want stageExport", m.stage)
+		}
+		next, _ = m.performExport(exportTarget{kind: exportToDir, dir: sibling}, false)
+		return next.(model)
+	}
+
+	m = exportTo(m)
+	if m.statusErr || !strings.HasPrefix(m.status, "copied → sibling · started a new backlog in "+shortenHome(sibling)) {
+		t.Errorf("first export status = %q (err=%v), want the copy and the new backlog named", m.status, m.statusErr)
+	}
+	if !strings.Contains(m.status, "git add "+projectConfigDirName) {
+		t.Errorf("first export status = %q, want the git hint", m.status)
+	}
+	if !isProjectBacklogDir(sibling) {
+		t.Fatal("the export did not create sibling's backlog")
+	}
+
+	m = exportTo(m)
+	if m.statusErr || m.status != "copied → sibling" {
+		t.Errorf("second export status = %q (err=%v), want the plain copy note", m.status, m.statusErr)
 	}
 }
 

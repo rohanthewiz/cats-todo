@@ -820,7 +820,11 @@ A destination directory finds its backlog the way the manager's own launch
 directory does — the nearest ancestor with a `.cats-todo` up to the repo root,
 else the repo root, else the directory itself — so pointing at a subdirectory reaches the project's
 one backlog, and pointing at a project with none yet creates it, exactly as
-`cats-todo add` there would. What travels: the title, the prompt, the
+`cats-todo add` there would — and, like `add`, says so: the status line gains
+`started a new backlog in <dir> — git add .cats-todo when you are ready`. The
+row already warned (`no backlog yet — will be created`), so the export does not
+stop to ask the way the manager's launch does; it just makes sure a backlog never
+appears without a word. What travels: the title, the prompt, the
 attachments (copied into the destination's own `images/`), the session options,
 and the open/frozen/done state. What does not: a schedule, which names a pane
 and a launch directory of the project it was set in — the status line says so

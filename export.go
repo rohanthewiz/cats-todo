@@ -1100,6 +1100,27 @@ func (m model) performExport(t exportTarget, move bool) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Whether this export is about to start a project backlog, noted before
+	// anything is written (the first exportTodo's save creates .cats-todo/).
+	// The launch asks before creating one (backlogoffer.go) and `add` says so
+	// when it starts one; export does not ask — the row already read "no
+	// backlog yet — will be created" and the user chose it, so a second
+	// question would be a confirm of a confirm — but it does say so afterwards,
+	// so a backlog never appears unannounced (N-080). The directory, not
+	// todos.json, is the marker, as for the launch and `add`.
+	//
+	// Only project stores are asked about: the global backlog's directory is
+	// the tool's own, not something a user commits. The check covers the
+	// "This project" row of a global todo too, although the launch offer has
+	// normally created that one already: a .cats-todo removed while the
+	// manager was open would otherwise come back silently on the export.
+	newRoot := ""
+	if dst.scope == scopeProject {
+		if root := backlogRoot(dst); projectBacklogMissing(root) {
+			newRoot = root
+		}
+	}
+
 	verb := "copied"
 	if move {
 		verb = "moved"
@@ -1128,8 +1149,20 @@ func (m model) performExport(t exportTarget, move bool) (tea.Model, tea.Cmd) {
 
 	m.syncStores(dst)
 	m.finishExport()
+	// Judged after the run rather than from done: a failed first transfer can
+	// still leave the directory behind (attachments are copied into it before
+	// the save), and that is exactly the backlog that would otherwise appear
+	// without a word.
+	started := ""
+	if newRoot != "" && isProjectBacklogDir(newRoot) {
+		started = startedBacklogNote(newRoot)
+	}
 	if err != nil {
-		m.setStatus(fmt.Sprintf("export failed after %s: %s", promptWord(done), err.Error()), true)
+		status := fmt.Sprintf("export failed after %s: %s", promptWord(done), err.Error())
+		if started != "" {
+			status += " · " + started
+		}
+		m.setStatus(status, true)
 		return m, nil
 	}
 	if done == 0 && sameBacklog > 0 {
@@ -1149,6 +1182,12 @@ func (m model) performExport(t exportTarget, move bool) (tea.Model, tea.Cmd) {
 	if done != 1 {
 		status = verb + " " + promptWord(done) + " → " + exportDesc(t)
 	}
+	// The new backlog leads the trailing notes: it is the one consequence the
+	// user did not see happen on screen, and the one a narrow status line
+	// should keep longest.
+	if started != "" {
+		status += " · " + started
+	}
 	if sameBacklog > 0 {
 		status += fmt.Sprintf(" · %d already there", sameBacklog)
 	}
@@ -1157,6 +1196,15 @@ func (m model) performExport(t exportTarget, move bool) (tea.Model, tea.Cmd) {
 	}
 	m.setStatus(status, false)
 	return m, nil
+}
+
+// startedBacklogNote is the status line's clause for an export that created a
+// project backlog where there was none: where it now is, and the git hint the
+// launch offer and `add` give, since .cats-todo is meant to be committed (see
+// init.go) and a fresh one is untracked until someone does.
+func startedBacklogNote(root string) string {
+	return fmt.Sprintf("started a new backlog in %s — `git add %s` when you are ready",
+		shortenHome(root), projectConfigDirName)
 }
 
 // syncStores reloads whichever of the manager's stores shares a file with dst
