@@ -171,12 +171,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   does, paste a prompt whose first rune is 0–3 (`typesKeys`), or lead it
   with nothing a survey reads.
 
-- **N-097** · raised `2026-1105-1948-model-picker-session-only` · value medium
-  Commit and release typed drops (N-072) and the session-only model pick
-  (N-079) together as v0.47.0 — a minor: both are new delivery roads. Both
-  are in the working tree, uncommitted. Bump both version files, commit
-  `chore(release): v0.47.0`, tag it, and push the code and the tag.
-
 ## Validate
 
 Items whose remaining work is purely testing: hand checks in a real terminal
@@ -355,6 +349,10 @@ declined.
 
 ## Closed
 
+- **N-097** · closed 2026-11-05, `2026-1105-1948-model-picker-session-only` · raised `2026-1105-1948-model-picker-session-only`
+  — Released v0.47.0: typed drops (N-072) and the session-only model pick
+  (N-079) committed as `d7ca6ea`, both version files bumped,
+  `chore(release): v0.47.0` tagged `v0.47.0` and pushed with the code.
 - **N-079** · closed 2026-11-05, `2026-1105-1948-model-picker-session-only` · raised `2026-0927-2107-pane-drops-stop-saving-defaults`
   — A drop into a running claude pane sets the prompt's model and effort
   again, for that session only, through the bare `/model` picker
