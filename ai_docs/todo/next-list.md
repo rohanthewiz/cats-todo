@@ -123,15 +123,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   frozen toggles) and keep `alt+z`, or let the wrap chip alone shrink to its
   glyph before the others lose their chords.
 
-- **N-092** · raised `2026-1024-1340-list-wheel-scroll` · value low
-  Give the spelling panel's list (`spellList`, `stageSpell`) a scroll
-  window. A prompt with many misspellings draws every row and the pane
-  clips the rest, with no counts and nothing for the wheel to move. Size
-  it from the pane under the panel's own chrome, and only
-  then can it take the wheel the way the windowed lists do (`wheel.go`:
-  route its stage in `Update`'s `tea.MouseWheelMsg` case to
-  `fuzzyList.scrollBy`).
-
 - **N-093** · raised `2026-1024-1340-list-wheel-scroll` · value low
   Give the Export-to-project picker (`exportList`, `stageExport`) a scroll
   window. Its rows (cats workspaces, the other backlog, cdx recents, the
@@ -337,6 +328,17 @@ declined.
 
 ## Closed
 
+- **N-092** · closed 2026-11-06 · raised `2026-1024-1340-list-wheel-scroll`
+  — The spelling panel is windowed: `sizeSpellWindow` (spellpanel.go) fits
+  `setMaxLines` to the pane (less `spellRowsRow` and `spellChromeBelow`, the
+  blank + error line + footer cap). It is a line window because the rows are
+  split by blank spacer items. It is called from `openSpellPanel` before the
+  rows go in, so the right-click road's ✚ Add highlight scrolls into view, and
+  from `applySizes` on resize. `wheelSpell` (wheel.go) routes
+  `tea.MouseWheelMsg` to `fuzzyList.scrollBy`. The premise was slightly off:
+  the panel is about one word, so its rows are capped at about 14 lines and
+  do not grow with the number of misspellings. It overflowed only in short
+  panes. Tests in spellpanel_test.go.
 - **N-091** · closed 2026-11-06 · raised `2026-1024-1340-list-wheel-scroll`
   — The drop picker is windowed: `sizeTargetWindow` (ui.go) fits
   `setMaxRows` to the pane (less `targetRowsRow`, the blank + footer cap,

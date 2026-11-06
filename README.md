@@ -292,7 +292,7 @@ the half of the answer you can already see for yourself.
 The **mouse wheel** scrolls the window too, here and on every other list that
 keeps one: the Next List page, the Batches page, the batch composer (each pane
 on its own, whichever the pointer is over), the editor's `@` file picker
-and snippets picker, and the drop picker. A notch moves the page one row under a still highlight, the way a pager scrolls,
+and snippets picker, the drop picker, and the spelling panel. A notch moves the page one row under a still highlight, the way a pager scrolls,
 and the highlight is dragged along only when it would otherwise leave the
 screen, so the next `↑`/`↓` walks on from a row you can see. It is one row
 rather than one line because a row is never drawn half scrolled off, so a tall
@@ -303,8 +303,8 @@ wheel did nothing. That went unnoticed while a row was one line and the list
 mostly fitted, and showed up as soon as ☑ Soft wrap made the list outgrow the
 pane. The wheel is ignored while a context menu, a note pad or the composer's
 drop dialog is open, since each is anchored to its row or owns the screen, and
-during a drag. The lists with no window (the spelling panel, export and
-import) draw every row, so there is nothing for the wheel to move.
+during a drag. The lists with no window (export and import) draw every row,
+so there is nothing for the wheel to move.
 
 The **drop picker** keeps a window of its own, fitted to the pane like the
 Batches page's and re-fitted when the pane resizes. It used to draw every target
@@ -2761,6 +2761,14 @@ three answers there are to an underline:
 - **turn the check off** — without leaving the panel.
 
 Type to filter the rows, `enter` presses one, `esc` or `ctrl+l` goes back.
+
+The rows keep a scroll window fitted to the pane under the panel's heading,
+filter and footer, and re-fitted when the pane resizes. The list is never long
+(eight corrections at most, the two ✚ Add rows and the toggle), but in a short
+pane it used to run off the bottom, and the rows lost there were the ✚ Add rows
+and the toggle, the answers for a word that was meant. Now the ▴/▾ counts say
+what is out of view, the highlight stays on screen as `↑`/`↓` walk it, and the
+mouse wheel scrolls the rows like every other windowed list.
 
 **Right-click an underlined word** and take **✓ Spelling…** to open the same
 panel on *that* word. It is

@@ -96,6 +96,11 @@ func (m model) openSpellPanel() (tea.Model, tea.Cmd) {
 	m.titleInput.Blur()
 	m.promptArea.Blur()
 	m.spellList = newFuzzyList("Type to filter…", nil)
+	// The window is sized before the rows go in so that refreshSpell's
+	// selectRef (the right-click road's ✚ Add highlight) scrolls a window that
+	// already has its height, and not an unwindowed list that would then be
+	// clipped by the pane with the highlight past the bottom.
+	m.sizeSpellWindow()
 	m.refreshSpell()
 	m.stage = stageSpell
 	return m, textinput.Blink
@@ -531,6 +536,46 @@ func setPromptCaretOffset(ta *textarea.Model, off int) {
 // viewExport and the drop picker share, since the chrome above the list is the
 // same. TestSpellRowsMatchWhatIsDrawn pins it to a real frame.
 const spellRowsRow = 4
+
+// spellChromeBelow is how many lines viewSpell spends under the rows: the
+// blank before the footer, the panel's error line, and the footer at its
+// footerRowCap. The error line is budgeted whether or not one is showing.
+// It appears only when a dictionary write or a settings save fails, and
+// budgeting it always costs one row. Budgeting it only while it shows would
+// mean re-fitting the window from every place spellErr is set, and the last
+// row would jump each time an error came or went.
+const spellChromeBelow = 1 + 1 + footerRowCap
+
+// sizeSpellWindow fits the panel's list to the pane: the lines left under
+// spellRowsRow once spellChromeBelow is spent.
+//
+// Before this the panel had no window. Every row was drawn and the pane
+// clipped whatever ran past the bottom, with no ▴/▾ count to say so, a
+// highlight the arrows could walk out of sight, and nothing for the wheel to
+// move. The list is short (at most spellSuggestions corrections, two ✚ Add
+// rows, the toggle and the spacers between them: fourteen lines), so it only
+// overflows in a short pane. But that is exactly where the clipped rows were
+// the ones that matter most to a reader who reached the panel to say "this is
+// a word": the ✚ Add rows and the toggle sit at the bottom.
+//
+// The window is counted in screen lines (setMaxLines), not in items
+// (setMaxRows), because the rows are separated by blank spacer items. A line
+// window counts those itself, so the height comes straight from the pane
+// with no separatorLines correction to hand back. It is the same window the
+// Next List and the wrapped backlog use, and scrollBy, rowAtLine and the
+// overflow marks all already speak it.
+//
+// An unknown height (before the first WindowSizeMsg, and in tests that send
+// none) leaves the list unwindowed, as sizeTargetWindow does: with no pane to
+// fit there is nothing to clip either. applySizes calls this again on a
+// resize.
+func (m *model) sizeSpellWindow() {
+	if m.height <= 0 {
+		m.spellList.setMaxLines(0)
+		return
+	}
+	m.spellList.setMaxLines(max(m.height-spellRowsRow-spellChromeBelow, 1))
+}
 
 // clickSpell is the pointer on the panel: a click on a row presses it, the way a
 // click in the export picker chooses a destination. Every row here is either

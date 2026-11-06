@@ -18,8 +18,8 @@
 //
 // Which lists answer it: every one that keeps a scroll window — the backlog,
 // the Next List, the Batches page, the composer's two panes, the @ file picker,
-// the snippets picker and the drop picker. The lists without a window (the
-// spelling panel, export, import) draw every row and leave the pane to clip
+// the snippets picker, the drop picker and the spelling panel. The lists
+// without a window (export, import) draw every row and leave the pane to clip
 // them, so there is no window for a wheel to move; they take the wheel the
 // way they always have, by ignoring it.
 package main
@@ -136,5 +136,14 @@ func (m model) wheelSnippets(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 // targets are in view, not which ones match.
 func (m model) wheelTarget(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.targetList.scrollBy(wheelRows(msg))
+	return m, nil
+}
+
+// wheelSpell is the spelling panel (sizeSpellWindow gives it the window). It
+// is the same plain item window as the drop picker: nothing floats over it,
+// and the query box keeps the keys. Its window is counted in lines, so a notch
+// steps over a blank spacer as one row, the same as over a suggestion.
+func (m model) wheelSpell(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	m.spellList.scrollBy(wheelRows(msg))
 	return m, nil
 }

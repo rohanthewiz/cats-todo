@@ -922,6 +922,8 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.wheelSnippets(msg)
 		case stageTarget:
 			return m.wheelTarget(msg)
+		case stageSpell:
+			return m.wheelSpell(msg)
 		}
 	case hoverTickMsg:
 		// The list's dwell timer, answered above the stage switch for the same
@@ -7460,6 +7462,10 @@ func (m *model) applySizes() {
 	// backlog's — it is fitted ahead of the width floor below.
 	if m.stage == stageTarget {
 		m.sizeTargetWindow(&m.targetList)
+	}
+	// The spelling panel's window too (sizeSpellWindow).
+	if m.stage == stageSpell {
+		m.sizeSpellWindow()
 	}
 	w := m.width - 4
 	if w < 20 {

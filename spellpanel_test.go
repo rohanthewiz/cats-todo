@@ -612,3 +612,163 @@ func TestSpellRightClickOnAWrappedLine(t *testing.T) {
 		t.Errorf("the panel opened on %q, want the word on the wrapped line", got.spellWord)
 	}
 }
+
+// shortSpellPanel opens the panel on "wrods" in a project with a dictionary of
+// its own, so every kind of row is there (corrections, both ✚ Add rows, the
+// toggle, and the spacers between them), in a pane too short to draw them all.
+// It fails when the fixture does not overflow, since every test using it is
+// about the window.
+func shortSpellPanel(t *testing.T, height int) model {
+	t.Helper()
+	m := withProjectSpellForm(t, "fix wrods")
+	m.height = height
+	m = openSpell(t, m)
+	if m.spellList.maxLines == 0 || m.spellList.maxTop() == 0 {
+		t.Fatalf("the panel does not overflow a %d-line pane (maxLines=%d, %d rows)",
+			height, m.spellList.maxLines, len(m.spellList.filtered))
+	}
+	return m
+}
+
+// TestSpellPanelIsWindowed is N-092: the panel used to draw every row and let
+// the pane clip the rest, so in a short pane the ✚ Add rows and the toggle, the
+// rows at the bottom, were cut off with no ▾ count to say so, and ↓ walked the
+// highlight out of sight. Now the rows get the lines under the panel's chrome,
+// the highlight stays drawn all the way down, and a click lands on the row
+// that is under it in a scrolled window.
+func TestSpellPanelIsWindowed(t *testing.T) {
+	const height = 14
+	m := shortSpellPanel(t, height)
+	if want := height - spellRowsRow - spellChromeBelow; m.spellList.maxLines != want {
+		t.Errorf("maxLines = %d, want %d (pane less the panel's chrome)", m.spellList.maxLines, want)
+	}
+	frame := m.viewSpell()
+	if n := strings.Count(frame, "\n") + 1; n > height {
+		t.Errorf("the panel draws %d lines into a %d-line pane:\n%s", n, height, ansi.Strip(frame))
+	}
+	if !strings.Contains(frame, overflowDownGlyph) {
+		t.Errorf("no %s count for the rows below the window:\n%s", overflowDownGlyph, ansi.Strip(frame))
+	}
+
+	names := spellRowNames(m)
+	for range len(names) {
+		m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+		assertCursorDrawn(t, m.spellList, "after down")
+	}
+	if m.spellList.top == 0 {
+		t.Fatal("walking the highlight down never scrolled the window")
+	}
+	if c := m.spellChoices[m.spellList.selectedIndex()]; c.kind != spellToggle {
+		t.Fatalf("the last row is %+v, want the toggle", c)
+	}
+
+	// Every drawn line of the scrolled window answers for the row printed on
+	// it, which is what clickSpell relies on.
+	lines := strings.Split(ansi.Strip(m.viewSpell()), "\n")
+	lo, hi := m.spellList.window()
+	y := spellRowsRow
+	for i := lo; i < hi; i++ {
+		it := m.spellList.filtered[i].item
+		if it.selectable {
+			got, ok := m.spellList.rowAtLine(y - spellRowsRow)
+			if !ok || got != i {
+				t.Fatalf("rowAtLine(%d) = %d,%v, want row %d", y-spellRowsRow, got, ok, i)
+			}
+			if !strings.Contains(lines[y], it.name) {
+				t.Fatalf("line %d is %q, want the row %q", y, lines[y], it.name)
+			}
+		}
+		y += itemLines(it)
+	}
+
+	// And a click on the toggle, drawn only because the window scrolled to it,
+	// presses it.
+	was := m.spellOn
+	next, _ := m.Update(tea.MouseClickMsg{X: 4, Y: y - 1, Button: tea.MouseLeft})
+	m = next.(model)
+	if m.spellOn == was {
+		t.Errorf("a click on the last drawn row (the toggle) did not press it")
+	}
+}
+
+// TestSpellPanelResizes: a pane that shrinks under the panel shrinks its
+// window and keeps the highlight drawn, and one tall enough for every row
+// stops scrolling.
+func TestSpellPanelResizes(t *testing.T) {
+	m := withProjectSpellForm(t, "fix wrods")
+	m = openSpell(t, m)
+	for range len(spellRowNames(m)) {
+		m = typeInForm(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
+	m = next.(model)
+	if want := 12 - spellRowsRow - spellChromeBelow; m.spellList.maxLines != want {
+		t.Errorf("after shrinking: maxLines = %d, want %d", m.spellList.maxLines, want)
+	}
+	assertCursorDrawn(t, m.spellList, "after shrinking")
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 60})
+	m = next.(model)
+	if m.spellList.maxTop() != 0 || m.spellList.top != 0 {
+		t.Errorf("a pane tall enough for every row still scrolls (top=%d, maxTop=%d)",
+			m.spellList.top, m.spellList.maxTop())
+	}
+}
+
+// TestSpellPanelWindowNeedsAHeight: before the terminal has said how tall it
+// is there is nothing to fit, so the list is drawn whole, as every windowed
+// list is in that state.
+func TestSpellPanelWindowNeedsAHeight(t *testing.T) {
+	m := withProjectSpellForm(t, "fix wrods")
+	m.height = 0
+	m = openSpell(t, m)
+	if m.spellList.maxLines != 0 {
+		t.Errorf("with no known height maxLines = %d, want 0 (unwindowed)", m.spellList.maxLines)
+	}
+}
+
+// TestSpellPanelRightClickOpensOnAddInAShortPane: the right-click road opens
+// the panel with ✚ Add highlighted, and that row sits below the corrections,
+// so in a short pane the window has to be scrolled to it on open. The window
+// is sized before the rows go in (openSpellPanel) for exactly this.
+func TestSpellPanelRightClickOpensOnAddInAShortPane(t *testing.T) {
+	m := withProjectSpellForm(t, "fix wrods")
+	m.height = 12
+	spans := m.spellDict.Check(m.promptArea.Value())
+	if len(spans) != 1 {
+		t.Fatalf("want one flagged word, got %v", spans)
+	}
+	next, _ := m.openSpellPanelOn(spans[0])
+	m = next.(model)
+	if c := m.spellChoices[m.spellList.selectedIndex()]; c.kind != spellAdd {
+		t.Fatalf("the panel opened on %+v, want the ✚ Add row", c)
+	}
+	assertCursorDrawn(t, m.spellList, "on open")
+	if m.spellList.top == 0 {
+		t.Errorf("the ✚ Add row is drawn without scrolling; the fixture does not test the window")
+	}
+}
+
+// TestWheelScrollsTheSpellPanel: once windowed, the panel takes the wheel the
+// way the other windowed lists do. A notch moves the window a row, the filter
+// is untouched, and the highlight is dragged only when it would leave the
+// screen.
+func TestWheelScrollsTheSpellPanel(t *testing.T) {
+	m := shortSpellPanel(t, 14)
+	maxTop := m.spellList.maxTop()
+	m = wheelTo(m, maxTop+3, 10) // past the end: clamped at the last page
+	if m.spellList.top != maxTop {
+		t.Errorf("wheeled to the end: top = %d, want maxTop %d", m.spellList.top, maxTop)
+	}
+	assertCursorDrawn(t, m.spellList, "after the wheel down")
+	if v := m.spellList.input.Value(); v != "" {
+		t.Errorf("the wheel typed into the filter: %q", v)
+	}
+	if m.stage != stageSpell {
+		t.Errorf("the wheel left the panel (stage %v)", m.stage)
+	}
+	m = wheelTo(m, -(maxTop + 3), 10)
+	if m.spellList.top != 0 {
+		t.Errorf("back up: top = %d, want 0", m.spellList.top)
+	}
+	assertCursorDrawn(t, m.spellList, "after the wheel up")
+}
