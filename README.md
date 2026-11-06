@@ -2892,9 +2892,14 @@ under it. A prompt longer than the pane is cut to fit with an ellipsis, and
 `ctrl+v` reads the rest. Scrolling, the highlight and clicks work as on the
 Next List below. The [hover card](#the-hover-card) stays down while wrap is on.
 
-The chip costs the bar room: with it, the chips keep their chords from 128
-columns rather than about 108. Below that they show their words, and the footer
-names every chord again, `alt+z` included.
+The chip costs the bar room, so on the list it is the first to give way. With
+its word and chord the bar needs 128 columns (130 where the drop chord is
+`shift+enter`), up from about 108 without it, which would cost a 120-column
+pane every chord on the bar. So below that width the chip shrinks to its ☑ or ☐
+alone, the six action chips keep their chords down to 112 columns (114), and
+the footer adds `alt+z soft wrap`, the one chord the bar stopped showing.
+Narrower still, every chip shows its word without a chord, the wrap chip's word
+included, and the footer names every chord again.
 
 **On the Next List it is off by default**, keeping each item to one row cut at
 the pane's edge. On, each item's whole text is shown: its first line is the

@@ -2038,6 +2038,12 @@ type listAction struct {
 	hint     string
 	tint     string
 	needsSel bool
+	// yieldsFirst marks a chip that gives up its word and its chord before
+	// the rest of the row gives up any chord (tierLeanHints). It is for a
+	// chip that is not an action on the row's subject but a setting for the
+	// screen (the prompt list's ☑ Soft wrap), whose state the glyph alone
+	// already answers, so its word is the cheapest thing on the bar to lose.
+	yieldsFirst bool
 }
 
 // chipTier is how much of a button a bar has room to print. A narrowing pane
@@ -2053,12 +2059,31 @@ type listAction struct {
 //
 // The tiers are ordered widest-first so they can be compared: a tier at or below
 // tierLabels is one that still prints words.
+//
+// tierLeanHints is a step inside the first one, and only a bar with a
+// yieldsFirst chip ever lands on it (on any other bar it is exactly as wide as
+// tierHints, so barTier never picks it there). The prompt list needed it once
+// ☑ Soft wrap joined the bar: that chip alone moved the chords' threshold from
+// about 108 columns to 128, so a 120-column pane — a common one — lost every
+// chord on the bar and fell back to the two-line footer. Taking just its chord
+// off only got to 122; taking its word too gets to 112, and the chord it no
+// longer teaches goes back on the footer (listFooter).
+//
+//	tierHints      ✚ Add ctrl+a … » Next List ctrl+g   ☑ Soft wrap alt+z   128
+//	tierLeanHints  ✚ Add ctrl+a … » Next List ctrl+g   ☑                   112
+//	tierLabels     ✚ Add … » Next List   ☑ Soft wrap                        78
+//	tierIcons      ✚ ✎ ✉ ➦ ✖ » ☑
+//
+// At tierLabels the yielding chip gets its word back: once every chip is
+// words only, it is no cheaper than the others, and the footer is naming
+// every chord anyway.
 type chipTier int
 
 const (
-	tierHints  chipTier = iota // label and chord — "✔ Save enter"
-	tierLabels                 // label alone — "✔ Save"
-	tierIcons                  // the leading dingbat alone — "✔"
+	tierHints     chipTier = iota // label and chord — "✔ Save enter"
+	tierLeanHints                 // as tierHints, but a yieldsFirst chip is its glyph — "☑"
+	tierLabels                    // label alone — "✔ Save"
+	tierIcons                     // the leading dingbat alone — "✔"
 )
 
 // chipText is what a button prints at a given tier. Every bar goes through here,
@@ -2071,7 +2096,9 @@ const (
 // button hanging off the right of the label.
 func (a listAction) chipText(tier chipTier) string {
 	switch {
-	case tier <= tierHints && a.hint != "":
+	case tier == tierLeanHints && a.yieldsFirst:
+		return a.icon()
+	case tier <= tierLeanHints && a.hint != "":
 		return a.label + " " + a.hint
 	case tier <= tierLabels:
 		return a.label
@@ -2126,7 +2153,7 @@ func barTier(acts []listAction, width, indent int) chipTier {
 	if width <= 0 {
 		return tierHints
 	}
-	for _, tier := range []chipTier{tierHints, tierLabels} {
+	for _, tier := range []chipTier{tierHints, tierLeanHints, tierLabels} {
 		w := indent
 		for _, a := range acts {
 			w += lipgloss.Width(btnStyle.Render(a.chipText(tier))) + 1
@@ -2186,9 +2213,22 @@ func (m model) listActions() []listAction {
 		{label: "» Next List", hint: "ctrl+g", tint: colSky},
 		// ☑ Soft wrap, flush right (softwrap.go, listwrap.go): like the Next
 		// List's, a setting for the whole list rather than an act on a prompt,
-		// so it stands apart from the row of actions.
-		softWrapAction(m.listSoftWrap),
+		// so it stands apart from the row of actions. It is the first chip to
+		// shrink (yieldsFirst): at 120 columns it goes to its ☑ glyph so that
+		// the six actions keep their chords (N-090, see tierLeanHints).
+		listSoftWrapAction(m.listSoftWrap),
 	}
+}
+
+// listSoftWrapAction is the prompt list's ☑ Soft wrap chip: softWrapAction,
+// marked to give way first. Only the list's chip is marked. The editor's and
+// the Next List's bars have fewer, shorter chips, so their thresholds were not
+// moved past a common width by the toggle, and the editor's footer is budgeted
+// to exactly 120 cells with no room to start naming alt+z.
+func listSoftWrapAction(on bool) listAction {
+	a := softWrapAction(on)
+	a.yieldsFirst = true
+	return a
 }
 
 // setActionFocus moves the focus between the query box and the buttons, and
@@ -6151,6 +6191,19 @@ func (m model) listFooter() string {
 		"ctrl+↑/↓ or drag move", "ctrl+d hide closed", "ctrl+l view options", "ctrl+w clear done", "esc quit",
 		"right-click menu",
 	}
+	// At tierLeanHints the ☑ Soft wrap chip is its glyph alone, so its chord
+	// is the one the bar stopped teaching. It goes beside "ctrl+l view
+	// options", the other way to change how the list draws, and ahead of the
+	// concessions from the right: a glyph-only chip is the one button on the
+	// bar whose meaning the footer is now the only place to read.
+	if !m.barTeachesWrap() {
+		for i, s := range segs {
+			if s == "ctrl+l view options" {
+				segs = append(segs[:i+1], append([]string{"alt+z soft wrap"}, segs[i+1:]...)...)
+				break
+			}
+		}
+	}
 	// Wrapped onto a second line before anything concedes (footerRows): the
 	// list already budgets two footer lines for the narrow branch above
 	// (listChromeBelow), so the second line costs no row the list could use.
@@ -6215,7 +6268,9 @@ func (m model) actionBar() string {
 // narrower tier, a click-only action) or no dimmer tone to use (hintFg "")
 // renders as the one style it always was.
 func renderChipDimHint(st lipgloss.Style, hintFg string, a listAction, tier chipTier, text string) string {
-	if hintFg == "" || tier > tierHints || a.hint == "" {
+	// Asked of the text rather than of the tier alone: at tierLeanHints most
+	// chips carry their chord and a yieldsFirst chip does not.
+	if hintFg == "" || a.hint == "" || text != a.label+" "+a.hint {
 		return st.Render(text)
 	}
 	head := st.PaddingRight(0).Render(a.label + " ")
@@ -6263,11 +6318,21 @@ func (m model) barTier() chipTier {
 	return barTier(m.listActions(), m.width, indentWidth)
 }
 
-// barShowsHints reports whether the action bar is wide enough for every chip
-// to carry its key hint. The footer keys off the same answer — chords the
-// chips teach stay off it, and the moment the bar goes quiet the footer names
-// everything again — so the two can't both drop a chord at once.
+// barShowsHints reports whether the action bar is wide enough for its action
+// chips to carry their key hints. The footer keys off the same answer — chords
+// the chips teach stay off it, and the moment the bar goes quiet the footer
+// names everything again — so the two can't both drop a chord at once.
+//
+// tierLeanHints counts: there only ☑ Soft wrap has given up its chord, and
+// the footer names that one (barTeachesWrap).
 func (m model) barShowsHints() bool {
+	return m.barTier() <= tierLeanHints
+}
+
+// barTeachesWrap reports whether the ☑ Soft wrap chip is printing alt+z
+// itself. It is false at tierLeanHints, where the chip is its glyph alone and
+// the footer has to carry the chord.
+func (m model) barTeachesWrap() bool {
 	return m.barTier() == tierHints
 }
 

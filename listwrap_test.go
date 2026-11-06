@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -220,4 +221,85 @@ func TestListWrapPromptKeepsIndent(t *testing.T) {
 func listRowLines(view string) []string {
 	lines := strings.Split(view, "\n")
 	return lines[listRowsRow:max(len(lines)-listChromeBelow, listRowsRow)]
+}
+
+// TestListWrapChipYieldsFirst pins N-090: the ☑ Soft wrap chip moved the
+// list bar's chords threshold from about 108 columns to 128, so a 120-column
+// pane lost every chord and fell back to the two-line footer. The chip now
+// shrinks to its glyph first (tierLeanHints): at 120 the six action chips keep
+// their chords, the wrap chip is "☑" alone, and the footer names alt+z, the
+// one chord the bar stopped teaching. Checked with both spellings of the drop
+// chord, since shift+enter (kitty protocol) is two cells longer than alt+enter.
+func TestListWrapChipYieldsFirst(t *testing.T) {
+	for _, kb := range []bool{false, true} {
+		m := withTodo("ship it")
+		m.kbEnhanced = kb
+		m.width = 120
+		if got := m.barTier(); got != tierLeanHints {
+			t.Fatalf("kb=%v: a 120-column list bar is at tier %d, want tierLeanHints", kb, got)
+		}
+		if !m.barShowsHints() || m.barTeachesWrap() {
+			t.Fatalf("kb=%v: at 120 the actions should teach their chords and the wrap chip should not", kb)
+		}
+		chips := m.actionChips()
+		acts := m.listActions()
+		for i, a := range acts {
+			want := a.label + " " + a.hint
+			if a.yieldsFirst {
+				want = a.icon()
+			}
+			if chips[i].text != want {
+				t.Fatalf("kb=%v: chip %d prints %q, want %q", kb, i, chips[i].text, want)
+			}
+		}
+		// The wrap chip still sits flush right, and the drawn bar is as wide
+		// as the spans say, so a click on ☑ lands on it.
+		bar := m.actionBar()
+		if got, want := lipgloss.Width(bar), chips[len(chips)-1].end; got != want || want != 120 {
+			t.Fatalf("kb=%v: bar is %d wide, spans end at %d, pane is 120", kb, got, want)
+		}
+		footer := m.listFooter()
+		if !strings.Contains(footer, "alt+z soft wrap") {
+			t.Fatalf("kb=%v: footer must teach alt+z once the chip is a glyph:\n%s", kb, footer)
+		}
+		if strings.Contains(footer, "ctrl+a") || strings.Contains(footer, "ctrl+x") {
+			t.Fatalf("kb=%v: footer repeats a chord the bar still teaches:\n%s", kb, footer)
+		}
+	}
+
+	// Wide enough for every chord, the chip prints its own and the footer
+	// leaves it off.
+	m := withTodo("ship it")
+	m.width = 200
+	if m.barTier() != tierHints || !m.barTeachesWrap() {
+		t.Fatal("a 200-column bar should carry every chord, alt+z included")
+	}
+	if strings.Contains(m.listFooter(), "alt+z") {
+		t.Fatalf("footer repeats alt+z, which the chip teaches:\n%s", m.listFooter())
+	}
+
+	// Words only: the wrap chip gets its word back, like every other chip.
+	m.width = 78
+	if m.barTier() != tierLabels {
+		t.Fatalf("a 78-column bar is at tier %d, want labels", m.barTier())
+	}
+	if c := m.actionChips(); c[len(c)-1].text != softWrapAction(false).label {
+		t.Fatalf("at tierLabels the wrap chip prints %q, want its label", c[len(c)-1].text)
+	}
+}
+
+// TestLeanTierOnlyOnTheList: the other bars have no yieldsFirst chip, so
+// tierLeanHints is never picked for them — their hints threshold is unmoved.
+func TestLeanTierOnlyOnTheList(t *testing.T) {
+	m := newTestModel()
+	for w := 20; w <= 200; w++ {
+		m.width = w
+		for name, tier := range map[string]chipTier{
+			"form": m.formBarTier(), "next": m.nextBarTier(), "batch": m.batchBarTier(),
+		} {
+			if tier == tierLeanHints {
+				t.Fatalf("the %s bar picked tierLeanHints at %d columns", name, w)
+			}
+		}
+	}
 }

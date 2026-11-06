@@ -108,15 +108,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   fixtures at a temp `CATS_TODO_CONFIG_DIR` (or build the model from
   `defaultSettings()`).
 
-- **N-090** · raised `2026-1023-1405-prompt-list-soft-wrap` · value low
-  The prompt list's ☑ Soft wrap chip costs the bar its chords at common
-  widths: the chips keep their hints from 128 columns rather than about 108,
-  so a 120-column pane now shows words only and the two-line footer. Taking
-  the hint off that one chip only gets to 122. If that is missed, move the
-  list's toggle to the `ctrl+l` View panel (beside the priority order and
-  frozen toggles) and keep `alt+z`, or let the wrap chip alone shrink to its
-  glyph before the others lose their chords.
-
 - **N-093** · raised `2026-1024-1340-list-wheel-scroll` · value low
   Give the Export-to-project picker (`exportList`, `stageExport`) a scroll
   window. Its rows (cats workspaces, the other backlog, cdx recents, the
@@ -321,6 +312,19 @@ declined.
   waits on Claude Code.
 
 ## Closed
+
+- **N-090** · closed 2026-11-06, `2026-1106-1046-list-wrap-chip-yields-first` · raised `2026-1023-1405-prompt-list-soft-wrap`
+  — The wrap chip now shrinks to its glyph first. A new tier,
+  `tierLeanHints` (ui.go), sits between `tierHints` and `tierLabels`. It is
+  picked only by a bar with a `yieldsFirst` chip, and only the prompt list's
+  ☑ Soft wrap is one (`listSoftWrapAction`). There the six action chips keep
+  their chords and the wrap chip is ☑/☐ alone. That holds from 112 columns
+  (114 with `shift+enter`) up to 127 (129), so 120 keeps its chords. The
+  footer adds `alt+z soft wrap` after `ctrl+l view options` (`barTeachesWrap`).
+  At 120 that pushes `right-click menu`, the footer's last segment, off the
+  line. The View-panel option was not needed. Tests:
+  `TestListWrapChipYieldsFirst`, `TestLeanTierOnlyOnTheList`; README under
+  Soft wrap.
 
 - **N-084** · closed 2026-11-06 · raised `2026-1007-0200-batch-splitter-and-bracket-checkboxes`
   — A double-click on the composer's rule resets the split. `splitPressCount`
