@@ -371,3 +371,113 @@ func TestWheelScrollsTheSnippetsPicker(t *testing.T) {
 	}
 	assertCursorDrawn(t, m.snips.list, "snippets picker")
 }
+
+// tallTargetPicker is withTargets with more targets than its pane holds, the
+// window fitted the way a WindowSizeMsg fits it (applySizes).
+func tallTargetPicker(t *testing.T, n, height int) model {
+	t.Helper()
+	m := withTargets(n)
+	m.height = height
+	m.applySizes()
+	if m.targetList.maxTop() == 0 {
+		t.Fatalf("%d targets do not overflow a %d-line pane (maxRows=%d)", n, height, m.targetList.maxRows)
+	}
+	return m
+}
+
+// TestTargetPickerIsWindowed (N-091): the drop picker used to draw every
+// target and leave the pane to clip the rest, so a long list had no ▾ count
+// and arrow keys could walk the highlight out of sight. It now fits a window
+// to the pane: the frame stays within the height, the overflow is counted, the
+// highlight is always a drawn row, and a click still lands on the row under it
+// once the window has scrolled.
+func TestTargetPickerIsWindowed(t *testing.T) {
+	const height = 20
+	m := tallTargetPicker(t, 30, height)
+	if want := height - targetRowsRow - targetChromeBelow; m.targetList.maxRows != want {
+		t.Errorf("maxRows = %d, want %d (pane less the picker's chrome)", m.targetList.maxRows, want)
+	}
+	frame := m.viewTarget()
+	if n := strings.Count(frame, "\n") + 1; n > height {
+		t.Errorf("the picker draws %d lines into a %d-line pane:\n%s", n, height, frame)
+	}
+	if !strings.Contains(frame, overflowDownGlyph) {
+		t.Errorf("no %s count for the targets below the window:\n%s", overflowDownGlyph, frame)
+	}
+	for range 25 {
+		next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		m = next.(model)
+		assertCursorDrawn(t, m.targetList, "after down")
+	}
+	if m.targetList.top == 0 {
+		t.Fatal("walking the highlight down never scrolled the window")
+	}
+	// The click map walks the scrolled window: every drawn line answers for
+	// the target whose name is on it.
+	lines := strings.Split(ansi.Strip(m.viewTarget()), "\n")
+	lo, hi := m.targetList.window()
+	for i := lo; i < hi; i++ {
+		y := targetRowsRow + i - lo
+		got, ok := m.targetList.rowAtLine(y - targetRowsRow)
+		if !ok || got != i {
+			t.Fatalf("rowAtLine(%d) = %d,%v, want row %d", y-targetRowsRow, got, ok, i)
+		}
+		if name := m.targets[i].agent; !strings.Contains(lines[y], name+" ") && !strings.HasSuffix(lines[y], name) {
+			t.Fatalf("line %d is %q, want the row for %s", y, lines[y], name)
+		}
+	}
+}
+
+// TestTargetPickerResizes: a pane that shrinks under the picker shrinks its
+// window and brings the highlight back on screen, and one that grows tall
+// enough for every target drops the overflow.
+func TestTargetPickerResizes(t *testing.T) {
+	m := tallTargetPicker(t, 30, 30)
+	m.targetList.selectRef(25)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 15})
+	m = next.(model)
+	if want := 15 - targetRowsRow - targetChromeBelow; m.targetList.maxRows != want {
+		t.Errorf("after shrinking: maxRows = %d, want %d", m.targetList.maxRows, want)
+	}
+	assertCursorDrawn(t, m.targetList, "after shrinking")
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 60})
+	m = next.(model)
+	if m.targetList.maxTop() != 0 || m.targetList.top != 0 {
+		t.Errorf("a pane tall enough for every target still scrolls (top=%d, maxTop=%d)", m.targetList.top, m.targetList.maxTop())
+	}
+}
+
+// TestBuildTargetsSizesTheWindow: every road into the picker goes through
+// buildTargetsFor, so the window is fitted there rather than by each caller —
+// a picker opened without a resize since must still be windowed.
+func TestBuildTargetsSizesTheWindow(t *testing.T) {
+	m := newTestModel()
+	m.width, m.height = 120, 12
+	_, l := m.buildTargets()
+	if want := 12 - targetRowsRow - targetChromeBelow; l.maxRows != want {
+		t.Errorf("maxRows = %d, want %d", l.maxRows, want)
+	}
+	m.height = 0
+	if _, l = m.buildTargets(); l.maxRows != 0 {
+		t.Errorf("with no known height the picker should be unwindowed, got maxRows = %d", l.maxRows)
+	}
+}
+
+// TestWheelScrollsTheDropPicker: once windowed, the picker takes the wheel the
+// way the other windowed lists do — the page moves a row a notch, the query is
+// untouched, and the highlight is dragged only when it would leave the screen.
+func TestWheelScrollsTheDropPicker(t *testing.T) {
+	m := tallTargetPicker(t, 30, 20)
+	m = wheelTo(m, 3, 10)
+	if m.targetList.top != 3 {
+		t.Errorf("three notches: top = %d, want 3", m.targetList.top)
+	}
+	assertCursorDrawn(t, m.targetList, "after the wheel")
+	if m.targetList.input.Value() != "" {
+		t.Errorf("the wheel typed into the filter: %q", m.targetList.input.Value())
+	}
+	m = wheelTo(m, -3, 10)
+	if m.targetList.top != 0 {
+		t.Errorf("back up three: top = %d, want 0", m.targetList.top)
+	}
+}

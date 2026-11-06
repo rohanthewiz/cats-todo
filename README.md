@@ -291,8 +291,8 @@ the half of the answer you can already see for yourself.
 
 The **mouse wheel** scrolls the window too, here and on every other list that
 keeps one: the Next List page, the Batches page, the batch composer (each pane
-on its own, whichever the pointer is over), and the editor's `@` file picker
-and snippets picker. A notch moves the page one row under a still highlight, the way a pager scrolls,
+on its own, whichever the pointer is over), the editor's `@` file picker
+and snippets picker, and the drop picker. A notch moves the page one row under a still highlight, the way a pager scrolls,
 and the highlight is dragged along only when it would otherwise leave the
 screen, so the next `↑`/`↓` walks on from a row you can see. It is one row
 rather than one line because a row is never drawn half scrolled off, so a tall
@@ -303,8 +303,19 @@ wheel did nothing. That went unnoticed while a row was one line and the list
 mostly fitted, and showed up as soon as ☑ Soft wrap made the list outgrow the
 pane. The wheel is ignored while a context menu, a note pad or the composer's
 drop dialog is open, since each is anchored to its row or owns the screen, and
-during a drag. The lists with no window (the drop picker, the spelling panel,
-export and import) draw every row, so there is nothing for the wheel to move.
+during a drag. The lists with no window (the spelling panel, export and
+import) draw every row, so there is nothing for the wheel to move.
+
+The **drop picker** keeps a window of its own, fitted to the pane like the
+Batches page's and re-fitted when the pane resizes. It used to draw every target
+and let the pane clip the rest. That was fine for the handful of rows a drop
+usually offers, but a workspace with many panes, a few peers and the "more drop
+targets" rows unfolded ran past the bottom with no ▾ count, the arrow keys could
+walk the highlight out of sight, and the wheel had nothing to scroll. The window
+is fitted wherever the picker is built, so every way into it (a drop, a
+schedule, a batch's target, a Next List send, the unfold) opens it already
+windowed, and a click on a scrolled list still picks the target drawn under the
+pointer.
 
 The list's order is the backlog's own running order, and it is yours to set:
 **drag a prompt** with the mouse to put it where it belongs — the row takes a

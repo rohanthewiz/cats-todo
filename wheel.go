@@ -17,8 +17,8 @@
 // then one notch, which is the right feel for "the next prompt".
 //
 // Which lists answer it: every one that keeps a scroll window — the backlog,
-// the Next List, the Batches page, the composer's two panes, the @ file picker
-// and the snippets picker. The lists without a window (the drop picker, the
+// the Next List, the Batches page, the composer's two panes, the @ file picker,
+// the snippets picker and the drop picker. The lists without a window (the
 // spelling panel, export, import) draw every row and leave the pane to clip
 // them, so there is no window for a wheel to move; they take the wheel the
 // way they always have, by ignoring it.
@@ -127,5 +127,14 @@ func (m model) wheelFiles(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 func (m model) wheelSnippets(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.snips.list.scrollBy(wheelRows(msg))
+	return m, nil
+}
+
+// wheelTarget is the drop picker (sizeTargetWindow gives it the window). Nothing
+// floats over it, so it is a plain item window like the editor's pickers. The
+// query box keeps the keys, and a scroll never touches it: the wheel moves which
+// targets are in view, not which ones match.
+func (m model) wheelTarget(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	m.targetList.scrollBy(wheelRows(msg))
 	return m, nil
 }

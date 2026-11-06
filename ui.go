@@ -920,6 +920,8 @@ func (m model) route(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.wheelFiles(msg)
 		case stageSnippets:
 			return m.wheelSnippets(msg)
+		case stageTarget:
+			return m.wheelTarget(msg)
 		}
 	case hoverTickMsg:
 		// The list's dwell timer, answered above the stage switch for the same
@@ -5022,7 +5024,9 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 		items[i] = listItem{name: t.label, desc: t.desc, selectable: true, ref: i,
 			queryOnly: t.folded, browseOnly: t.kind == targetMore}
 	}
-	return targets, newFuzzyList("Filter targets…", items)
+	l := newFuzzyList("Filter targets…", items)
+	m.sizeTargetWindow(&l)
+	return targets, l
 }
 
 // leaveTarget is esc out of the picker: back to the screen the drop was begun
@@ -6405,6 +6409,42 @@ func (m model) formBarRow() int {
 // rows sit where the bar does on the list.
 const targetRowsRow = 4
 
+// targetChromeBelow is how many lines viewTarget spends under the rows: the
+// blank that separates them from the footer, and the footer itself at its
+// footerRowCap — budgeted at the cap, not at what this width happens to need,
+// so a pane that narrows into a two-line footer cannot push the last row off.
+const targetChromeBelow = 1 + footerRowCap
+
+// sizeTargetWindow fits the drop picker's scroll window to the pane: the lines
+// left under targetRowsRow once targetChromeBelow is spent, less what any
+// separator rows cost on top of one line per item (separatorLines — the window
+// is counted in items, the pane in lines). The Batches page sizes its list the
+// same way (sizeBatchesPage).
+//
+// Before this the picker had no window: every target was drawn and the pane
+// clipped what ran past the bottom. A short list never showed it, but a
+// workspace with many panes, a few peers and the "more drop targets" rows
+// unfolded ran off the end with no ▴/▾ count to say so, a highlight that
+// arrow keys could walk out of sight, and nothing for the wheel to move.
+//
+// It takes the list rather than reading m.targetList because the picker's one
+// constructor (buildTargetsFor, a value receiver) sizes the list it is about to
+// return, before the caller assigns it. Sizing there is what covers every road
+// into the picker — the list's drop, the Next List's send, the scheduler, the
+// batch's target and the "more" unfold — without each having to remember;
+// applySizes then keeps it fitted across resizes.
+//
+// An unknown height (before the first WindowSizeMsg, and in tests that send
+// none) leaves the list unwindowed, as sizeListWindow does: with no pane to fit
+// there is nothing to clip either.
+func (m model) sizeTargetWindow(l *fuzzyList) {
+	if m.height <= 0 {
+		l.setMaxRows(0)
+		return
+	}
+	l.setMaxRows(max(m.height-targetRowsRow-targetChromeBelow-l.separatorLines(), 1))
+}
+
 func (m model) viewForm() string {
 	var b strings.Builder
 	// The program title first, the same line the list opens with, so moving
@@ -7415,6 +7455,11 @@ func (m *model) applySizes() {
 	// Unwrapped rows are not cut to the pane and need nothing.
 	if m.listSoftWrap {
 		m.rebuildList()
+	}
+	// The drop picker's window answers to the height alone, so — like the
+	// backlog's — it is fitted ahead of the width floor below.
+	if m.stage == stageTarget {
+		m.sizeTargetWindow(&m.targetList)
 	}
 	w := m.width - 4
 	if w < 20 {

@@ -123,18 +123,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   frozen toggles) and keep `alt+z`, or let the wrap chip alone shrink to its
   glyph before the others lose their chords.
 
-- **N-091** · raised `2026-1024-1340-list-wheel-scroll` · value low
-  Give the drop picker (`targetList`, `stageTarget`) a scroll window. It
-  has none: every row is drawn and the pane clips what runs past the
-  bottom, so a long target list (many panes, peers, the unfolded "more"
-  rows) has no ▴/▾ counts, a highlight that can walk off screen, and a
-  wheel with nothing to move. Size it from the pane (`setMaxRows`, minus
-  `separatorLines` for its headings) in `applySizes`, as the Batches page
-  does, keep `rowAtLine` clicks under the pointer, and only
-  then can it take the wheel the way the windowed lists do (`wheel.go`:
-  route its stage in `Update`'s `tea.MouseWheelMsg` case to
-  `fuzzyList.scrollBy`).
-
 - **N-092** · raised `2026-1024-1340-list-wheel-scroll` · value low
   Give the spelling panel's list (`spellList`, `stageSpell`) a scroll
   window. A prompt with many misspellings draws every row and the pane
@@ -349,6 +337,14 @@ declined.
 
 ## Closed
 
+- **N-091** · closed 2026-11-06 · raised `2026-1024-1340-list-wheel-scroll`
+  — The drop picker is windowed: `sizeTargetWindow` (ui.go) fits
+  `setMaxRows` to the pane (less `targetRowsRow`, the blank + footer cap,
+  and `separatorLines`), called from `buildTargetsFor` so every road in is
+  covered and from `applySizes` on resize; `wheelTarget` (wheel.go) routes
+  `tea.MouseWheelMsg` to `fuzzyList.scrollBy`. Tests in wheel_test.go pin
+  the frame height, the ▾ count, the highlight staying drawn, `rowAtLine`
+  on a scrolled window, resize and the wheel.
 - **N-097** · closed 2026-11-05, `2026-1105-1948-model-picker-session-only` · raised `2026-1105-1948-model-picker-session-only`
   — Released v0.47.0: typed drops (N-072) and the session-only model pick
   (N-079) committed as `d7ca6ea`, both version files bumped,
