@@ -753,6 +753,9 @@ func (m model) applyPeers(found []peer) (tea.Model, tea.Cmd) {
 		m.importList.setItems(importItems(m.importTargets))
 		m.importList.input.SetValue(query)
 		m.importList.filter()
+		// More peers is more rows under a window sized for fewer; re-fitted
+		// before selectRef so its scroll lands in the window that is drawn.
+		m.sizeImportWindow()
 		m.importList.selectRef(cursor)
 	}
 	return m, nil

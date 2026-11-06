@@ -490,7 +490,7 @@ func (m model) updatePeerAddr(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc":
 		if m.peerAddrFor == peerAddrForImport {
-			m.stage = stageImport
+			m.backToImport()
 		} else {
 			m.stage = stageExport
 		}

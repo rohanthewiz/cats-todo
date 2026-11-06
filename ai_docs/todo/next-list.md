@@ -118,14 +118,6 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   route its stage in `Update`'s `tea.MouseWheelMsg` case to
   `fuzzyList.scrollBy`).
 
-- **N-094** · raised `2026-1024-1340-list-wheel-scroll` · value low
-  Give the import picker (`importList`, `stageImport`) a scroll window,
-  for the same reason as N-093: every row drawn, the pane clipping what
-  does not fit. Size it from the pane, and only
-  then can it take the wheel the way the windowed lists do (`wheel.go`:
-  route its stage in `Update`'s `tea.MouseWheelMsg` case to
-  `fuzzyList.scrollBy`).
-
 ## Validate
 
 Items whose remaining work is purely testing: hand checks in a real terminal
@@ -304,6 +296,17 @@ declined.
 
 ## Closed
 
+- **N-094** · closed 2026-11-06 · raised `2026-1024-1340-list-wheel-scroll`
+  — The import picker is windowed: `sizeImportWindow` (import.go) fits
+  `setMaxRows` to the pane (less `importRowsRow`, `importChromeBelow` —
+  the blank + footer cap — and `separatorLines`), called from
+  `beginImport`, from `applyPeers` (the beacon's answer grows the list
+  under the window), from `applySizes`, and from `backToImport` on the
+  return from the file browser or the host prompt; `wheelImport`
+  (wheel.go) routes `tea.MouseWheelMsg` to `fuzzyList.scrollBy`. Tests in
+  wheel_test.go pin the frame height, the ▾ count, the highlight staying
+  drawn, `rowAtLine` on a scrolled window, resize, the refit on the way
+  back, and the wheel.
 - **N-096** · closed 2026-11-06 · raised `2026-1105-1848-typed-drops-pane-send-keys`
   — Answered from Claude Code 2.1.319's bundle. The survey has no keys of
   its own: a digit-capture hook watches the main input and rates only when

@@ -132,6 +132,7 @@ func (m model) beginImport() (tea.Model, tea.Cmd) {
 	}
 	m.importTargets = buildImportTargets(mergePeers(knownPeers(), m.peers))
 	m.importList = newFuzzyList("Filter sources…", importItems(m.importTargets))
+	m.sizeImportWindow()
 	m.stage = stageImport
 	return m, tea.Batch(textinput.Blink, discoverPeersCmd())
 }
@@ -207,6 +208,57 @@ func (m model) clickImport(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 // export picker's geometry exactly, since viewImport draws the same chrome.
 // TestImportRowsMatchWhatIsDrawn pins it to a real frame.
 const importRowsRow = exportRowsRow
+
+// importChromeBelow is what viewImport spends under the rows: the blank before
+// the footer and the footer at its footerRowCap. It is the drop picker's
+// budget (targetChromeBelow) because it is the drop picker's chrome — counted
+// at the cap rather than at this width's footer, so a pane that narrows into a
+// two-line footer cannot push the last source off the bottom.
+const importChromeBelow = 1 + footerRowCap
+
+// sizeImportWindow fits the import picker's scroll window to the pane: the
+// lines under importRowsRow once importChromeBelow is spent, less what the
+// "On the local network" heading costs on top of one line per item
+// (separatorLines — the window counts items, the pane counts lines). It is
+// sizeTargetWindow for this picker; the arithmetic is the same because the
+// frame is the same.
+//
+// Before this the picker had no window: every source was drawn and the pane
+// clipped whatever ran past the bottom. Three rows never showed it, but a
+// network with a room full of cats-todo peers (and the remembered ones that
+// did not answer) does, and then there was no ▾ count, the arrow keys could
+// walk the highlight out of sight, and the wheel had nothing to move.
+//
+// Where it is called, and why each:
+//
+//	beginImport      the picker's one constructor (ctrl+r)
+//	applyPeers       the beacon's answer lands while the picker is up and
+//	                 grows the list under an already-sized window
+//	applySizes       a resize while the picker is the stage
+//	backToImport     a return from the file browser or the host prompt —
+//	                 a resize on either of those stages did not reach this list
+//
+// An unknown height (before the first WindowSizeMsg, and in tests that send
+// none) leaves the list unwindowed, as sizeTargetWindow does: with no pane to
+// fit there is nothing to clip either. The heading is counted from every item,
+// not the filtered ones, so a filter that drops it only leaves the window a
+// little conservative, never too tall.
+func (m *model) sizeImportWindow() {
+	if m.height <= 0 {
+		m.importList.setMaxRows(0)
+		return
+	}
+	m.importList.setMaxRows(max(m.height-importRowsRow-importChromeBelow-m.importList.separatorLines(), 1))
+}
+
+// backToImport returns to the picker from a screen it opened (the file
+// browser, the host prompt), re-fitting its window on the way: the pane may
+// have been resized while that screen was up, and applySizes fits only the
+// stage it finds.
+func (m *model) backToImport() {
+	m.stage = stageImport
+	m.sizeImportWindow()
+}
 
 // beginImportBrowse opens the folder browser to find a bundle: files as well as
 // folders this time, and only the files that are bundles (see

@@ -580,7 +580,7 @@ func (m model) beginExportBrowse() (tea.Model, tea.Cmd) {
 // be the one that quietly breaks when that changes.
 func (m model) closeFiles() (tea.Model, tea.Cmd) {
 	if m.files.purpose == filesForImport {
-		m.stage = stageImport
+		m.backToImport()
 		return m, textinput.Blink
 	}
 	if m.files.browsingForExport() {

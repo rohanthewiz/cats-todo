@@ -18,10 +18,10 @@
 //
 // Which lists answer it: every one that keeps a scroll window — the backlog,
 // the Next List, the Batches page, the composer's two panes, the @ file picker,
-// the snippets picker, the drop picker and the spelling panel. The lists
-// without a window (export, import) draw every row and leave the pane to clip
-// them, so there is no window for a wheel to move; they take the wheel the
-// way they always have, by ignoring it.
+// the snippets picker, the drop picker, the spelling panel and the import
+// picker. The one list without a window (export) draws every row and leaves
+// the pane to clip them, so there is no window for a wheel to move; it takes
+// the wheel the way it always has, by ignoring it.
 package main
 
 import tea "charm.land/bubbletea/v2"
@@ -145,5 +145,13 @@ func (m model) wheelTarget(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 // steps over a blank spacer as one row, the same as over a suggestion.
 func (m model) wheelSpell(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.spellList.scrollBy(wheelRows(msg))
+	return m, nil
+}
+
+// wheelImport is the import picker (sizeImportWindow gives it the window). The
+// drop picker's twin: nothing floats over it, the query box keeps the keys, and
+// the wheel moves which sources are in view, not which ones match.
+func (m model) wheelImport(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	m.importList.scrollBy(wheelRows(msg))
 	return m, nil
 }

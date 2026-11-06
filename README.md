@@ -292,7 +292,8 @@ the half of the answer you can already see for yourself.
 The **mouse wheel** scrolls the window too, here and on every other list that
 keeps one: the Next List page, the Batches page, the batch composer (each pane
 on its own, whichever the pointer is over), the editor's `@` file picker
-and snippets picker, the drop picker, and the spelling panel. A notch moves the page one row under a still highlight, the way a pager scrolls,
+and snippets picker, the drop picker, the spelling panel, and the import
+picker. A notch moves the page one row under a still highlight, the way a pager scrolls,
 and the highlight is dragged along only when it would otherwise leave the
 screen, so the next `↑`/`↓` walks on from a row you can see. It is one row
 rather than one line because a row is never drawn half scrolled off, so a tall
@@ -303,8 +304,8 @@ wheel did nothing. That went unnoticed while a row was one line and the list
 mostly fitted, and showed up as soon as ☑ Soft wrap made the list outgrow the
 pane. The wheel is ignored while a context menu, a note pad or the composer's
 drop dialog is open, since each is anchored to its row or owns the screen, and
-during a drag. The lists with no window (export and import) draw every row,
-so there is nothing for the wheel to move.
+during a drag. The one list with no window (export) draws every row, so there
+is nothing for the wheel to move.
 
 The **drop picker** keeps a window of its own, fitted to the pane like the
 Batches page's and re-fitted when the pane resizes. It used to draw every target
@@ -1389,6 +1390,15 @@ in a different one. A prompt finished before the stamp existed says just
 local network. The disk row browses with everything that is not a bundle
 filtered out — a downloads folder holds hundreds of files and exactly one of
 them can be imported.
+
+The picker keeps a scroll window fitted to the pane, the way the drop picker
+does, and the mouse wheel moves it. Three rows never needed one, but every
+cats-todo the beacon finds is a row (and so is every remembered machine that
+did not answer), so a busy network ran the list past the bottom with no ▾
+count and a highlight the arrow keys could walk out of sight. The window is
+re-fitted when the pane resizes, when the beacon's answer adds rows under it,
+and on the way back from the file browser or the host prompt, since a resize
+while either was up did not reach the picker.
 
 Whatever the source, the bundle is read *before* anything is written and what
 would happen goes on screen first:

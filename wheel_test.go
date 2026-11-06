@@ -481,3 +481,145 @@ func TestWheelScrollsTheDropPicker(t *testing.T) {
 		t.Errorf("back up three: top = %d, want 0", m.targetList.top)
 	}
 }
+
+// tallImportPicker is the import picker (ctrl+r) in a pane of the given
+// height, with n peers answering the beacon — more sources than the pane
+// holds. The peers arrive through applyPeers, the road the beacon's answer
+// takes, so the window is the one that answer leaves behind.
+func tallImportPicker(t *testing.T, n, height int) model {
+	t.Helper()
+	m := importModel(t)
+	m.height = height
+	next, _ := m.Update(pressKey("ctrl+r"))
+	m = next.(model)
+	if m.stage != stageImport {
+		t.Fatalf("ctrl+r → stage %v, want stageImport", m.stage)
+	}
+	found := make([]peer, n)
+	for i := range found {
+		found[i] = peer{name: fmt.Sprintf("studio-%02d", i), addr: fmt.Sprintf("10.0.0.%d:7420", i+1)}
+	}
+	next, _ = m.applyPeers(found)
+	m = next.(model)
+	if m.importList.maxTop() == 0 {
+		t.Fatalf("%d sources do not overflow a %d-line pane (maxRows=%d)", len(m.importTargets), height, m.importList.maxRows)
+	}
+	return m
+}
+
+// TestImportPickerIsWindowed (N-094): the import picker drew every source and
+// left the pane to clip the rest, so a network full of peers had no ▾ count
+// and the arrow keys could walk the highlight out of sight. It now fits a
+// window to the pane: the frame stays within the height, the overflow is
+// counted, the highlight is always a drawn row, and a click still lands on the
+// source under it once the window has scrolled.
+func TestImportPickerIsWindowed(t *testing.T) {
+	const height = 20
+	m := tallImportPicker(t, 30, height)
+	want := height - importRowsRow - importChromeBelow - m.importList.separatorLines()
+	if m.importList.maxRows != want {
+		t.Errorf("maxRows = %d, want %d (pane less the picker's chrome and its heading)", m.importList.maxRows, want)
+	}
+	frame := m.viewImport()
+	if n := strings.Count(frame, "\n") + 1; n > height {
+		t.Errorf("the picker draws %d lines into a %d-line pane:\n%s", n, height, frame)
+	}
+	if !strings.Contains(frame, overflowDownGlyph) {
+		t.Errorf("no %s count for the sources below the window:\n%s", overflowDownGlyph, frame)
+	}
+	for range 25 {
+		next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		m = next.(model)
+		assertCursorDrawn(t, m.importList, "after down")
+	}
+	// Scrolled past the heading (row 1), so every drawn line is one source and
+	// the click map is a straight offset from importRowsRow.
+	lo, hi := m.importList.window()
+	if lo < 2 {
+		t.Fatalf("walking the highlight down left the window at top %d, still over the heading", lo)
+	}
+	lines := strings.Split(ansi.Strip(m.viewImport()), "\n")
+	for i := lo; i < hi; i++ {
+		y := importRowsRow + i - lo
+		got, ok := m.importList.rowAtLine(y - importRowsRow)
+		if !ok || got != i {
+			t.Fatalf("rowAtLine(%d) = %d,%v, want row %d", y-importRowsRow, got, ok, i)
+		}
+		if label := m.importTargets[i].label; !strings.Contains(lines[y], label) {
+			t.Fatalf("line %d is %q, want the row for %s", y, lines[y], label)
+		}
+	}
+}
+
+// TestImportPickerResizes: a pane that shrinks under the picker shrinks its
+// window and keeps the highlight on screen, and one tall enough for every
+// source drops the overflow.
+func TestImportPickerResizes(t *testing.T) {
+	m := tallImportPicker(t, 30, 30)
+	m.importList.selectRef(len(m.importTargets) - 2)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 15})
+	m = next.(model)
+	if want := 15 - importRowsRow - importChromeBelow - m.importList.separatorLines(); m.importList.maxRows != want {
+		t.Errorf("after shrinking: maxRows = %d, want %d", m.importList.maxRows, want)
+	}
+	assertCursorDrawn(t, m.importList, "after shrinking")
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 60})
+	m = next.(model)
+	if m.importList.maxTop() != 0 || m.importList.top != 0 {
+		t.Errorf("a pane tall enough for every source still scrolls (top=%d, maxTop=%d)", m.importList.top, m.importList.maxTop())
+	}
+}
+
+// TestImportWindowRefitsOnTheWayBack: the host prompt (and the file browser)
+// are stages of their own, so a resize while one is up does not reach the
+// picker's list. Coming back re-fits it — otherwise the picker would return
+// with the old pane's window, too tall for a pane that shrank.
+func TestImportWindowRefitsOnTheWayBack(t *testing.T) {
+	m := tallImportPicker(t, 30, 40)
+	next, _ := m.beginPeerAddr(peerAddrForImport)
+	m = next.(model)
+	if m.stage != stagePeerAddr {
+		t.Fatalf("stage = %v, want the host prompt", m.stage)
+	}
+	next, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 15})
+	m = next.(model)
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = next.(model)
+	if m.stage != stageImport {
+		t.Fatalf("esc from the host prompt → stage %v, want stageImport", m.stage)
+	}
+	if want := 15 - importRowsRow - importChromeBelow - m.importList.separatorLines(); m.importList.maxRows != want {
+		t.Errorf("back on the picker: maxRows = %d, want %d (fitted to the pane it returned to)", m.importList.maxRows, want)
+	}
+}
+
+// TestBeginImportUnwindowedWithoutAHeight: before the first WindowSizeMsg
+// there is no pane to fit, so the picker opens unwindowed rather than with a
+// one-row window.
+func TestBeginImportUnwindowedWithoutAHeight(t *testing.T) {
+	m := importModel(t)
+	m.height = 0
+	next, _ := m.Update(pressKey("ctrl+r"))
+	if l := next.(model).importList; l.maxRows != 0 {
+		t.Errorf("with no known height the picker should be unwindowed, got maxRows = %d", l.maxRows)
+	}
+}
+
+// TestWheelScrollsTheImportPicker: once windowed, the import picker takes the
+// wheel the way the drop picker does — a row a notch, the query untouched, the
+// highlight dragged only when it would leave the screen.
+func TestWheelScrollsTheImportPicker(t *testing.T) {
+	m := tallImportPicker(t, 30, 20)
+	m = wheelTo(m, 3, 10)
+	if m.importList.top != 3 {
+		t.Errorf("three notches: top = %d, want 3", m.importList.top)
+	}
+	assertCursorDrawn(t, m.importList, "after the wheel")
+	if m.importList.input.Value() != "" {
+		t.Errorf("the wheel typed into the filter: %q", m.importList.input.Value())
+	}
+	m = wheelTo(m, -3, 10)
+	if m.importList.top != 0 {
+		t.Errorf("back up three: top = %d, want 0", m.importList.top)
+	}
+}
