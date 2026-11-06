@@ -238,18 +238,19 @@ func TestRunningPaneRowShowsContextFill(t *testing.T) {
 	}
 }
 
-// TestRunningClaudeRowSaysModelAndEffortWontApply: a drop into a running pane
-// no longer switches its model or effort (N-070 — since Claude Code 2.1.283 a
-// typed `/model X` or `/effort X` also saves the pick as the user's default
-// for new sessions), so the row has to say so before the pick, or a prompt
-// set to sonnet would quietly run on whatever the pane is on. A new-session
-// row still takes them as launch flags and says nothing.
+// TestRunningClaudeRowSaysModelAndEffortWontApply: while a drop into a running
+// pane could not switch its model or effort (N-070 — since Claude Code 2.1.283
+// a typed `/model X` or `/effort X` also saves the pick as the user's default),
+// the row said so. The /model picker's session-only pick (N-079) carries both
+// now, so a running claude row no longer warns about them, while permission
+// mode, which has no road, is still named. A new-session row takes them as
+// launch flags and says nothing.
 func TestRunningClaudeRowSaysModelAndEffortWontApply(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	m, _, _ := newModelInTemp(t)
 	m.ctx.WorkspaceID = "w1"
 	m.nextDrop = &nextSend{todo: Todo{Title: "t", Prompt: "p",
-		Session: &SessionOpts{Model: "sonnet", Effort: "high"}}}
+		Session: &SessionOpts{Model: "sonnet", Effort: "high", Permission: permPlan}}}
 	m.client = fakeCatsSocket(t,
 		[]wire.PaneInfo{
 			{Pane: 1, Handle: "w1:p1", PaneMeta: wire.PaneMeta{Agent: "claude", AgentState: "idle", Cwd: "/here"}},
@@ -268,8 +269,11 @@ func TestRunningClaudeRowSaysModelAndEffortWontApply(t *testing.T) {
 			}
 		}
 	}
-	if want := "the session's model/effort won't be applied to a running claude"; !strings.Contains(pane, want) {
+	if want := "the session's permission mode won't be applied to a running claude"; !strings.Contains(pane, want) {
 		t.Errorf("running claude row = %q, want it to contain %q", pane, want)
+	}
+	if strings.Contains(pane, "model") || strings.Contains(pane, "effort") {
+		t.Errorf("running claude row still warns about model/effort the picker now sets: %q", pane)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -45,9 +46,13 @@ func TestWithPasteAsk(t *testing.T) {
 	}
 }
 
-// recordingSocket is a cats control socket that answers pane.send_input and
-// agent.focus and remembers every text it was sent, in order.
-func recordingSocket(t *testing.T) (*catsClient, func() []string) {
+// recordingSocket is a cats control socket that answers pane.send_input,
+// pane.send_keys and agent.focus and remembers every message it was sent, in
+// order: a paste as "paste <text>", and a run of key calls as one
+// "typed <text>" (strokesText, so a newline reads "\n" and Enter "⏎"). With
+// oldServer set it answers pane.send_keys the way a cats server older than
+// the verb does.
+func recordingSocket(t *testing.T, oldServer bool) (*catsClient, func() []string) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "ctd")
 	if err != nil {
@@ -74,11 +79,28 @@ func recordingSocket(t *testing.T) (*catsClient, func() []string) {
 				var req ctlproto.Request
 				_ = json.Unmarshal(line, &req)
 				resp := ctlproto.Response{ID: req.ID, OK: true}
-				if req.Method == wire.CmdPaneSendInput {
+				switch req.Method {
+				case wire.CmdPaneSendInput:
 					var p wire.SendInputParams
 					_ = json.Unmarshal(req.Params, &p)
 					mu.Lock()
-					sent = append(sent, p.Text)
+					sent = append(sent, "paste "+p.Text)
+					mu.Unlock()
+				case wire.CmdPaneSendKeys:
+					if oldServer {
+						// cats' dispatcher's words for a command it lacks.
+						resp = ctlproto.Response{ID: req.ID, Error: `command "pane.send_keys" not supported yet (WS2 in progress)`}
+						break
+					}
+					var p wire.SendKeysParams
+					_ = json.Unmarshal(req.Params, &p)
+					mu.Lock()
+					// Consecutive key calls are one message being typed.
+					if n := len(sent); n > 0 && strings.HasPrefix(sent[n-1], "typed ") && !strings.HasSuffix(sent[n-1], "⏎") {
+						sent[n-1] += strokesText(p.Keys)
+					} else {
+						sent = append(sent, "typed "+strokesText(p.Keys))
+					}
 					mu.Unlock()
 				}
 				b, _ := json.Marshal(resp)
@@ -93,11 +115,12 @@ func recordingSocket(t *testing.T) (*catsClient, func() []string) {
 	}
 }
 
-// TestDropIntoPaneLeadsWithTheAsk drives a real drop into a running pane and
-// reads what reached the wire. The ask goes on the message, and the /clear
-// before it stays a bare command (N-072).
+// TestDropIntoPaneLeadsWithTheAsk drives a real drop into a running pane on a
+// cats server without pane.send_keys and reads what reached the wire. The
+// prompt falls back to the paste, so the ask goes on it, and the /clear before
+// it stays a bare command (N-072 (b), the interim that old servers still get).
 func TestDropIntoPaneLeadsWithTheAsk(t *testing.T) {
-	client, sent := recordingSocket(t)
+	client, sent := recordingSocket(t, true)
 	act := pendingAction{
 		todo:   Todo{Title: "t", Prompt: "fix the flaky test", Session: &SessionOpts{Clear: true}},
 		target: dropTarget{kind: targetExistingPane, pane: 7, agent: "claude"},
@@ -107,8 +130,28 @@ func TestDropIntoPaneLeadsWithTheAsk(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sent()
-	want := []string{"/clear", pasteAsk + "\n\nfix the flaky test"}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+	want := []string{"paste /clear", "paste " + pasteAsk + "\n\nfix the flaky test"}
+	if !slices.Equal(got, want) {
+		t.Errorf("sent %q, want %q", got, want)
+	}
+}
+
+// TestDropIntoPaneTypes is the same drop on a cats server with
+// pane.send_keys: /clear is still pasted bare, and the prompt is typed — no
+// ask, newlines as shift+Enter — then submitted with its own Enter (N-072 (a)).
+func TestDropIntoPaneTypes(t *testing.T) {
+	client, sent := recordingSocket(t, false)
+	act := pendingAction{
+		todo:   Todo{Title: "t", Prompt: "fix the flaky test\nand say why", Session: &SessionOpts{Clear: true}},
+		target: dropTarget{kind: targetExistingPane, pane: 7, agent: "claude"},
+		mode:   dropRun,
+	}
+	if _, err := performDrop(client, act); err != nil {
+		t.Fatal(err)
+	}
+	got := sent()
+	want := []string{"paste /clear", "typed fix the flaky test\nand say why⏎"}
+	if !slices.Equal(got, want) {
 		t.Errorf("sent %q, want %q", got, want)
 	}
 }

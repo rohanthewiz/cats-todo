@@ -618,10 +618,11 @@ func (m *model) loopDispatch(lr *loopRunner, now time.Time) tea.Cmd {
 	case loopPhaseBetween:
 		return m.loopSendLine(lr, now, loopPhaseBetween, lr.opts.Between)
 	case loopPhaseFinish:
-		// The finish is a request of the user's, typed as a paste like any drop,
-		// so it carries the same lead (withPasteAsk, N-072). The between command
-		// does not: it is the user's own command line, usually a slash command.
-		return m.loopSendLine(lr, now, loopPhaseFinish, withPasteAsk(m.loopFinishText(lr.batch)))
+		// The finish is a request of the user's, delivered like any drop: typed
+		// into a claude pane, else pasted with the lead (deliverPrompt, N-072).
+		// The between command goes as the user's own command line (deliverLine),
+		// usually a slash command, never with a lead. loopSendLine picks by phase.
+		return m.loopSendLine(lr, now, loopPhaseFinish, m.loopFinishText(lr.batch))
 	}
 	return nil
 }
@@ -695,8 +696,9 @@ func (m *model) loopSendPrompt(lr *loopRunner, now time.Time) tea.Cmd {
 //   - In the same session, every prompt after the first goes into the pane the
 //     first one opened, as a drop into a running pane — so the prompt's own
 //     pane setup is applied to it there (applyPaneSetup), just as a single
-//     drop into that pane would apply it: /clear, and not the model or effort
-//     (paneSetsModelEffort, N-070).
+//     drop into that pane would apply it: /clear, then the model and effort
+//     through the /model picker, for that session only (pickSessionOnly,
+//     N-079).
 //   - In the same session, the finish (commit / push / wrap, and the release)
 //     is lifted out of every prompt and sent once, after the last
 //     (loopFinishText): each step committing and pushing on its own would be
@@ -800,8 +802,16 @@ func (m *model) loopSendLine(lr *loopRunner, now time.Time, what, text string) t
 	lr.sending, lr.seen = true, false
 	m.dropping = true
 	client, id := m.client, next.ID
+	// The agent decides typed or pasted (typing.go); it is the one loopAction
+	// aims the same-session steps at.
+	agent := firstNonEmpty(lr.batch.Target.Command, "claude")
 	return func() tea.Msg {
-		err := client.sendInput(pane, text, true)
+		var err error
+		if what == loopPhaseFinish {
+			err = deliverPrompt(client, pane, agent, text, true, false)
+		} else {
+			err = deliverLine(client, pane, agent, text)
+		}
 		return loopSentMsg{batchID: id, what: what, err: err, landing: dropLanding{pane: pane}}
 	}
 }

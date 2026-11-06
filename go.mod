@@ -19,7 +19,7 @@ require (
 	// and let the compiler name whatever moved. (internal/ctlproto and
 	// internal/integration are still hand-copied — those live under cats'
 	// internal/ and cannot be imported.)
-	github.com/rohanthewiz/cats v0.5.1-0.20261016212909-ab1d06a9726b
+	github.com/rohanthewiz/cats v0.5.1-0.20261106003740-8a9937c4e8e6
 	github.com/sahilm/fuzzy v0.1.3
 	golang.org/x/sys v0.46.0
 )

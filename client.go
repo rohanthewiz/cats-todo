@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -134,6 +135,20 @@ func (c *catsClient) sendInput(pane uint32, text string, submit bool) error {
 		wire.SendInputParams{Pane: pane, Text: text, Submit: submit}, nil, callTimeout)
 }
 
+// sendKeys presses keys in a pane (pane.send_keys): typed text and named keys,
+// encoded by the server as real keystrokes under the pane's live keyboard
+// modes, so the app reads typing rather than a paste. typing.go paces calls to
+// it; one call is one write. A server older than the verb answers "not
+// supported", which comes back as errNoSendKeys so the caller can paste
+// instead — nothing reached the pane in that case.
+func (c *catsClient) sendKeys(pane uint32, keys []wire.KeyStroke) error {
+	err := c.call(wire.CmdPaneSendKeys, wire.SendKeysParams{Pane: pane, Keys: keys}, nil, callTimeout)
+	if err != nil && strings.Contains(err.Error(), strconv.Quote(wire.CmdPaneSendKeys)+" not supported") {
+		return errNoSendKeys
+	}
+	return err
+}
+
 // waitForOutput blocks until the pane's output matches pattern (a substring, or
 // a regexp when regex is set) or timeout elapses, reporting whether it matched.
 // The server matches the live output stream seeded with the current screen, so
@@ -161,6 +176,16 @@ func (c *catsClient) waitForOutputIn(pane uint32, pattern string, regex bool, li
 		return false, err
 	}
 	return out.Matched, nil
+}
+
+// capture returns the pane's visible screen (the `capture` verb, scope 0) as
+// plain text, soft-wrapped rows rejoined. It is one round trip and reads the
+// screen as it stands, which is what a driver that decides its next key from
+// the last redraw needs; waitForOutput instead answers one pattern at a time.
+func (c *catsClient) capture(pane uint32) (string, error) {
+	var out wire.CaptureResult
+	err := c.call(wire.CmdCapture, wire.CaptureParams{Pane: pane, Unwrap: true}, &out, callTimeout)
+	return out.Text, err
 }
 
 // tabCreate opens a new tab in the active workspace, returning the new tab's

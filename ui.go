@@ -4976,11 +4976,10 @@ func (m model) buildTargetsFor(all bool) ([]dropTarget, fuzzyList) {
 			}
 			// Whatever of the prompt's session options a running pane won't
 			// get is said here, before the pick, for the same reason flagNote
-			// is: permission mode anywhere, and model and effort too while
-			// paneSetsModelEffort is off (N-070: the only way to switch them
-			// would save the switch as the user's default). "Won't be
-			// applied" rather than "can't be set", since on claude they could
-			// be; the drop chooses not to.
+			// is: permission mode anywhere, and model and effort on any agent
+			// but claude, which takes them through the /model picker's
+			// session-only pick (N-079), and on claude too if
+			// paneSetsModelEffort is ever turned off again.
 			if lost := td.Session.paneUnapplied(p.Agent); lost != "" {
 				desc += " · the session's " + lost + " won't be applied to a running " + p.Agent
 			}

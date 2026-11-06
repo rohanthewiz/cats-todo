@@ -2924,23 +2924,27 @@ they are; the picker says so on any other agent's row, and the prompt still
 goes.
 
 A drop into an **existing** pane has no command line. What it can still do is
-send `/clear` as its own submitted message ahead of the prompt:
+send `/clear` as its own submitted message ahead of the prompt, and, on a
+claude pane, pick the model and effort in `/model`'s picker for that session
+only:
 
 ```
 /clear            (Clear first)
+/model  → ❯ the prompt's model, ←/→ to its effort, s   (claude, model/effort set)
 <your prompt>
 ```
 
-It is submitted in paste mode too — the pause is for the prompt, not the setup
-— and only to a pane where cats detects some agent: typed into a shell it would
-be a command line, and run mode would run it. If it fails, the drop stops
-rather than delivering the prompt onto the wrong setup.
+Both are applied in paste mode too — the pause is for the prompt, not the setup
+— and `/clear` only to a pane where cats detects some agent: typed into a shell
+it would be a command line, and run mode would run it. If either fails, the
+drop stops rather than delivering the prompt onto the wrong setup.
 
-Model, effort and permission mode are **not applied to a running pane**. The
-pane's row in the drop picker says so before you pick it (`the session's
-model/effort won't be applied to a running claude`), and a batch's Drop now
-dialog says it on each prompt that lands in one. The pane keeps whatever it is
-running.
+Permission mode is **not applied to a running pane**, and neither are model and
+effort on any agent but claude. The pane's row in the drop picker says so
+before you pick it (`the session's permission mode won't be applied to a
+running claude`), and a batch's Drop now dialog says it on each prompt that
+lands in one, as it says the pick (`picks sonnet at high effort in /model, this
+session only`).
 
 #### Model and effort in a running pane
 
@@ -2950,47 +2954,91 @@ also **save the pick as your default for new sessions** (`Set model to Sonnet
 and saved as your default for new sessions`), writing `~/.claude/settings.json`.
 Nothing on the typed commands turns that off. So one drop into an existing pane
 would quietly change the model every later `claude` started with, a setting
-you never opened. The drop stopped sending them.
+you never opened. The drop stopped sending them, and for a while a running
+pane kept its own model and effort.
 
-Permission mode never had a road. Claude Code only cycles through modes with
-`shift+tab`, from a starting point nothing on the wire reports.
+**A drop now sets them through `/model`'s picker, for that session only.** The
+picker the bare `/model` opens has a second way out besides Enter: its footer
+says `s to use this session only`. That applies the highlighted model, and the
+effort shown under the list (which `←`/`→` move), without writing anything. So
+after `/clear` (when Clear first is on) the drop submits `/model`, steers the
+picker with key presses (cats' `pane.send_keys`, the verb typed drops use), and
+presses `s`. The pane then says, for example:
 
-Model and effort do have a session-only road, in the pickers the bare commands
-open. In `/model`'s picker `s` means *use this session only*, and so does `s`
-in `/effort`'s slider. Enter in either saves the default. Driving them needs
-`↓`, `←`/`→` and a bare `s`, and cats' `pane.send_input` can only paste text
-and press Enter, so that road waits on a key-sending verb in cats and a live
-test (N-079). A new session is not affected: `--model` and `--effort` on the
-launch apply to that session only.
+```
+❯ /model
+  ⎿  Set model to Sonnet 5.5 for this session only with high effort
+```
 
-The rest of this section describes that pane setup as it ran, and will run
-again once the session-only road is in. The code for it is kept, switched off
-(`paneSetsModelEffort`).
+and the drop's status line repeats it (`· set Sonnet 5.5 for this session only
+with high effort`). Effort alone goes the same way, on the row the picker opens
+on, which is the pane's own model. A new session is not affected: `--model` and
+`--effort` on the launch apply to that session only.
 
-**A switch mid-conversation asks first.** With Clear first off, `/model` and
-`/effort` land in a live conversation. When the pane's prompt cache is still
-warm and the switch would change something, Claude Code puts up a *Switch
-model?* (or *Change effort level?*) dialog, because the whole history gets
-re-read uncached on the next message. Left alone, that dialog would take the
-next Enter, and the prompt typed ahead of it would go nowhere. So after each of
-the two commands the drop watches the bottom of the pane, and if the dialog
-comes up it presses **Yes**. The prompt asked for that model, and that is the
-answer to the question. The status line then says so (`· confirmed the model
-switch`), so the cost of the uncached turn is not a surprise. Two cases are left
-to you. If a PreModelSwitch hook of yours is what asked, the drop stops with the
-dialog still up and says why, since answering your own policy for you would
-defeat it. And if the dialog's words are already on screen before `/model` is
-sent, the drop can't tell an old dialog from a new one, so it doesn't press
-anything. With Clear first on none of this comes up: `/clear` counts as
-acknowledging the switch.
+The drive never counts keys blind. After every key it reads the pane's screen
+and chooses the next key from what the picker shows: which row the `❯` is on,
+and the effort word (`○ Low effort`). It reads the whole list first (`Home`,
+then down past each window), because `opus` means the first Opus row, the
+newest, and that row may be off screen. Full ids name a row by its label
+(`claude-sonnet-4-6` is *Sonnet 4.6*). It never presses Enter while the picker
+is up, since Enter there is *set as default*. Whenever it can't be sure, it
+presses Esc, which cancels the picker and saves nothing, and the drop stops
+with the reason before the prompt is sent:
 
-**An effort level the model doesn't have runs at high.** `xhigh` and `max` exist
-only on some models. On any other, Claude Code accepts `/effort xhigh` (or
-`--effort xhigh` on a new session) and reports it as set, then sends high
+- the picker has no row for the model (`opus[1m]`, a name this Claude Code
+  doesn't list);
+- the model has no such effort level (a `→` that doesn't move, or one that
+  jumps past the level), or no effort setting at all (*Haiku 4.5 takes no
+  effort setting*);
+- the footer offers no session-only pick (an older Claude Code);
+- the key we would press means something else. `s` is a default binding, and
+  `~/.claude/keybindings.json` (or `$CLAUDE_CONFIG_DIR`'s) can move it. A key
+  bound to `modelPicker:thisSessionOnly` is used instead. If `s` was rebound
+  or unbound with nothing in its place, or is bound in the `Select` context
+  too, or the file doesn't parse, the drop refuses rather than guess;
+- cats has no `pane.send_keys` (an older server). Then `/model` is never even
+  opened, since the picker couldn't be steered or closed.
+
+If the pane answers `… saved as your default` anyway, the drop stops and says
+so, pointing at `~/.claude/settings.json`. Claude Code 2.1.283's picker opened
+in a search box, where `s` is a filter letter, so a picker that says *Type to
+search* is first left with `↓`.
+
+Driving the list with a few arrow presses can make Claude Code show *Scroll
+wheel is sending arrow keys · use PgUp/PgDn to scroll* for a few seconds. It
+is only a hint, and the keys still move the picker.
+
+Permission mode still has no road. Claude Code only cycles through modes with
+`shift+tab`, from a starting point nothing on the wire reports, so the picker
+row still says it won't be applied to a running pane.
+
+**A switch mid-conversation asks first.** With Clear first off, the pick lands
+in a live conversation. When the pane's prompt cache is still warm and the
+switch would change something, Claude Code puts up a *Switch model?* (or
+*Change effort level?*) dialog, because the whole history gets re-read uncached
+on the next message. Left alone, that dialog would take the next Enter, and the
+prompt typed ahead of it would go nowhere. So after `s` the drop watches the
+pane, and if the dialog comes up it presses **Yes**. That dialog is not the
+picker, and its Yes applies the pick the way `s` chose it, for this session
+only. The prompt asked for that model, and that is the answer to the question.
+The status line then says so (`(confirmed the switch: the conversation is
+re-read uncached)`), so the cost of the uncached turn is not a surprise. Two
+cases are left to you. If a PreModelSwitch hook of yours is what asked, the
+drop stops with the dialog still up and says why, since answering your own
+policy for you would defeat it. And if the picker asks for consent to a model
+that uses usage credits (*Switch to Fable?*), the drop stops there too: that is
+a spending decision. With Clear first on, the cache confirm doesn't come up:
+`/clear` counts as acknowledging the switch.
+
+**An effort level the model doesn't have runs at high on a new session.**
+`xhigh` and `max` exist only on some models. On a new session, `--effort xhigh`
+is accepted and reported as set on any model, and Claude Code then sends high
 instead. Nothing errors, and the ⚙ panel can't warn you ahead of time, because
 which models take which levels is Claude Code's knowledge, partly served to it
-at runtime, and a copy here would go stale. If a prompt needs the top levels, give it a
-model that has them, or leave Effort unset.
+at runtime, and a copy here would go stale. A running pane is stricter, since
+the picker only walks the levels the model has: there the drop stops and says
+the model has no such level. If a prompt needs the top levels, give it a model
+that has them, or leave Effort unset.
 
 Everything else is text wrapped around the prompt body, which works everywhere:
 
@@ -3009,8 +3057,40 @@ A prompt with no options set composes to exactly its own text, byte for byte,
 as it always did — every option's unset value means "inherit the default", and
 an unconfigured prompt writes no `session` key at all.
 
-**Every drop leads with one sentence of yours.** What reaches the agent starts
-with:
+**A drop into Claude Code is typed, not pasted.** Since Claude Code 2.1.283
+the model is handed pasted input as `<pasted_content>`, whose instructions it
+follows only where the user's own words ask. A drop delivered by paste has no
+words of yours around it, so a model could answer "your message contains only
+pasted text, so I haven't acted on it", and an unattended drop, scheduled or in
+a batch loop, would count that pause as done. So a prompt for a `claude` pane
+goes in through cats' `pane.send_keys` as key presses: the text as typed, each
+line break as `shift+Enter` (a newline in Claude Code's input, where `Enter`
+submits), and an `Enter` of its own at the end on a run. Claude Code reads it
+as your message. Measured live (2.1.318, Haiku 5.5), asked how the message
+reached it, the model said *TYPED* for a typed drop and *PASTED* for the same
+text pasted.
+
+Typing is paced. Claude Code guesses a paste from the size of one burst,
+bracketed or not: about a thousand characters typed in a single write came out
+as `[Pasted text #2]`, while seven hundred went in as typing. So a prompt goes
+over several calls of at most 64 keys, 10ms apart, which types a 3,000-character
+prompt in about half a second. A tab in the prompt is typed as four spaces,
+because a typed `Tab` is a key with a meaning of its own there (it completes).
+
+Some messages are still pasted, the way every drop used to be:
+
+- **a slash command** (`/sess-load 2`, `/clear`, a loop's `/compact`), which is
+  run rather than read. Typing `/` opens the command menu, whose `Enter` could
+  pick a longer command the typed name is a prefix of.
+- **a prompt starting with `!`**, because a typed `!` on an empty input switches
+  Claude Code to bash mode, and the prompt would run as a shell command.
+- **a prompt holding control characters** other than line breaks and tabs, which
+  no key types.
+- **any agent other than Claude Code**, where `shift+Enter` may not be a newline.
+- **everything, when cats is older than `pane.send_keys`.**
+
+A pasted prompt (not a slash command) leads with one sentence of yours, the
+interim fix that came before typing:
 
 ```
 Please do what follows. It is my own request, dropped from my cats-todo backlog, which is why it arrives as pasted text.
@@ -3018,20 +3098,17 @@ Please do what follows. It is my own request, dropped from my cats-todo backlog,
 <the composed prompt>
 ```
 
-A drop is delivered as a bracketed paste (`pane.send_input`), and since Claude
-Code 2.1.283 the model is handed pasted input as `<pasted_content>`, whose
-instructions it follows only where the user's own words ask. A drop has no
-words of yours around it, so a model could answer "your message contains only
-pasted text, so I haven't acted on it", and an unattended drop, scheduled or in
-a batch loop, would count that pause as done. Measured live on the framed
-prompt that had been declined before, Haiku 4.5 declined it without the
-sentence and did it with it, and Opus 5.5 did it both ways. The sentence is
-still inside the paste, so it is an interim fix. The real one is a typed send
-through cats (N-072). A prompt that is a slash command (`/sess-load 2`, a
-loop's `/compact`) goes without it, because Claude Code runs a command only
-when it comes first in the message. A same-session loop's one wrap-up message
-carries it too. The tab of a new session is still titled from the prompt
-itself.
+Measured live on a framed prompt that had been declined before, Haiku 4.5
+declined it without the sentence and did it with it. It is still inside the
+paste, which is why typing replaced it where it can. A typed prompt goes
+without it, since nothing about it arrives as pasted text. A same-session
+loop's one wrap-up message is delivered the same way as a prompt, and its
+between command (your own command line) the same way but never with the lead.
+The tab of a new session is still titled from the prompt itself.
+
+A typed image path stays a path. Claude Code turns a *pasted* image path into
+an `[Image #N]` attachment, and a typed one into nothing, so a typed drop's
+images reach the agent as the image block's header says, as files to read.
 
 The context rows call the `sess-*` slash commands (`~/.claude/commands/`). Where
 they are not installed the panel greys those rows and says so, but still saves
@@ -3156,8 +3233,8 @@ The manager talks to the cats server over the local control socket
 `pane.list` to find agent panes (and, joined with `workspace.list`, where each
 open workspace is working — the export picker's rows), `tab.create` to open a
 new session already named and running the agent (no shell in between),
-`pane.wait_for_output` to pace launches, and `pane.send_input` to deliver the
-prompt.
+`pane.wait_for_output` to pace launches, and `pane.send_keys` (typed) or
+`pane.send_input` (pasted) to deliver the prompt.
 
 The vocabulary itself is not copied: cats publishes it as the leaf package
 `github.com/rohanthewiz/cats/wire` (stdlib-only), and this repo imports it, so

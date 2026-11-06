@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rohanthewiz/cats/wire"
 )
 
 // TestComposePrompt pins the delivered text: paths get appended as their own
@@ -94,31 +96,44 @@ func (r *sendRecorder) sendInput(_ uint32, text string, submit bool) error {
 	return nil
 }
 
+func (r *sendRecorder) sendKeys(_ uint32, keys []wire.KeyStroke) error {
+	r.calls = append(r.calls, "keys "+strokesText(keys))
+	return nil
+}
+
+// capture is never reached by a delivery: only the /model picker reads the
+// screen, and its tests use a scripted picker (modelpick_test.go).
+func (r *sendRecorder) capture(uint32) (string, error) {
+	r.calls = append(r.calls, "capture")
+	return "", nil
+}
+
 func (r *sendRecorder) waitForOutputIn(_ uint32, pattern string, _ bool, _ uint32, _ time.Duration) (bool, error) {
 	r.calls = append(r.calls, "wait "+pattern)
 	return true, nil
 }
 
-// TestDeliverPromptImages pins the image-drop fix. Claude Code drops an Enter
-// that arrives while it is still attaching a pasted image path, so a run-mode
-// drop with attachments types first, waits for the "[Image #" token, and sends
-// the Enter on its own. Without attachments, and in paste mode, it stays one
-// send.
+// TestDeliverPromptImages pins the image-drop fix on the paste road. Claude
+// Code drops an Enter that arrives while it is still attaching a pasted image
+// path, so a run-mode paste with attachments goes first, waits for the
+// "[Image #" token, and sends the Enter on its own. Without attachments, and
+// in paste mode, it stays one send. The agent is "" — not claude — so this is
+// the paste road; the typed road has no attach to race (TestDeliverPromptTyped).
 func TestDeliverPromptImages(t *testing.T) {
 	cases := []struct {
 		name              string
 		submit, hasImages bool
 		want              []string
 	}{
-		{"run, no images", true, false, []string{"send P ⏎"}},
-		{"paste, no images", false, false, []string{"send P"}},
-		{"paste, images", false, true, []string{"send P"}},
-		{"run, images", true, true, []string{"send P", "wait " + imageTokenPattern, "send  ⏎"}},
+		{"run, no images", true, false, []string{"send " + withPasteAsk("P") + " ⏎"}},
+		{"paste, no images", false, false, []string{"send " + withPasteAsk("P")}},
+		{"paste, images", false, true, []string{"send " + withPasteAsk("P")}},
+		{"run, images", true, true, []string{"send " + withPasteAsk("P"), "wait " + imageTokenPattern, "send  ⏎"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			r := &sendRecorder{}
-			if err := deliverPrompt(r, 1, "P", c.submit, c.hasImages); err != nil {
+			if err := deliverPrompt(r, 1, "", "P", c.submit, c.hasImages); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(r.calls, c.want) {

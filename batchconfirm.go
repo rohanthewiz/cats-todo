@@ -435,6 +435,9 @@ func flowSetup(eff *SessionOpts, images int, intoPane bool, command, agent strin
 			if cmds := eff.paneSetupCommands(agent); len(cmds) > 0 {
 				segs = append(segs, "first submits "+strings.Join(cmds, ", "))
 			}
+			if pick := eff.paneSessionPickWords(agent); pick != "" {
+				segs = append(segs, pick)
+			}
 			if lost := eff.paneUnapplied(agent); lost != "" {
 				segs = append(segs, lost+" not applied, the running pane keeps its own")
 			}

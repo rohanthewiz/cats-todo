@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rohanthewiz/cats/wire"
 )
 
 // fakePane is a scripted pane: a screen that each send can redraw, and a
@@ -30,12 +32,21 @@ func (f *fakePane) sendInput(_ uint32, text string, submit bool) error {
 	return nil
 }
 
+// sendKeys is never reached: a pane setup sends slash commands, which go as
+// pastes (typesKeys refuses "/"), and the confirm's bare Enter is send_input's.
+func (f *fakePane) sendKeys(_ uint32, _ []wire.KeyStroke) error {
+	panic("pane setup does not type keys")
+}
+
 func (f *fakePane) waitForOutputIn(_ uint32, pattern string, regex bool, _ uint32, _ time.Duration) (bool, error) {
 	if regex {
 		return regexp.MustCompile(pattern).MatchString(f.screen), nil
 	}
 	return strings.Contains(f.screen, pattern), nil
 }
+
+// capture shows the screen as it stands.
+func (f *fakePane) capture(uint32) (string, error) { return f.screen, nil }
 
 // The dialogs as Claude Code 2.1.282 draws them, reduced to the lines the
 // watch reads.

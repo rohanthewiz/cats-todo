@@ -51,7 +51,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-096
+**Next ID:** N-098
 
 ## Open
 
@@ -75,64 +75,10 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   **Needs the user**: the fix is a textarea fork or an upstream patch to
   bubbles, which is a dependency decision (2026-09-27).
 
-- **N-072** · raised `2026-0927-0053-live-autosave-and-next-send` · value high
-  Claude Code 2.1.283 hands a dropped prompt to the model as pasted text,
-  not as the user's request. `pane.send_input` is a bracketed paste, and
-  Claude Code tags pasted input `<pasted_content>` (flag-gated, `FP()` in
-  the binary), whose instructions the model is told to follow only where
-  the user's own words ask. A drop is all paste, so Opus 5.5 said: "Your
-  message contains only pasted text, with nothing you wrote around it, so I
-  haven't acted on it yet." Measured on fresh panes: realistic read-only
-  tasks were done by Opus (framed as a Next List item or not) and by a
-  fresh Haiku session. A synthetic "reply with only ALPHA11" was declined
-  by Opus and Haiku once framed as `Next list item N-001 (…):`, but done
-  bare. Sonnet 5 did it either way. Haiku declined a realistic Next List
-  item in a pane whose conversation was already about pasted content. The
-  risk is highest where nobody watches: a scheduled drop or a batch loop
-  sees the pane go idle after a question and counts the prompt as sent.
-  **Needs the user** (the road is cats' wire): (a) a typed send in cats,
-  key events with shift+enter for newlines, so the message is the user's;
-  (b) cats-todo leads every drop with an explicit ask, which still sits
-  inside the paste; or (c) accept it and document it. Recommendation: (a),
-  with (b) as a cheap interim for the Next List's framing.
-  2026-09-27 (`2026-0927-2122-paste-ask-interim-and-closed-workspace`): the
-  user chose **(a), with (b) as the interim**. (b) is in: every drop, and a
-  loop's wrap-up message, leads with `pasteAsk` (drop.go, `withPasteAsk`),
-  and slash commands go bare. Live, one run each on the framed "reply
-  ALPHA11" prompt: Haiku 4.5 declined without the ask and did it with it,
-  and Opus 5.5 did it both ways this time. A second Haiku round was set up
-  but never sent. What is left is (a): a key-sending verb in cats' wire,
-  built on the browser path's key encoder that `catctl probe` already uses,
-  a `go.mod` pin bump here, and drops sent as keys with shift+enter for
-  newlines. Then a live check that Claude Code doesn't take a fast key burst
-  for a paste. The same verb unblocks N-079.
-
 - **N-078** · raised `2026-0927-2023-batch-drop-confirm-dialog` · value low
   Release the drop dialog as v0.43.0 (minor: a new dialog). Bump both
   version files, commit `chore(release): v0.43.0`, tag it, and push the
   code and the tag. Best done after N-077.
-
-- **N-079** · raised `2026-0927-2107-pane-drops-stop-saving-defaults` · value medium
-  Switch a running claude pane's model and effort for that session only,
-  through the pickers the bare commands open (N-070's road (c)). Found in
-  the 2.1.283 binary: `/model` with no argument opens the ModelPicker. It
-  starts in search mode, so typing filters and `↓` moves into the list, and
-  there `s` is `modelPicker:thisSessionOnly` (its footer says `s use this
-  session only`) while Enter is `set as default`. `←/→` in that picker move
-  effort. `/effort` with no argument opens the EffortSlider: `←/→` move, `s`
-  is `effortSlider:thisSessionOnly`, Enter saves. The typed `/model X`
-  saves whenever the session is interactive, and no flag turns that off.
-  What it needs: (1) a way to send `↓`, `←/→` and a bare `s` as keys, since
-  `pane.send_input` pastes its text and Enter is its only bare key. That is
-  a new verb in cats' wire, the same thing N-072 (a) asks for. (2) Never
-  press Enter inside a picker. With an empty filter it saves the default,
-  so `↓` is the way into the list. (3) Wait for `… for this session only`
-  and stop the drop if the pane says `saved as your default`. (4) The
-  slider has no absolute position, so walk it to one end first. (5) `s` is
-  a default binding the user can remap in `keybindings.json`. Then turn on
-  `paneSetsModelEffort` (session.go) with commands for this road, and run
-  N-017, N-043 and N-044 live: this road saves nothing, so a live test is
-  safe.
 
 - **N-080** · raised `2026-1002-1322-backlog-search-repo-boundary` · value low
   Export into a project directory with no `.cats-todo` still creates the
@@ -216,6 +162,21 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   route its stage in `Update`'s `tea.MouseWheelMsg` case to
   `fuzzyList.scrollBy`).
 
+- **N-096** · raised `2026-1105-1848-typed-drops-pane-send-keys` · value low
+  A typed drop whose prompt starts with a digit, into a claude pane showing
+  its feedback survey (`How is Claude doing this session? 1: Bad 2: Fine
+  3: Good 0: Dismiss`). Live, typing `2 things to fix` under the survey
+  left the text whole and the survey gone, but whether the `2` was also
+  sent as a rating could not be seen. A paste never answered it. If it
+  does, paste a prompt whose first rune is 0–3 (`typesKeys`), or lead it
+  with nothing a survey reads.
+
+- **N-097** · raised `2026-1105-1948-model-picker-session-only` · value medium
+  Commit and release typed drops (N-072) and the session-only model pick
+  (N-079) together as v0.47.0 — a minor: both are new delivery roads. Both
+  are in the working tree, uncommitted. Bump both version files, commit
+  `chore(release): v0.47.0`, tag it, and push the code and the tag.
+
 ## Validate
 
 Items whose remaining work is purely testing: hand checks in a real terminal
@@ -223,26 +184,6 @@ or app, runs on real data or hardware, and tests to write or repair. No
 product change is planned unless a check finds a defect, which is then raised
 as a new Open item. Split out of Open on 2026-10-07; each item kept its ID
 and `raised`.
-
-- **N-017** · raised `2026-0913-1932-existing-pane-session-settings` · value medium
-  Live-test an existing-pane drop into a real claude pane with model and
-  effort set, in both run and paste mode. Confirm that `clearSettle` (400ms)
-  is long enough after `/model` and `/effort`, not just after `/clear`. The
-  new-session path needed 2s (`newSessionSettle`). *Lapsed* in
-  `2026-0922-0943-info-annotation`.
-  **Needs the user** (2026-09-27, `2026-0927-0032-drop-settings-side-effect-v0.42.1`): the
-  live run was stopped after one manual `/model haiku` + `/effort low`,
-  because in Claude Code 2.1.283 each of them is **saved as the default for
-  new sessions** in `~/.claude/settings.json` (see N-070), and the session
-  may not edit that file to put it back. What it did show on a warm pane:
-  the *Switch model?* dialog comes up with the wording `panesetup.go`
-  matches, Enter on it prints `Set model to Haiku 4.5 and saved as your
-  default…`, and `/effort` sent ~0.5s later printed its line whole. The
-  400ms timing question stays open until N-070 is decided.
-  2026-09-27: N-070 was decided as (b). A running pane is no longer sent
-  `/model` or `/effort`, so there is no timing after them to check until
-  the session-only road (N-079) sends them again. This item now waits on
-  N-079, and that road can be run live, since it saves nothing.
 
 - **N-033** · raised `2026-0924-1146-info-mark-blue-chip` · value low
   Check the info chip by eye. Look at an info row in cats, both plain and
@@ -268,30 +209,6 @@ and `raised`.
   🔷, ◆ and bare rows. The bare tier's radio was not seen, because the pane
   was wide.
   **Needs the user**: the rest is how it looks in their own theme (2026-09-27).
-
-- **N-043** · raised `2026-0924-2007-redo-and-switch-confirm` · value medium
-  Live-test the switch confirm (`panesetup.go`) in cats. Drop a prompt with
-  a different model set and Clear off into a claude pane that answered
-  within the last few minutes. Check that the *Switch model?* dialog is
-  seen, answered, and the prompt arrives whole, with the status line's
-  `confirmed the model switch`. Then check the same with only the effort
-  changed, and with a PreModelSwitch hook that asks. Only a scripted fake
-  pane has exercised it.
-  **Needs the user**: blocked by N-070, since every live `/model` rewrites the
-  user's default model (2026-09-27).
-  Now waits on N-079 (2026-09-27). The confirm code is kept but not reached,
-  since a drop no longer switches a running pane's model. The picker road
-  goes through the same *Switch model?* check (`URn` in 2.1.283), so this
-  test is part of N-079's live run.
-
-- **N-044** · raised `2026-0924-2007-redo-and-switch-confirm` · value low
-  Check whether `/model fable` can raise its usage-credits consent dialog on
-  an existing pane (Claude Code 2.1.282 has one: `F3t`/`T5`, "uses usage
-  credits"). If so it would eat the prompt the way the switch confirm did,
-  and `applyPaneSetup` doesn't watch for it. A pane that has consented once
-  won't show it.
-  **Needs the user**: blocked by N-070, as N-043 is (2026-09-27).
-  Now waits on N-079, as N-043 does (2026-09-27).
 
 - **N-066** · raised `2026-0926-2057-card-width-tint-and-brighter-greys` · value low
   Eyeball the brightened grey ramp in cats (`styles.go`): `colMuted`,
@@ -438,8 +355,66 @@ declined.
 
 ## Closed
 
+- **N-079** · closed 2026-11-05, `2026-1105-1948-model-picker-session-only` · raised `2026-0927-2107-pane-drops-stop-saving-defaults`
+  — A drop into a running claude pane sets the prompt's model and effort
+  again, for that session only, through the bare `/model` picker
+  (modelpick.go, `paneSetsModelEffort` on). In 2.1.318 the picker opens on
+  the list, not in search (2.1.283's search box is left with `↓` first), and
+  its `←/→` effort goes with the pick, so one picker carries both: `s`
+  prints `Set model to Sonnet 5.5 for this session only with high effort`.
+  The drive reads the screen (`capture`) after every key: `Home`, the whole
+  list, ↑/↓ to the row, effort one press at a time, then `s`, the key read
+  from `keybindings.json`. It never presses Enter in the picker, and every
+  refusal is Esc first (unknown row, missing level, no effort, no
+  session-only footer, a remapped or unknowable key, no `pane.send_keys`).
+  `saved as your default` stops the drop. Live on a dev catway (2.1.318):
+  Clear on to sonnet/high, `PONG-A` whole after the 400ms settle; Clear off
+  to haiku through *Switch model?*; effort alone; a hook's ask; Fable; a
+  refusal (*Haiku 4.5 takes no effort setting*, picker cancelled). The
+  settings.json checksum held throughout. Tests: `TestParsePickerLive`,
+  `TestPickerLabelFor`, `TestPickerRowFor`, `TestSessionOnlyKey`,
+  `TestPickSessionOnly*` (a scripted picker that fails on Enter),
+  `TestPaneSessionPick`. README: "Model and effort in a running pane".
+- **N-017** · closed 2026-11-05, `2026-1105-1948-model-picker-session-only` · raised `2026-0913-1932-existing-pane-session-settings`
+  — Run live with N-079: a Clear-on drop to sonnet at high effort typed its
+  prompt whole 400ms after the picker's result line (`PONG-A`), as did
+  three Clear-off drops after it. `clearSettle` is long enough after the
+  picker; the typed `/model X` it was asked about is gone.
+- **N-043** · closed 2026-11-05, `2026-1105-1948-model-picker-session-only` · raised `2026-0924-2007-redo-and-switch-confirm`
+  — Live with N-079 on 2.1.318: a Clear-off drop to haiku into a pane that
+  had just answered raised *Switch model?* after `s`; the drive pressed Yes,
+  the prompt arrived (`PONG-B`) and the note said `(confirmed the switch: the
+  conversation is re-read uncached)`. An effort-only change (to low) raised
+  no confirm and went through. A PreModelSwitch `ask` hook in the scratch
+  project's settings stopped the drop with the dialog up (*n079 live test
+  asks*); Esc there goes back to the picker, not to the prompt.
+- **N-044** · closed 2026-11-05, `2026-1105-1948-model-picker-session-only` · raised `2026-0924-2007-redo-and-switch-confirm`
+  — On this account (Claude Max, 2.1.318) picking Fable session-only raised
+  no usage-credits consent, only the cache confirm, and switched. The
+  binary's picker variant of that consent is titled `Switch to Fable?`;
+  the drive matches it (`pickerConsentRe`) and stops the drop with it up,
+  since it is a spending decision. The scripted picker covers that road.
 Closures from before this file was seeded live in the session docs. The ones
 below were found done or overtaken while seeding.
+
+- **N-072** · closed 2026-11-05, `2026-1105-1848-typed-drops-pane-send-keys` · raised `2026-0927-0053-live-autosave-and-next-send`
+  — Road (a) is in. cats gained `pane.send_keys` (wire, 8a9937c): typed
+  text or named keys through the key encoder the browser uses, one write
+  per call, the same gates as `send_input`, plus `catctl type`/`keys`.
+  cats-todo pins it and types every prose drop into a claude pane
+  (typing.go): calls of at most 64 keys 10ms apart, shift+Enter newlines,
+  then Enter, and no `pasteAsk`. Slash commands, a leading `!` (a typed `!`
+  is bash mode), control characters, other agents and an older cats still
+  paste, the lead with them. The loop's finish is a prompt, its between
+  command a line (`deliverLine`). Live on a dev catway against Claude Code
+  2.1.318 and Haiku 5.5: a typed drop answered TYPED and the same text
+  pasted answered PASTED; the framed ALPHA11 prompt and a 3,400-character,
+  44-line one went through `performDrop` intact. The burst check: ~1000
+  characters in one write became `[Pasted text #2]`, 700 did not. Tests:
+  `TestTypesKeys`, `TestTypeBatches`, `TestDeliverPromptTyped`,
+  `TestDeliverPromptTypedFailsPartWay`, `TestDeliverLine`,
+  `TestDropIntoPaneTypes`. README: "A drop into Claude Code is typed, not
+  pasted".
 
 - **N-070** · closed 2026-09-27, `2026-0927-2107-pane-drops-stop-saving-defaults` · raised `2026-0927-0032-drop-settings-side-effect-v0.42.1`
   — The user chose (b) now and (c) later. A drop into a running pane no

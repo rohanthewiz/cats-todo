@@ -47,13 +47,13 @@ func performDropAt(client *catsClient, act pendingAction) (dropLanding, error) {
 	switch act.target.kind {
 	case targetExistingPane:
 		// The prompt's session settings are applied to the running session
-		// first — /clear today; /model and /effort for a claude pane only
-		// while paneSetsModelEffort is on, which it is not, since a typed
-		// switch now saves itself as the user's default (N-070, see
-		// paneSetupCommands). Each is delivered as its own submitted message,
+		// first — /clear as a submitted command, then the model and effort
+		// for a claude pane through the /model picker's session-only pick
+		// (pickSessionOnly, modelpick.go: a typed `/model X` would save the
+		// switch as the user's default, N-070). Each is its own message,
 		// because they are built-ins of the agent's input rather than anything
 		// this prompt could carry: pasted at the top of a body they would be
-		// text. They are submitted in paste mode too — dropPaste pauses before
+		// text. They are applied in paste mode too — dropPaste pauses before
 		// the *prompt* goes, and a setting left typed-but-unsent would sit in
 		// the input box with the prompt glued onto the end of it.
 		//
@@ -73,7 +73,17 @@ func performDropAt(client *catsClient, act pendingAction) (dropLanding, error) {
 		if err != nil {
 			return dropLanding{}, err
 		}
-		if err := deliverPrompt(client, act.target.pane, withPasteAsk(prompt), act.mode == dropRun, len(act.images) > 0); err != nil {
+		// The pick goes after /clear, so it lands on the conversation that
+		// will read the prompt. It refuses (and cancels the picker) rather
+		// than guess — a row it can't find, a level the model lacks, a
+		// remapped key — and a refusal stops the drop like a failed command.
+		model, effort := act.todo.Session.paneSessionPick(act.target.agent)
+		picked, err := pickSessionOnly(client, act.target.pane, model, effort, clearSettle)
+		if err != nil {
+			return dropLanding{}, err
+		}
+		note = joinNotes(note, picked)
+		if err := deliverPrompt(client, act.target.pane, act.target.agent, prompt, act.mode == dropRun, len(act.images) > 0); err != nil {
 			return dropLanding{}, err
 		}
 		// Switch to the pane we just dropped into, mirroring how a new-session
@@ -89,6 +99,17 @@ func performDropAt(client *catsClient, act pendingAction) (dropLanding, error) {
 		return dropLanding{pane: pane, branch: branch}, err
 	}
 	return dropLanding{}, errors.New("unknown drop target")
+}
+
+// joinNotes joins the status-line notes a drop collected, skipping empty ones.
+func joinNotes(notes ...string) string {
+	var out []string
+	for _, n := range notes {
+		if n != "" {
+			out = append(out, n)
+		}
+	}
+	return strings.Join(out, " · ")
 }
 
 // imageBlockHeader introduces the attachment paths appended to a dropped
@@ -110,12 +131,14 @@ const imageBlockHeader = "Attached images — read these files:"
 // a scheduled drop or a batch loop sees the pane go idle after the question and
 // counts the prompt as done.
 //
-// This is the interim fix, and a partial one: the lead is still inside the
+// This was the interim fix, and a partial one: the lead is still inside the
 // paste, so it only tells the model the paste is the user's request, and can't
-// make it the user's own typing. The real fix is a typed send, key events
-// through cats' wire rather than a paste, and that is N-072's road (a). The
-// lead is harmless there too, and harmless to agents that don't tag pastes, so
-// it stays one constant that can go when that road is in.
+// make it the user's own typing. The real fix is N-072's road (a), now in: a
+// prose prompt into a claude pane is typed (typing.go), and a typed message is
+// the user's own, so it carries no lead (which would also be false there —
+// nothing "arrives as pasted text"). The lead stays for every message that is
+// still pasted: another agent, a prompt typing can't carry, and a cats server
+// older than pane.send_keys. deliverPrompt is where that choice is made.
 //
 // It is added at the send, not in composePrompt: the new-session tab is titled
 // from the prompt's first line, and composePrompt's output is what the tests
@@ -184,7 +207,31 @@ const (
 )
 
 // deliverPrompt types a dropped prompt into pane and, when submit is set,
-// submits it.
+// submits it. agent is what runs in the pane (a launch command or pane.list's
+// label); it decides, with the text, whether the prompt is typed or pasted.
+//
+//	typesKeys(agent, text)?
+//	   yes ─▶ typeText: paced pane.send_keys, shift+Enter newlines, then Enter
+//	            └─ cats too old for send_keys (nothing typed) ─┐
+//	   no  ─────────────────────────────────────────────────────┴─▶ pastePrompt:
+//	                                                    pasteAsk + text, pasted
+//
+// Typed, attachments need nothing special: the image block is text like the
+// rest, its header tells the agent to read the files, and there is no
+// asynchronous "[Image #N]" attach for an Enter to race (that conversion is
+// Claude Code's paste handling, so a typed path stays a path).
+func deliverPrompt(d paneDriver, pane uint32, agent, text string, submit, hasImages bool) error {
+	if typesKeys(agent, text) {
+		err := typeText(d, pane, text, submit)
+		if !errors.Is(err, errNoSendKeys) {
+			return err
+		}
+	}
+	return pastePrompt(d, pane, withPasteAsk(text), submit, hasImages)
+}
+
+// pastePrompt is the paste road of deliverPrompt: the prompt through
+// pane.send_input, which pastes it.
 //
 // A prompt without attachments goes in one pane.send_input: the paste and its
 // Enter back to back. That does not work for a prompt with attachments. Claude
@@ -207,7 +254,7 @@ const (
 // still ends in the Enter, because the user asked for the prompt to run, and a
 // late Enter is harmless where an early one is lost. Paste mode (submit unset)
 // needs none of this: the user presses Enter, long after the attach is done.
-func deliverPrompt(d paneDriver, pane uint32, text string, submit, hasImages bool) error {
+func pastePrompt(d paneDriver, pane uint32, text string, submit, hasImages bool) error {
 	if !submit || !hasImages {
 		return d.sendInput(pane, text, submit)
 	}
@@ -415,7 +462,7 @@ func dropIntoNewSession(client *catsClient, act pendingAction, prompt string) (p
 	// where we know least about the agent's state, so it is the last place to
 	// start typing early.
 	time.Sleep(newSessionSettle)
-	return pane, branch, deliverPrompt(client, pane, withPasteAsk(prompt), act.mode == dropRun, len(act.images) > 0)
+	return pane, branch, deliverPrompt(client, pane, command, prompt, act.mode == dropRun, len(act.images) > 0)
 }
 
 // resolveAgentPath turns an agent's name into the absolute path of the binary,

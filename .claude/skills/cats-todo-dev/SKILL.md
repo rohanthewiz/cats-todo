@@ -31,8 +31,10 @@ and the rest stay local.
 | `ui.go` | the Bubble Tea model: `uiStage` (list, form, confirm, view, drop picker, images, schedule, export, session/view/spelling panels…), `Update` per-stage `update*` funcs, `View`, footers, button rows, `paneTitle()` (the mux scrapes `todo (N)` from it for the paw badge) |
 | `store.go` | `Todo`, `store` (load/save/add/move/setDone/setFrozen…), root resolution (`findProjectRoot`, `projectTodosPath`, `globalTodosPath`) |
 | `fuzzylist.go` | reusable fuzzy-filtered list used by the todo list *and* the drop picker; grouping, headings, priority lens |
-| `drop.go` / `client.go` / `launch.go` | performing a drop (`performDropAt` also reports the pane and worktree branch it landed in — `dropLanding`); cats control-socket client (`pane.list`, `tab.create`, `pane.wait_for_output`, `pane.send_input`), `waitForAgentReady`, `claudeReadyProbes` |
-| `panesetup.go` | `applyPaneSetup`: submits the pane setup to an existing pane, watching for (and answering) Claude Code's mid-conversation *Switch model?* / *Change effort level?* confirm; a PreModelSwitch hook's ask stops the drop instead. Today that is `/clear` only: `/model`/`/effort` are behind `paneSetsModelEffort` (session.go, off — N-070, a typed switch saves the user's default; the session-only picker road is N-079) |
+| `drop.go` / `client.go` / `launch.go` | performing a drop (`performDropAt` also reports the pane and worktree branch it landed in — `dropLanding`); `deliverPrompt` picks typed or pasted, `pastePrompt` is the paste road (with `pasteAsk`); cats control-socket client (`pane.list`, `tab.create`, `pane.wait_for_output`, `pane.send_input`, `pane.send_keys` — `sendKeys` turns an old server's "not supported" into `errNoSendKeys`), `waitForAgentReady`, `claudeReadyProbes` |
+| `typing.go` | typed delivery (N-072 (a)): `typesKeys` (the rule — prose into a claude pane; not `/…`, a leading `!` (bash mode), control chars, other agents), `typeBatches` (≤ `typeChunk` 64 keys per call, newlines as shift+Enter, CRLF folded, tabs as 4 spaces), `typeText` (paced `typeGap` 10ms, then Enter), `deliverLine` (a loop's between command: typed, or pasted bare) |
+| `panesetup.go` | `applyPaneSetup`: submits the pane setup commands to an existing pane — `/clear` only, since a typed `/model X`/`/effort X` saves the user's default (N-070) — and keeps the watch for Claude Code's mid-conversation *Switch model?* / *Change effort level?* confirm (a PreModelSwitch hook's ask stops the drop instead); `paneDriver` (send_input, send_keys, wait_for_output, capture) |
+| `modelpick.go` | the model/effort road for a running claude pane (N-079): `pickSessionOnly` opens the bare `/model`, reads the picker off `capture` after every key (`parsePicker`: ❯ focus, ✔ current, `↓`/`… +N` more, the effort word, the footer), reads every row (`Home`, then past each window) and finds the target (`pickerLabelFor`/`pickerRowFor`: alias = family's first row, `claude-x-5-5` = *X 5.5*), walks effort one press at a time, presses the session-only key (`sessionOnlyKey`: `s`, or what `keybindings.json` moved it to — refuses when unsure), then reads the result below the `/model` echo (`readOutcome`). Never Enter while the picker is up; every refusal is Esc first. Gated by `paneSetsModelEffort` (session.go, on); `paneSessionPick` says what it sets |
 | `worktree.go` | "on a new worktree" drops (`todo/<slug>-<4hex>` branches via cats) |
 | `session.go` | `SessionOpts`, normalizers (`normalizeModel/Effort/Permission/Finish/Review`, `foldOption`), launch flags, prompt wrapping |
 | `annotations.go` | the `annots` set, the `annotSlot` table (priority, low-hanging fruit, value, info, the ⚑ flag and its note), `trimAnnotColumns` |
@@ -131,12 +133,25 @@ and the rest stay local.
      stale list silently costs every new-session drop the full 12s timeout — when
      drops go slow, capture a startup and re-check this first. Keep probes
      version-agnostic (`"Claude Code v"`), with real spaces.
+   - `typeChunk`/`typeGap` (`typing.go`) track Claude Code's paste guess: one
+     burst of ~1000 typed chars became `[Pasted text #N]` (700 did not;
+     2.1.318). If typed drops start showing up as pasted, re-measure with
+     `catctl type`/`keys` against a dev catway and shrink the chunk.
    - `switchConfirmPattern`/`switchHookMarker` (`panesetup.go`) track the
-     strings of Claude Code's switch confirm (checked against 2.1.282). A
-     stale pattern fails quietly the old way: the dialog eats the prompt of a
-     Clear-off drop that sets a model or an effort. Re-check them against the
-     binary (`strings` on `~/.local/share/claude/versions/<v>`, search
-     `Switch model?`) when Claude Code changes the dialog.
+     strings of Claude Code's switch confirm (checked against 2.1.282, and
+     live through the picker on 2.1.318). A stale pattern fails quietly the
+     old way: the dialog eats the prompt of a Clear-off drop that sets a model
+     or an effort. Re-check them against the binary (`strings` on
+     `~/.local/share/claude/versions/<v>`, search `Switch model?`) when
+     Claude Code changes the dialog.
+   - `modelpick.go` tracks the `/model` picker as 2.1.318 draws it: the
+     `Select model` header, `❯ N.  Label ✔` rows, `… +N models`, `<Level>
+     effort`, the footer's `use this session only`, the result `Set model to …
+     for this session only` / `… and saved as your default` under the
+     `❯ /model` echo, and the Fable consent title `Switch to Fable?`. A stale
+     one fails safe — the drive refuses with Esc and the drop says why — but
+     every drop that sets a model then fails. Re-check against a capture of a
+     live picker (`catctl capture`) and the binary (`modelPicker:thisSessionOnly`).
 4. **Refuse in words.** Anything the UI won't do (drag while filtered or in priority
    order, drop/schedule a frozen prompt, send an empty prompt, export into the same
    backlog) says why in the status line — never silently no-op.
@@ -268,11 +283,21 @@ attaches to catway's **browser** socket, not the control socket, and sends the s
 - **Drops move the view.** A drop into a running pane ends in `agent.focus`.
   Bring the manager back with `catctl agent.focus --params
   '{"pane":<manager>}'` before the next probe script.
+- **A dev catway for wire changes.** A new cats verb is not in Cats.app's
+  server, and restarting that one is not yours to do. Build cats' `catway`,
+  `cathost` and `catctl` with `-tags ghostty` into a scratch dir and run them on
+  their own port, sockets, `--config`, `--state-dir` and `-persist=false`.
+  Unix socket paths cap at 104 bytes, so put the sockets in a short directory.
+  Stop them by PID afterwards.
 - **Never send `/model X` or `/effort X` to a live claude pane in a test.**
   Since Claude Code 2.1.283 each one is saved as the user's default in
-  `~/.claude/settings.json` (N-070). The bare pickers' `s` (*use this
-  session only*) is the road that saves nothing (N-079); Enter in a picker
-  saves too.
+  `~/.claude/settings.json` (N-070). The bare picker's `s` (*use this
+  session only*) is the road that saves nothing, and the one drops take
+  (`pickSessionOnly`, N-079); Enter in a picker saves too. Checksum
+  `~/.claude/settings.json` before a live run and check it after.
+  A scratch project's `.claude/settings.json` is the place for a test
+  hook (a PreModelSwitch `ask`), and Claude Code reloads it live — every
+  pane in that directory gets it, so remove it when done.
 
 ## Docs and commit habits
 

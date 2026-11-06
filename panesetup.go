@@ -2,14 +2,17 @@
 // pane, and answering the confirm Claude Code raises when a switch lands
 // mid-conversation.
 //
-// A drop into an existing pane types /clear, /model and /effort ahead of the
-// prompt (paneSetupCommands, session.go). Since Claude Code 2.1.283 the typed
-// switches also save themselves as the user's default, so the model and effort
-// are withheld (paneSetsModelEffort is off, N-070) and this watch sees only
-// /clear today. It is kept for the session-only road (N-079), which goes
-// through the same confirm. With Clear off, the model and effort
-// switches land in a live conversation, and Claude Code (checked against
-// 2.1.282) guards those with a modal, drawn roughly like this:
+// A drop into an existing pane submits /clear ahead of the prompt
+// (paneSetupCommands, session.go). It used to type /model and /effort too, but
+// since Claude Code 2.1.283 the typed switches also save themselves as the
+// user's default (N-070), so the model and effort now go through the /model
+// picker's session-only pick instead (pickSessionOnly, modelpick.go, N-079),
+// and this command watch sees only /clear. The watch's /model and /effort
+// branch is kept: the picker meets the same confirm, matched by the same
+// switchConfirmPattern and answered the same way (pickerDrive.commit). With
+// Clear off, the model and effort switches land in a live conversation, and
+// Claude Code (checked against 2.1.282; the picker's in 2.1.318) guards those
+// with a modal, drawn roughly like this:
 //
 //	╭ Switch model? ─────────────────────────────────────────────╮
 //	│ Your next response will be slower and use more tokens      │
@@ -56,14 +59,20 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/rohanthewiz/cats/wire"
 )
 
-// paneDriver is the part of catsClient a pane setup uses. It is an interface
-// so the setup's decisions can be tested against a scripted pane, without a
-// cats server.
+// paneDriver is the part of catsClient a pane setup — and a delivery
+// (deliverPrompt, typing.go) — uses. It is an interface so their decisions can
+// be tested against a scripted pane, without a cats server.
 type paneDriver interface {
 	sendInput(pane uint32, text string, submit bool) error
+	sendKeys(pane uint32, keys []wire.KeyStroke) error
 	waitForOutputIn(pane uint32, pattern string, regex bool, lines uint32, timeout time.Duration) (bool, error)
+	// capture returns the pane's visible screen as text. The /model picker
+	// road (modelpick.go) reads the picker's state from it after every key.
+	capture(pane uint32) (string, error)
 }
 
 const (
@@ -133,8 +142,8 @@ func applyPaneSetup(d paneDriver, pane uint32, cmds []string, settle time.Durati
 			return "", fmt.Errorf("the pane is asking to confirm %s (a PreModelSwitch hook) — answer it there; the prompt was not sent", cmd)
 		}
 		// A bare Enter presses the focused row, which the dialog opens on Yes.
-		// The wire has no way to send a single key other than Enter
-		// (send_input pastes its text), and Enter is the one this needs.
+		// send_input's submit-only Enter is a real Enter keypress, the same
+		// one pane.send_keys would send, so this stays on it.
 		if err := d.sendInput(pane, "", true); err != nil {
 			return "", fmt.Errorf("confirming %s in the pane: %w", verb, err)
 		}

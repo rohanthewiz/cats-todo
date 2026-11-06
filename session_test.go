@@ -145,11 +145,11 @@ func TestLaunchArgs(t *testing.T) {
 // the prompt. The agent gate is the safety: a "/clear" typed into a shell pane
 // in run mode is a command line that gets run.
 //
-// N-070: model and effort are no longer sent at all. Since Claude Code
-// 2.1.283 a typed `/model X` or `/effort X` also saves the pick as the user's
-// default for new sessions, so a drop that sent them rewrote
-// ~/.claude/settings.json. These cases fail if paneSetsModelEffort is turned
-// back on without the session-only road it is waiting for.
+// N-070: `/model X` and `/effort X` are never submitted. Since Claude Code
+// 2.1.283 each also saves the pick as the user's default for new sessions, so
+// a drop that sent them rewrote ~/.claude/settings.json. The model and effort
+// go through the /model picker's session-only pick instead (paneSessionPick,
+// N-079), even with paneSetsModelEffort on, which these cases now run under.
 func TestPaneSetupCommands(t *testing.T) {
 	all := &SessionOpts{Model: "sonnet", Effort: "high", Permission: permPlan, Clear: true}
 
@@ -161,7 +161,7 @@ func TestPaneSetupCommands(t *testing.T) {
 	}{
 		{"nil options send nothing", nil, "claude", nil},
 		{"unconfigured options send nothing", &SessionOpts{}, "claude", nil},
-		{"claude gets only /clear, never /model or /effort", all, "claude",
+		{"claude gets only /clear, never a typed /model or /effort", all, "claude",
 			[]string{"/clear"}},
 		{"model alone sends nothing to claude", &SessionOpts{Model: "opus"}, "/usr/local/bin/claude", nil},
 		{"effort alone sends nothing to claude", &SessionOpts{Effort: "max"}, "claude", nil},
@@ -182,10 +182,11 @@ func TestPaneSetupCommands(t *testing.T) {
 	}
 }
 
-// TestPaneUnapplied pins the picker's warning against paneSetupCommands: every
-// set option that does not become a command on that pane is named, and nothing
-// that does is. With model and effort withheld from every running pane
-// (N-070), claude names them too.
+// TestPaneUnapplied pins the picker's warning against paneSetupCommands and
+// paneSessionPick: every set option that does not reach that pane is named,
+// and nothing that does is. Claude takes model and effort through the /model
+// picker (N-079); another agent has no road for them, and permission mode has
+// none anywhere.
 func TestPaneUnapplied(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -194,10 +195,10 @@ func TestPaneUnapplied(t *testing.T) {
 		want  string
 	}{
 		{"nil options lose nothing", nil, "codex", ""},
-		{"claude does not take model and effort", &SessionOpts{Model: "sonnet", Effort: "max", Clear: true}, "claude", "model/effort"},
-		{"a claude path loses them too", &SessionOpts{Effort: "high"}, "/usr/local/bin/claude", "effort"},
+		{"claude takes model and effort", &SessionOpts{Model: "sonnet", Effort: "max", Clear: true}, "claude", ""},
+		{"a claude path takes them too", &SessionOpts{Effort: "high"}, "/usr/local/bin/claude", ""},
 		{"permission never reaches a running pane", &SessionOpts{Permission: permPlan}, "claude", "permission mode"},
-		{"claude loses all three", &SessionOpts{Model: "sonnet", Effort: "low", Permission: permAuto}, "claude", "model/effort/permission mode"},
+		{"claude loses only permission mode", &SessionOpts{Model: "sonnet", Effort: "low", Permission: permAuto}, "claude", "permission mode"},
 		{"another agent loses all three", &SessionOpts{Model: "sonnet", Effort: "low", Permission: permAuto}, "codex", "model/effort/permission mode"},
 		{"clear and text options are never lost", &SessionOpts{Clear: true, Finish: finishCommit}, "codex", ""},
 	}
@@ -205,6 +206,38 @@ func TestPaneUnapplied(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := c.opts.paneUnapplied(c.agent); got != c.want {
 				t.Errorf("paneUnapplied(%q) = %q, want %q", c.agent, got, c.want)
+			}
+		})
+	}
+}
+
+// TestPaneSessionPick pins what the /model picker is asked to set on a running
+// pane (N-079): the prompt's model and effort, for claude only — the picker is
+// Claude Code's, and its keys mean nothing, or something else, to another agent.
+func TestPaneSessionPick(t *testing.T) {
+	cases := []struct {
+		name          string
+		opts          *SessionOpts
+		agent         string
+		model, effort string
+		words         string
+	}{
+		{"nil options pick nothing", nil, "claude", "", "", ""},
+		{"both", &SessionOpts{Model: "sonnet", Effort: "high"}, "claude", "sonnet", "high",
+			"picks sonnet at high effort in /model, this session only"},
+		{"model alone", &SessionOpts{Model: "opus"}, "/usr/local/bin/claude", "opus", "", "picks opus in /model, this session only"},
+		{"effort alone", &SessionOpts{Effort: "low"}, "claude", "", "low", "picks low effort in /model, this session only"},
+		{"another agent gets no pick", &SessionOpts{Model: "sonnet", Effort: "high"}, "codex", "", "", ""},
+		{"no agent gets no pick", &SessionOpts{Model: "sonnet"}, "", "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			model, effort := c.opts.paneSessionPick(c.agent)
+			if model != c.model || effort != c.effort {
+				t.Errorf("paneSessionPick(%q) = %q, %q; want %q, %q", c.agent, model, effort, c.model, c.effort)
+			}
+			if got := c.opts.paneSessionPickWords(c.agent); got != c.words {
+				t.Errorf("paneSessionPickWords(%q) = %q, want %q", c.agent, got, c.words)
 			}
 		})
 	}
