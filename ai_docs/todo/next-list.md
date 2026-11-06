@@ -62,31 +62,10 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
   `2026-0922-0943-info-annotation`.
   **Needs the user**, as the item says (2026-09-27).
 
-- **N-071** · raised `2026-0927-0037-probe-driven-live-tests` · value low
-  Arrow keys slow down linearly with the prompt's length: measured live,
-  ~7ms per key at 30 lines, ~20ms at 300 and ~50ms at 1,000. In process,
-  1,000 lines cost ~13ms in Update and ~10ms in View, and 3,000 lines cost
-  ~37ms + ~28ms. The cost is bubbles' textarea (v2.1.1): `Update` and
-  `View` both render every line of the value into the viewport
-  (`textarea.go:1329` and `:1455`) and let it slice. cats-todo adds almost
-  nothing on top. At a fast key repeat (~30ms), a held arrow falls behind
-  past a few hundred lines. The fix is a textarea that renders only the
-  rows in view: a fork, or an upstream patch.
-  **Needs the user**: the fix is a textarea fork or an upstream patch to
-  bubbles, which is a dependency decision (2026-09-27).
-
 - **N-078** · raised `2026-0927-2023-batch-drop-confirm-dialog` · value low
   Release the drop dialog as v0.43.0 (minor: a new dialog). Bump both
   version files, commit `chore(release): v0.43.0`, tag it, and push the
   code and the tag. Best done after N-077.
-
-- **N-080** · raised `2026-1002-1322-backlog-search-repo-boundary` · value low
-  Export into a project directory with no `.cats-todo` still creates the
-  backlog silently (`export.go`, the save into `projectTodosPath(root)`).
-  The manager now asks before creating one (`backlogoffer.go`) and `add`
-  says so when it starts one; export does neither. Say it in the status
-  line ("started a new backlog in <dir>"), or ask first, so a backlog
-  never appears unannounced.
 
 - **N-081** · raised `2026-1002-1322-backlog-search-repo-boundary` · value low
   The manager's create-backlog offer is asked on every launch in a project
@@ -267,6 +246,19 @@ declined.
   set-mode command. Until then, not applying it is deliberate (see N-022).
   *Lapsed* in `2026-0915-1637-prompt-editor-paste-line-cap`.
 
+- **N-071** · raised `2026-0927-0037-probe-driven-live-tests` · value low
+  Arrow keys slow down linearly with the prompt's length: measured live,
+  ~7ms per key at 30 lines, ~20ms at 300 and ~50ms at 1,000. In process,
+  1,000 lines cost ~13ms in Update and ~10ms in View, and 3,000 lines cost
+  ~37ms + ~28ms. The cost is bubbles' textarea (v2.1.1): `Update` and
+  `View` both render every line of the value into the viewport
+  (`textarea.go:1329` and `:1455`) and let it slice. cats-todo adds almost
+  nothing on top. At a fast key repeat (~30ms), a held arrow falls behind
+  past a few hundred lines. The fix is a textarea that renders only the
+  rows in view: a fork, or an upstream patch.
+  **Needs the user**: the fix is a textarea fork or an upstream patch to
+  bubbles, which is a dependency decision (2026-09-27).
+
 ## Non-goals
 
 - **N-006** · declined `2026-0912-2234-carried-indent-and-release` — Fixed tab
@@ -296,6 +288,18 @@ declined.
 
 ## Closed
 
+- **N-080** · closed 2026-11-06, `2026-1106-1154-export-announces-new-backlog` · raised `2026-1002-1322-backlog-search-repo-boundary`
+  — Said, not asked: the picker row already reads `no backlog yet — will
+  be created` and the user chose it, so a second question would confirm a
+  confirm. `performExport` (export.go) notes before the first write
+  whether the destination project has no `.cats-todo`, and after the run
+  (success or failure, since a failed first transfer can still leave the
+  directory behind) appends `started a new backlog in <dir>` with the
+  `git add .cats-todo` hint (`startedBacklogNote`), leading the trailing
+  notes. An export into an existing backlog says nothing new.
+  Tests: `TestExportAnnouncesOnlyANewBacklog`, and `TestExportBrowseFlow`
+  checks the browse road. README under *Exporting a prompt to another
+  project*.
 - **N-094** · closed 2026-11-06 · raised `2026-1024-1340-list-wheel-scroll`
   — The import picker is windowed: `sizeImportWindow` (import.go) fits
   `setMaxRows` to the pane (less `importRowsRow`, `importChromeBelow` —
