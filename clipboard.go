@@ -34,6 +34,29 @@ import (
 // pasteboard server is wedged and the whole call hangs.
 const clipboardTimeout = 3 * time.Second
 
+// pasteboardEnv is this process's environment with the locale pinned to
+// UTF-8, for running pbcopy/pbpaste.
+//
+// Those two transcode between the pasteboard and their stdin/stdout bytes
+// through the locale, and with no UTF-8 one they use MacRoman. A pane in the
+// Cats app has no locale at all — Cats.app is launched by launchd, which sets
+// no LANG, and the panes inherit that — so a pasted `“café” 🐱` came back as
+// `\xd2caf\x8e\xd3 ??`, which the editor shows as `�caf��` and two literal '?'
+// marks, and a copy wrote mojibake (`‚Äúcaf√©‚Äù`) for other apps to paste.
+//
+// All three variables are overridden, not just LANG: pbpaste still picks
+// MacRoman when any one of them is set to a non-UTF-8 locale (LC_ALL=C, say).
+// Only the pasteboard tool's own process sees this, and the charset is all it
+// uses the locale for. os/exec keeps the LAST value of a duplicated key, so
+// appending wins over the inherited ones. Mirrors clipboard.UTF8Env in cats.
+func pasteboardEnv() []string {
+	return append(os.Environ(),
+		"LANG=en_US.UTF-8",
+		"LC_ALL=en_US.UTF-8",
+		"LC_CTYPE=en_US.UTF-8",
+	)
+}
+
 // clipboardImageName is what a captured image is called once it reaches a
 // backlog. The temp file is named this so attachOne's basename lands something
 // meaningful — a stored "cats-todo-clip-1847.png" would name the plumbing
@@ -71,6 +94,7 @@ func copyTextToClipboard(text string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), clipboardTimeout)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, "pbcopy")
+		cmd.Env = pasteboardEnv() // else non-ASCII lands as mojibake
 		cmd.Stdin = strings.NewReader(text)
 		// Best effort by design. OSC 52 has already been asked for, the user has
 		// been told the copy happened, and there is no second thing to try — a
@@ -223,7 +247,9 @@ var readClipboardText = func() (text string, supported bool, err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), clipboardTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "pbpaste").Output()
+	cmd := exec.CommandContext(ctx, "pbpaste")
+	cmd.Env = pasteboardEnv() // else MacRoman bytes inside a Cats pane
+	out, err := cmd.Output()
 	if err != nil {
 		return "", true, fmt.Errorf("could not read the clipboard: %s", firstLine(err.Error(), 120))
 	}
