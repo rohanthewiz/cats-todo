@@ -2466,9 +2466,13 @@ cats-todo add -i ~/Desktop/shot.png -i ~/Desktop/other.png the header wraps wron
 Either way the file is *copied* into the backlog
 (`.cats-todo/images/<todo-id>/`, or the config dir for a global todo), so you can
 attach a screenshot and then clear it off your Desktop. The list marks an
-attachment-carrying prompt with `📎n` — in cyan, the same hue the editor's
+attachment-carrying prompt with a paper clip and the count (`n`) — in cyan, the same hue the editor's
 **Images** chip carries, so "this one has a picture" is answered by a glance down
-the list rather than by reading each row — and `ctrl+v` lists the files, under a
+the list rather than by reading each row. The editor's attachment line uses the
+same clip: grey beside `no images`, cyan once something is attached. The clip is
+the Nerd Font paperclip (U+F0C6) and not the 📎 emoji, because cats draws emoji
+as color bitmaps that ignore text color; cats bundles the symbol font, so it
+always renders there. `ctrl+v` lists the files, under a
 dimmed `📎 n attached:` so the list is not read as part of the prompt; a file
 deleted since shows `(missing — will not be sent)` in red. Done and
 frozen rows keep the count but not the color: those rows recede as a whole, and

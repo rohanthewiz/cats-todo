@@ -2659,7 +2659,9 @@ func (m *model) rebuildList() {
 				if t.Done || t.Frozen {
 					attach = descStyle
 				}
-				marks = append(marks, descMark{text: fmt.Sprintf("📎%d", n), style: attach})
+				// attachGlyph rather than the 📎 emoji: cats paints an emoji
+				// from its color bitmap, so the hue above never showed on it.
+				marks = append(marks, descMark{text: fmt.Sprintf("%s%d", attachGlyph, n), style: attach})
 			}
 			tag := ""
 			if tagGlobal && s.scope == scopeGlobal {
@@ -6582,17 +6584,27 @@ func (m model) viewForm() string {
 	// "did my screenshot make it in". It no longer names ctrl+o — the toolbar's
 	// ❐ Images chip, one line below, says that and is clickable besides.
 	//
-	// The 📎 glyph alone takes the attachment cyan, the count text stays grey:
-	// the icon is the thing the eye looks for when scanning the form, and it is
-	// the same hue the list's 📎N mark and the toolbar's ❐ Images chip carry, so
-	// all three screens answer "images" with one color. Tinting the words too
-	// would have made a standing line read as a status message — this line is
-	// always here, and only the icon is the label.
+	// The clip alone takes the attachment cyan, and only while something is
+	// attached. The count text stays grey. When there are no images the clip is
+	// grey too, so the cyan answers "did my screenshot make it in" before the
+	// words are read. A clip that was lit on an empty line too would make
+	// "no images" look like a positive answer. When it is lit, it is the same hue
+	// as the list's clip mark and the toolbar's ❐ Images chip, so all three
+	// screens answer "images" with one color. Tinting the words too would have
+	// made a standing line read as a status message. This line is always here,
+	// and only the icon is the label.
+	//
+	// The glyph is attachGlyph, not the 📎 emoji, because cats draws emoji as
+	// color bitmaps that ignore the foreground (see attachGlyph).
 	//
 	// Two Renders rather than one styled string: each emits its own reset, which
 	// is safe because this line is not run through a width wrap (unlike the ⚙
 	// line below, where a pre-styled span would lose its reset at the wrap).
-	b.WriteString(attachStyle.Render("📎"))
+	clipStyle := descStyle
+	if len(m.formImages) > 0 {
+		clipStyle = attachStyle
+	}
+	b.WriteString(clipStyle.Render(attachGlyph))
 	b.WriteString(descStyle.Render(" " + firstNonEmpty(m.imageCountNote(), "no images")))
 	b.WriteString("\n")
 

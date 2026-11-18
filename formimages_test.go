@@ -406,3 +406,34 @@ func mustParseTime(t *testing.T, s string) time.Time {
 	}
 	return ts
 }
+
+// TestFormClipLightsOnlyWithImages pins the editor's attachment line: the clip
+// is grey while nothing is attached and turns the attachment cyan once
+// something is. The cyan is the at-a-glance answer to "did my screenshot make
+// it in", so a clip lit on an empty form would be answering yes to a no.
+func TestFormClipLightsOnlyWithImages(t *testing.T) {
+	m, _, _ := newModelInTemp(t)
+	next, _ := m.beginAdd()
+	m = next.(model)
+
+	grey, cyan := descStyle.Render(attachGlyph), attachStyle.Render(attachGlyph)
+	// Guard the probe itself: if the two styles ever rendered identically (a
+	// colorless test profile, say) the checks below would pass vacuously.
+	if grey == cyan {
+		t.Fatalf("descStyle and attachStyle render the clip identically (%q), so this test cannot tell them apart", grey)
+	}
+
+	view := m.viewForm()
+	if !strings.Contains(view, grey+descStyle.Render(" no images")) {
+		t.Errorf("an empty form's clip is not grey before \"no images\":\n%q", view)
+	}
+	if strings.Contains(view, cyan) {
+		t.Errorf("an empty form's clip is lit cyan:\n%q", view)
+	}
+
+	m.formImages = append(m.formImages, formImage{src: "/x/shot.png", name: "shot.png"})
+	view = m.viewForm()
+	if !strings.Contains(view, cyan+descStyle.Render(" 1 image")) {
+		t.Errorf("a form with an image does not show the cyan clip before \"1 image\":\n%q", view)
+	}
+}

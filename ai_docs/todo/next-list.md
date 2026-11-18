@@ -51,7 +51,7 @@ Seeded 2026-09-24 by `/next-list seed` from the 15 session docs
 - Item grammar: `- **N-###** · raised \`<stem>\` · value <v>` at column 0, then
   the text indented two spaces on the lines below.
 
-**Next ID:** N-098
+**Next ID:** N-099
 
 ## Open
 
@@ -235,6 +235,14 @@ and `raised`.
   drag, the wheel does nothing. Also confirm cats really delivers the
   wheel as mouse events (`catctl probe`'s `wheel:` op). Only unit tests
   have seen it.
+
+- **N-098** · raised `2026-1118-1332-attach-clip-cyan` · value medium
+  Live-check the Nerd Font paper clip (`attachGlyph`, U+F0C6) in cats. On
+  the editor's attachment line it should be grey beside "no images" and
+  cyan once an image is attached. On the list, an open row's clip-and-count
+  mark should be cyan, and a done or frozen row's grey. Also confirm the
+  glyph fits in one cell, without clipping into the count that follows it.
+  Only unit tests have seen it.
 
 ## Roadmap
 

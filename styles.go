@@ -336,17 +336,41 @@ var (
 	// row's own greys already say "inactive", so a grey badge would repeat the
 	// name's tier instead of naming which kind of inactive it is.
 	frozenBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colInfo))
-	// A row's 📎N attachment count, in the app's attachment cyan — the same hue
-	// the editor's ❐ Images chip carries, so the two screens answer "images" with
-	// one color. It is the only one of a row's description marks with a hue of its
-	// own: ⏰ and ⚙ say something about a prompt that its own words also say, while
-	// an attachment is the one thing on the row that is not in the text anywhere.
+	// A row's clip-and-count attachment mark (attachGlyph + N), in the app's
+	// attachment cyan — the same hue the editor's ❐ Images chip carries, so the
+	// two screens answer "images" with one color. It is the only one of a row's
+	// description marks with a hue of its own: ⏰ and ⚙ say something about a
+	// prompt that its own words also say, while an attachment is the one thing on
+	// the row that is not in the text anywhere.
 	//
 	// Not a badge and not on the badge's ramp: the badge column holds the row's
 	// state (done, frozen, scheduled) and there is only one of those at a time,
 	// where the marks are a list that leads the description. Sharing the badge's
 	// styles would have made a picture look like a state.
 	attachStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colCyan))
+
+	// attachGlyph is the paper clip that marks attachments on the list row and
+	// on the editor's image line, so the two screens share one icon.
+	//
+	// It is Font Awesome's paperclip (nf-fa-paperclip, U+F0C6) and not the 📎
+	// emoji. cats renders through libghostty, and libghostty draws an emoji
+	// from Apple Color Emoji as a color bitmap. Foreground color has no effect
+	// on that bitmap, so attachStyle's cyan never reached a 📎: Apple's clip is
+	// grey, and it stayed grey whatever was asked for. A VS15 text-presentation
+	// selector does not help either. No regular macOS font has U+1F4CE, so the
+	// resolver falls back to the emoji face anyway.
+	//
+	// The Nerd Font glyph is an ordinary outline glyph, so it takes the
+	// foreground color like any letter. It always resolves inside cats, because
+	// libghostty embeds Symbols Nerd Font as its final fallback (see cats'
+	// third_party/libghostty-vt/src/font/SharedGridSet.zig). The cost is outside
+	// cats: a terminal without a Nerd Font draws it as a missing-glyph box. That
+	// is acceptable because the manager TUI is built to run in a cats pane.
+	//
+	// It is also one cell wide where 📎 was two, so a row's mark is one column
+	// narrower than it used to be. Nothing is aligned on the column after it:
+	// the marks lead free text.
+	attachGlyph = "\uf0c6"
 
 	// The priority mark, one style per raised level. Named for the level rather
 	// than the color so the row code reads as triage instead of as painting.

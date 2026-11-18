@@ -1532,7 +1532,7 @@ func TestRowDescMarks(t *testing.T) {
 	}
 	// ⚙ before 📎, and both after the prompt's own flags — the order the row is
 	// read in, least specific first.
-	if got, want := strings.Join(texts, " "), "⚙ 📎2"; got != want {
+	if got, want := strings.Join(texts, " "), "⚙ "+attachGlyph+"2"; got != want {
 		t.Fatalf("marks = %q, want %q", got, want)
 	}
 	// Styles are compared by what they draw: lipgloss.Style holds slices and is
@@ -1547,8 +1547,8 @@ func TestRowDescMarks(t *testing.T) {
 	}
 	// And it survives the trip to the screen, still ahead of the prompt text.
 	view := m.viewList()
-	if i, j := strings.Index(view, "📎2"), strings.Index(view, "do the thing"); i < 0 || i > j {
-		t.Fatalf("📎2 is at %d and the prompt at %d — the count must lead it:\n%s", i, j, view)
+	if i, j := strings.Index(view, attachGlyph+"2"), strings.Index(view, "do the thing"); i < 0 || i > j {
+		t.Fatalf("the clip mark is at %d and the prompt at %d — the count must lead it:\n%s", i, j, view)
 	}
 }
 
